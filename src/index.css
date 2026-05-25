@@ -1,0 +1,142 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Root fills the viewport - flex column so app shell can manage layout */
+#root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  color: #1a1d23;
+  background: #f4f5f7;
+}
+
+/* Scrollable areas */
+.scroll-y {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Thin scrollbars everywhere */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Prevent text select on drag (Kanban) */
+.no-select {
+  user-select: none;
+}
+
+/* ── Responsive breakpoints ─────────────────────────────────────────────── */
+
+/* Tablet (≤900px) */
+@media (max-width: 900px) {
+  .sidebar { width: 160px !important; }
+}
+
+/* Mobile (≤640px) — hide sidebar, show bottom nav */
+@media (max-width: 640px) {
+  .sidebar { display: none !important; }
+  .mobile-bottom-nav { display: flex !important; }
+  .main-content-area { padding-bottom: 64px !important; }
+  .topbar-search { display: none !important; }
+  .topbar-role-picker { display: none !important; }
+
+  /* Grids collapse to 2 cols */
+  .kpi-grid-5 { grid-template-columns: repeat(2, 1fr) !important; }
+  .kpi-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .kpi-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
+  .kpi-grid-2 { grid-template-columns: 1fr !important; }
+  .stat-grid-6 { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Mid/bottom dashboard rows stack */
+  .dash-mid-row { grid-template-columns: 1fr !important; }
+  .dash-bottom-row { grid-template-columns: 1fr !important; }
+
+  /* Reports grid */
+  .reports-grid { grid-template-columns: 1fr !important; }
+
+  /* Analytics grid */
+  .analytics-grid { grid-template-columns: 1fr !important; }
+
+  /* Page padding tighter */
+  .page-pad { padding: 10px !important; }
+
+  /* Hamburger visible */
+  .hamburger-btn { display: flex !important; }
+
+  /* Excel mode warning */
+  .excel-mobile-warning { display: flex !important; }
+  .excel-table-wrap { display: none !important; }
+}
+
+/* ── Mobile sidebar drawer overlay ─────────────────────────────────────── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 500;
+}
+
+@media (max-width: 640px) {
+  .sidebar-overlay.open { display: block; }
+
+  .sidebar-drawer {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 220px;
+    z-index: 501;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+  .sidebar-drawer.open {
+    transform: translateX(0);
+  }
+}
+
+/* Excel mode unavailable on mobile */
+.excel-mobile-warning {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 20px;
+  color: #6b7280;
+  font-size: 13px;
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .excel-mobile-warning { display: flex !important; }
+  .excel-table-wrap { display: none !important; }
+  /* Sidebar close button visible on mobile */
+  .sidebar-close-btn { display: flex !important; }
+}
