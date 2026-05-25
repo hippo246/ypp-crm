@@ -50,8 +50,9 @@ export default function LoginScreen({ onLogin }) {
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       background: B.bg,
     }}>
-      {/* Left panel */}
-      <div style={{
+      {/* Left panel — hidden on narrow viewports via inline media-query substitute */}
+      <style>{`@media (max-width: 680px) { .login-left { display: none !important; } .login-right { padding: 24px !important; } }`}</style>
+      <div className="login-left" style={{
         width: 420, flexShrink: 0, background: B.blue,
         display: "flex", flexDirection: "column", padding: "48px 40px",
         position: "relative", overflow: "hidden",
@@ -100,7 +101,7 @@ export default function LoginScreen({ onLogin }) {
       </div>
 
       {/* Right panel */}
-      <div style={{
+      <div className="login-right" style={{
         flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
         padding: 40,
       }}>
@@ -115,6 +116,7 @@ export default function LoginScreen({ onLogin }) {
               <input
                 type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@yespinoy.ae" required
+                aria-label="Email address" autoComplete="email"
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "10px 12px",
                   border: `1px solid ${error ? B.red : B.border}`, borderRadius: 8,
@@ -134,6 +136,7 @@ export default function LoginScreen({ onLogin }) {
                   type={showPw ? "text" : "password"} value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••" required
+                  aria-label="Password" autoComplete="current-password"
                   style={{
                     width: "100%", boxSizing: "border-box", padding: "10px 40px 10px 12px",
                     border: `1px solid ${error ? B.red : B.border}`, borderRadius: 8,
@@ -143,9 +146,15 @@ export default function LoginScreen({ onLogin }) {
                   onFocus={(e) => e.target.style.borderColor = B.accent}
                   onBlur={(e) => e.target.style.borderColor = error ? B.red : B.border}
                 />
-                <button type="button" onClick={() => setShowPw(!showPw)}
-                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 16, padding: 2 }}>
-                  {showPw ? "🙈" : "👁️"}
+                <button type="button" onClick={() => setShowPw(!showPw)} aria-label={showPw ? "Hide password" : "Show password"}
+                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: B.muted, padding: 4, display: "flex", alignItems: "center", borderRadius: 4, transition: "color 0.15s" }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = B.text}
+                  onMouseLeave={(e) => e.currentTarget.style.color = B.muted}>
+                  {showPw ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  )}
                 </button>
               </div>
             </div>
@@ -204,8 +213,8 @@ export default function LoginScreen({ onLogin }) {
             ))}
           </div>
 
-          <div style={{ marginTop: 16, fontSize: 11, color: B.muted, textAlign: "center" }}>
-            Hint: password is role + "123" (e.g. admin123)
+          <div style={{ marginTop: 16, fontSize: 11, color: B.muted, textAlign: "center", padding: "8px 12px", background: B.light, borderRadius: 6, border: `1px solid ${B.border}` }}>
+            <span style={{ fontWeight: 600 }}>Demo mode:</span> password is role + "123" (e.g. admin123)
           </div>
         </div>
       </div>

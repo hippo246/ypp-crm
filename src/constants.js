@@ -37,6 +37,10 @@ export const STATUS_COLORS = {
   Low: { bg: "#F0FDF4", text: "#15803D" },
   Done: { bg: "#F0FDF4", text: "#15803D" },
   "In Progress": { bg: "#EFF6FF", text: "#1D4ED8" },
+  "In Review": { bg: "#F5F3FF", text: "#6D28D9" },
+  "Blocked": { bg: "#FEF2F2", text: "#B91C1C" },
+  "Recurring": { bg: "#ECFDF5", text: "#065F46" },
+  "Milestone": { bg: "#FFF7ED", text: "#C2410C" },
 };
 
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
@@ -58,13 +62,13 @@ export const INIT = {
     { id: "C005", name: "Pinoy Foods FZE", contact: "Carlo Pinoy", email: "carlo@pinoyfood.ae", phone: "+971 4 678 9012", service: "Freezone License", status: "Expired", value: 9500, started: "2023-05-01", renewal: "2024-05-01", progress: 100 },
   ],
   tasks: [
-    { id: "T001", title: "Follow up — Juan dela Cruz visa docs", assigned: "Anna", priority: "High", status: "Pending", due: "2025-05-24", ref: "L001" },
-    { id: "T002", title: "Submit Business License for Bautista Trading", assigned: "Mark", priority: "High", status: "In Progress", due: "2025-05-25", ref: "C001" },
-    { id: "T003", title: "Call Maria Santos re: employment visa", assigned: "Anna", priority: "Medium", status: "Pending", due: "2025-05-26", ref: "C002" },
-    { id: "T004", title: "Prepare proposal for Cruz Enterprises", assigned: "James", priority: "Medium", status: "Done", due: "2025-05-22", ref: "C003" },
-    { id: "T005", title: "Renew Pinoy Foods FZE license", assigned: "Mark", priority: "High", status: "Pending", due: "2025-05-28", ref: "C005" },
-    { id: "T006", title: "Upload visa copies to drive", assigned: "Anna", priority: "Low", status: "Done", due: "2025-05-21", ref: "" },
-    { id: "T007", title: "Send invoice reminder — Reyes Trading", assigned: "James", priority: "Medium", status: "Pending", due: "2025-05-29", ref: "C004" },
+    { id: "T001", title: "Follow up — Juan dela Cruz visa docs", assigned: "Anna", reviewAssignee: "", team: [], priority: "High", status: "Pending", due: "2025-05-24", start: "2025-05-20", ref: "L001", progress: 20, risk: "High", subtasks: [], dependsOn: [], recurring: null, milestone: false, notes: "", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: null },
+    { id: "T002", title: "Submit Business License for Bautista Trading", assigned: "Mark", reviewAssignee: "Anna", team: ["Mark","Anna"], priority: "High", status: "In Progress", due: "2025-05-25", start: "2025-05-22", ref: "C001", progress: 60, risk: "Medium", subtasks: [{ id: "ST001", title: "Gather docs", done: true }, { id: "ST002", title: "Submit to authority", done: false }], dependsOn: [], recurring: null, milestone: true, notes: "Priority client", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: "Pending" },
+    { id: "T003", title: "Call Maria Santos re: employment visa", assigned: "Anna", reviewAssignee: "", team: ["Anna"], priority: "Medium", status: "Pending", due: "2025-05-26", start: "2025-05-25", ref: "C002", progress: 0, risk: "Low", subtasks: [], dependsOn: ["T002"], recurring: "weekly", milestone: false, notes: "", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: null },
+    { id: "T004", title: "Prepare proposal for Cruz Enterprises", assigned: "James", reviewAssignee: "Mark", team: ["James"], priority: "Medium", status: "Done", due: "2025-05-22", start: "2025-05-20", ref: "C003", progress: 100, risk: "Low", subtasks: [], dependsOn: [], recurring: null, milestone: false, notes: "", comments: [{ id: "CM001", author: "Mark", text: "Looks good!", time: "2025-05-22T10:00:00Z", mentions: [] }], attachments: [], activityLog: [], bottleneck: false, approvalStatus: "Approved" },
+    { id: "T005", title: "Renew Pinoy Foods FZE license", assigned: "Mark", reviewAssignee: "", team: ["Mark","James"], priority: "High", status: "Pending", due: "2025-05-28", start: "2025-05-26", ref: "C005", progress: 10, risk: "High", subtasks: [], dependsOn: [], recurring: null, milestone: true, notes: "License expiring soon", comments: [], attachments: [], activityLog: [], bottleneck: true, approvalStatus: null },
+    { id: "T006", title: "Upload visa copies to drive", assigned: "Anna", reviewAssignee: "", team: [], priority: "Low", status: "Done", due: "2025-05-21", start: "2025-05-21", ref: "", progress: 100, risk: "Low", subtasks: [], dependsOn: [], recurring: null, milestone: false, notes: "", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: null },
+    { id: "T007", title: "Send invoice reminder — Reyes Trading", assigned: "James", reviewAssignee: "", team: ["James"], priority: "Medium", status: "Pending", due: "2025-05-29", start: "2025-05-27", ref: "C004", progress: 0, risk: "Medium", subtasks: [], dependsOn: ["T004"], recurring: "monthly", milestone: false, notes: "", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: null },
   ],
   accounting: [
     { id: "INV001", client: "Bautista Trading LLC", desc: "Business License Renewal", amount: 24000, paid: 12000, status: "Partial", date: "2025-05-01", due: "2025-06-01" },

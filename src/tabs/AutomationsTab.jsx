@@ -24,6 +24,7 @@ function Badge({ color, children }) {
 
 function RuleCard({ rule, onToggle, onEdit, onDelete, onRun, canEdit, canDelete }) {
   const actionLabel = ACTION_LABELS[rule.action?.type] ?? rule.action?.type;
+  const lastRun = rule.lastTriggered ? new Date(rule.lastTriggered).toLocaleString() : null;
   return (
     <div style={{ background: B.white, border: `1px solid ${B.border}`, borderRadius: 8, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -36,6 +37,11 @@ function RuleCard({ rule, onToggle, onEdit, onDelete, onRun, canEdit, canDelete 
             ))}
             <Badge color={B.green}>THEN {actionLabel}</Badge>
           </div>
+          {lastRun && (
+            <div style={{ marginTop: 6, fontSize: 10, color: B.muted }}>
+              Last triggered: <span style={{ fontWeight: 600, color: B.text }}>{lastRun}</span>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
           {canEdit && (
@@ -213,6 +219,7 @@ export default function AutomationsTab({ viewMode }) {
   const [modal, setModal] = useState(null);
   const [runLog, setRunLog] = useState([]);
   const [lastRunResults, setLastRunResults] = useState([]);
+  const [testMode, setTestMode] = useState(false);
 
   function handleToggle(id) {
     if (!canEdit) return;
@@ -234,27 +241,33 @@ export default function AutomationsTab({ viewMode }) {
     const results = runAutomations([rule], data, runLog);
     setLastRunResults(results);
     if (results.length > 0) {
-      setRunLog([...runLog, ...results]);
-      results.forEach((res) => {
-        if (res.action?.type === "create_task") {
-          const title = (res.action.config?.title ?? "Auto task")
-            .replace("{{client}}", res.entity.client ?? res.entity.name ?? "")
-            .replace("{{id}}", res.entity.id ?? "");
-          dispatch({
-            type: "ADD_TASK",
-            payload: {
-              id: `T-AUTO-${Date.now()}`,
-              title,
-              assigned: res.action.config?.assigned ?? "System",
-              priority: res.action.config?.priority ?? "Medium",
-              status: "Pending",
-              due: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
-              ref: res.entityId,
-            },
-          });
-        }
-        dispatch({ type: "LOG_EXPORT", module: "automations", format: `rule:${rule.name}` });
-      });
+      const now = new Date().toISOString();
+      const logEntries = results.map(r => ({ ...r, timestamp: now, testMode }));
+      setRunLog([...runLog, ...logEntries]);
+      // Stamp lastTriggered on the rule
+      setRules(prev => prev.map(r => r.id === rule.id ? { ...r, lastTriggered: now } : r));
+      if (!testMode) {
+        results.forEach((res) => {
+          if (res.action?.type === "create_task") {
+            const title = (res.action.config?.title ?? "Auto task")
+              .replace("{{client}}", res.entity.client ?? res.entity.name ?? "")
+              .replace("{{id}}", res.entity.id ?? "");
+            dispatch({
+              type: "ADD_TASK",
+              payload: {
+                id: `T-AUTO-${Date.now()}`,
+                title,
+                assigned: res.action.config?.assigned ?? "System",
+                priority: res.action.config?.priority ?? "Medium",
+                status: "Pending",
+                due: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+                ref: res.entityId,
+              },
+            });
+          }
+          dispatch({ type: "LOG_EXPORT", module: "automations", format: `rule:${rule.name}` });
+        });
+      }
     }
   }
 
@@ -275,6 +288,16 @@ export default function AutomationsTab({ viewMode }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Automation rules</div>
           <div style={{ fontSize: 12, color: B.muted }}>{activeCount} of {rules.length} active</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: testMode ? B.orange + "12" : B.light, border: `1px solid ${testMode ? B.orange + "40" : B.border}`, borderRadius: 8, padding: "6px 12px" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: testMode ? B.orange : B.muted }}>🧪 Test mode</span>
+          <label style={{ position: "relative", display: "inline-block", width: 32, height: 18, cursor: "pointer" }}>
+            <input type="checkbox" checked={testMode} onChange={e => setTestMode(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{ position: "absolute", inset: 0, background: testMode ? B.orange : "#ccc", borderRadius: 9, transition: "0.2s" }}>
+              <span style={{ position: "absolute", top: 2, left: testMode ? 16 : 2, width: 14, height: 14, background: "#fff", borderRadius: "50%", transition: "0.2s", display: "block" }} />
+            </span>
+          </label>
+          {testMode && <span style={{ fontSize: 10, color: B.orange, fontWeight: 600 }}>Dry-run, no writes</span>}
         </div>
         <button onClick={handleRunAll}
           style={{ padding: "7px 14px", fontSize: 12, background: "#F0FDF4", border: `1px solid #BBF7D0`, borderRadius: 6, cursor: "pointer", color: B.green, fontFamily: "inherit", fontWeight: 600 }}>
@@ -324,10 +347,17 @@ export default function AutomationsTab({ viewMode }) {
           <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8, color: B.muted }}>Run history ({runLog.length})</div>
           <div style={{ background: B.white, border: `1px solid ${B.border}`, borderRadius: 8, overflow: "hidden" }}>
             {[...runLog].reverse().slice(0, 20).map((entry, i) => (
-              <div key={i} style={{ display: "flex", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${B.border}`, fontSize: 11 }}>
+              <div key={i} style={{ display: "flex", gap: 10, padding: "8px 14px", borderBottom: `1px solid ${B.border}`, fontSize: 11, alignItems: "center" }}>
                 <span style={{ color: B.muted, flexShrink: 0 }}>{new Date(entry.timestamp).toLocaleString()}</span>
+                {entry.testMode && <span style={{ fontSize: 9, fontWeight: 700, color: B.orange, background: B.orange + "15", borderRadius: 4, padding: "1px 5px" }}>TEST</span>}
                 <span style={{ fontWeight: 600 }}>{entry.ruleName}</span>
-                <span style={{ color: B.muted }}>→ {entry.entityId}</span>
+                <span style={{ color: B.muted }}>→ {ACTION_LABELS[entry.action?.type] ?? entry.action?.type}</span>
+                <span style={{ color: B.blue, fontWeight: 600 }}>on {entry.entityId}</span>
+                {entry.entity && (
+                  <span style={{ fontSize: 10, color: B.muted }}>
+                    ({entry.entity.client ?? entry.entity.name ?? entry.entity.title ?? ""})
+                  </span>
+                )}
               </div>
             ))}
           </div>

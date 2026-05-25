@@ -18,17 +18,17 @@ import AutomationsTab from "./tabs/AutomationsTab";
 import OfflineBanner, { MobileBottomNav } from "./OfflineBanner";
 
 const ALL_NAV = [
-  { id: "dashboard",  label: "Dashboard",  icon: "🏠" },
-  { id: "leads",      label: "Leads",       icon: "🎯" },
-  { id: "clients",    label: "Clients",     icon: "🏢" },
-  { id: "tasks",      label: "Tasks",       icon: "✅" },
-  { id: "accounting", label: "Accounting",  icon: "💰" },
-  { id: "inventory",  label: "Inventory",   icon: "📦" },
-  { id: "suppliers",  label: "Suppliers",   icon: "🏭" },
-  { id: "calendar",   label: "Calendar",    icon: "📅" },
-  { id: "analytics",  label: "Analytics",   icon: "📊" },
-  { id: "reports",    label: "Reports",     icon: "📄" },
-  { id: "automations", label: "Automations", icon: "⚡" },
+  { id: "dashboard",   label: "Dashboard",   icon: "▣",  group: null },
+  { id: "leads",       label: "Leads",       icon: "◎",  group: "CRM" },
+  { id: "clients",     label: "Clients",     icon: "⬡",  group: "CRM" },
+  { id: "tasks",       label: "Tasks",       icon: "◈",  group: "CRM" },
+  { id: "accounting",  label: "Accounting",  icon: "◆",  group: "Finance" },
+  { id: "inventory",   label: "Inventory",   icon: "▤",  group: "Finance" },
+  { id: "suppliers",   label: "Suppliers",   icon: "▥",  group: "Finance" },
+  { id: "calendar",    label: "Calendar",    icon: "▦",  group: "Ops" },
+  { id: "analytics",   label: "Analytics",   icon: "▲",  group: "Ops" },
+  { id: "reports",     label: "Reports",     icon: "▶",  group: "Ops" },
+  { id: "automations", label: "Automations", icon: "◉",  group: "Ops" },
 ];
 
 const ROLE_COLORS = {
@@ -84,15 +84,70 @@ function NotifPanel({ notifications, onClose, onMarkRead, onMarkAll }) {
   );
 }
 
+// ── Sidebar nav badge counts ───────────────────────────────────────────────────
+function useSidebarBadges(data) {
+  const overdueInvoices = (data.accounting || []).filter(i => {
+    if (i.status === "Paid") return false;
+    return i.due && new Date(i.due) < new Date();
+  }).length;
+  const openLeads = (data.leads || []).filter(l => !["Won","Lost"].includes(l.status)).length;
+  const pendingTasks = (data.tasks || []).filter(t => t.status !== "Done").length;
+  const lowStock = (data.inventory || []).filter(i => i.status !== "In Stock").length;
+  const expiringClients = (data.clients || []).filter(c => {
+    if (!c.renewal) return false;
+    const diff = (new Date(c.renewal) - new Date()) / 86_400_000;
+    return diff >= 0 && diff <= 30;
+  }).length;
+  return { leads: openLeads, tasks: pendingTasks, accounting: overdueInvoices, inventory: lowStock, clients: expiringClients };
+}
+
+// ── Sidebar nav item ──────────────────────────────────────────────────────────
+function SideNavItem({ n, active, collapsed, badge, onClick }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={collapsed ? n.label : undefined}
+      style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: collapsed ? "9px 0" : "8px 14px",
+        justifyContent: collapsed ? "center" : "flex-start",
+        cursor: "pointer",
+        color: active ? "#fff" : hovered ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.52)",
+        background: active ? "rgba(255,255,255,0.11)" : hovered ? "rgba(255,255,255,0.055)" : "transparent",
+        borderLeft: collapsed ? "none" : `3px solid ${active ? B.yellow : "transparent"}`,
+        borderRight: collapsed ? `3px solid ${active ? B.yellow : "transparent"}` : "none",
+        fontSize: 12, fontWeight: active ? 700 : 400,
+        transition: "all 0.13s",
+        position: "relative",
+      }}>
+      <span style={{ fontSize: 13, flexShrink: 0, opacity: active ? 1 : 0.75 }}>{n.icon}</span>
+      {!collapsed && <span style={{ flex: 1, letterSpacing: "0.1px" }}>{n.label}</span>}
+      {!collapsed && badge > 0 && (
+        <span style={{ fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, background: n.id === "accounting" ? "#ef4444" : B.yellow, color: n.id === "accounting" ? "#fff" : "#1a2f4a", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", flexShrink: 0 }}>
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+      {collapsed && badge > 0 && (
+        <span style={{ position: "absolute", top: 5, right: 6, width: 7, height: 7, borderRadius: "50%", background: n.id === "accounting" ? "#ef4444" : B.yellow }} />
+      )}
+    </div>
+  );
+}
+
 // ── Main app (inside provider) ────────────────────────────────────────────────
 function AppShell({ currentUser, onLogout, onRoleChange }) {
-  const { data, setData, dispatch, notifications, unreadCount } = useAppData();
+  const { data, setData, dispatch, notifications, unreadCount, presence, autoSaveStatus, versionHistory } = useAppData();
   const [tab, setTab] = useState("dashboard");
   const [viewMode, setViewMode] = useState("normal");
   const [search, setSearch] = useState("");
   const [showNotifs, setShowNotifs] = useState(false);
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const badges = useSidebarBadges(data);
 
   const role = currentUser.role;
   const visibleModules = getVisibleModules(role);
@@ -150,78 +205,122 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
       <div className={`sidebar-overlay${drawerOpen ? " open" : ""}`} onClick={() => setDrawerOpen(false)} />
 
       {/* Sidebar — desktop: static, mobile: drawer */}
-      <div className={`sidebar sidebar-drawer${drawerOpen ? " open" : ""}`} style={{ width: 200, background: B.blue, display: "flex", flexDirection: "column", flexShrink: 0 }}>
-        <div style={{ padding: "16px 14px 12px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 28, height: 28, background: B.yellow, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🌞</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: 12, lineHeight: 1.2 }}>YES PINOY PRO</div>
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 10 }}>Business CRM</div>
-            </div>
-            <button onClick={() => setDrawerOpen(false)} style={{ display: "none", background: "none", border: "none", color: "rgba(255,255,255,0.6)", fontSize: 18, cursor: "pointer", padding: 0, lineHeight: 1 }} className="sidebar-close-btn">✕</button>
+      <div className={`sidebar sidebar-drawer${drawerOpen ? " open" : ""}`} style={{
+        width: sidebarCollapsed ? 56 : 220,
+        background: "linear-gradient(180deg, #1a2f4a 0%, #152539 100%)",
+        display: "flex", flexDirection: "column", flexShrink: 0,
+        transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)",
+        overflow: "hidden",
+        boxShadow: "2px 0 12px rgba(0,0,0,0.18)",
+      }}>
+        {/* Logo row */}
+        <div style={{ padding: sidebarCollapsed ? "14px 0" : "14px 14px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, justifyContent: sidebarCollapsed ? "center" : "flex-start" }}>
+            <div style={{ width: 30, height: 30, background: B.yellow, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}>☀</div>
+            {!sidebarCollapsed && (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "#fff", fontWeight: 800, fontSize: 11, letterSpacing: "0.8px", textTransform: "uppercase" }}>Yes Pinoy Pro</div>
+                <div style={{ color: "rgba(255,255,255,0.38)", fontSize: 9.5, letterSpacing: "0.3px" }}>Business CRM · Dubai</div>
+              </div>
+            )}
+            {!sidebarCollapsed && (
+              <button onClick={() => setDrawerOpen(false)} style={{ display: "none", background: "none", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 18, cursor: "pointer", padding: 0 }} className="sidebar-close-btn">✕</button>
+            )}
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-          {navItems.map((n) => (
-            <div key={n.id} onClick={() => { setTab(n.id); setDrawerOpen(false); }}
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", color: activeTab === n.id ? "#fff" : "rgba(255,255,255,0.6)", background: activeTab === n.id ? "rgba(255,255,255,0.12)" : "transparent", borderLeft: `2px solid ${activeTab === n.id ? B.yellow : "transparent"}`, fontSize: 12, transition: "all 0.1s" }}
-              onMouseEnter={(e) => { if (activeTab !== n.id) e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
-              onMouseLeave={(e) => { if (activeTab !== n.id) e.currentTarget.style.background = "transparent"; }}
-            >
-              <span style={{ fontSize: 14 }}>{n.icon}</span>
-              {n.label}
-            </div>
+        {/* Nav */}
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "10px 0", scrollbarWidth: "none" }}>
+          {/* Dashboard (ungrouped) */}
+          {navItems.filter(n => n.group === null).map(n => (
+            <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]} onClick={() => { setTab(n.id); setDrawerOpen(false); }} />
           ))}
+
+          {/* Grouped sections */}
+          {["CRM", "Finance", "Ops"].map(group => {
+            const items = navItems.filter(n => n.group === group);
+            if (!items.length) return null;
+            return (
+              <div key={group}>
+                {!sidebarCollapsed && (
+                  <div style={{ padding: "14px 14px 4px", fontSize: 9, fontWeight: 700, letterSpacing: "1.2px", color: "rgba(255,255,255,0.25)", textTransform: "uppercase" }}>
+                    {group}
+                  </div>
+                )}
+                {sidebarCollapsed && <div style={{ height: 10, borderTop: "1px solid rgba(255,255,255,0.07)", margin: "4px 8px" }} />}
+                {items.map(n => (
+                  <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]} onClick={() => { setTab(n.id); setDrawerOpen(false); }} />
+                ))}
+              </div>
+            );
+          })}
         </div>
 
-        {/* User card at bottom */}
-        <div style={{ padding: 12, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
-              {currentUser.avatar}
+        {/* Bottom section */}
+        {!sidebarCollapsed && (
+          <div style={{ padding: "10px 12px 0", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            {/* User card */}
+            <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 0 10px" }}>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", flexShrink: 0, border: "2px solid rgba(255,255,255,0.15)" }}>
+                {currentUser.avatar}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "#fff", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 1 }}>
+                  <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#4ade80" }} />
+                  <span style={{ color: "rgba(255,255,255,0.38)", fontSize: 9.5 }}>{role}</span>
+                </div>
+              </div>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: "#fff", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 10 }}>{role}</div>
+            {/* View mode toggle */}
+            <div style={{ display: "flex", background: "rgba(0,0,0,0.3)", borderRadius: 7, padding: 2, gap: 2, marginBottom: 8 }}>
+              {[["normal","▣ Cards"],["excel","⊞ Excel"]].map(([m, lbl]) => (
+                <button key={m} onClick={() => setViewMode(m)} style={{ flex: 1, padding: "5px 4px", fontSize: 10, fontWeight: 700, border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: viewMode === m ? B.yellow : "transparent", color: viewMode === m ? "#1a2f4a" : "rgba(255,255,255,0.45)", transition: "all 0.15s", letterSpacing: "0.2px" }}>
+                  {lbl}
+                </button>
+              ))}
             </div>
+            <button onClick={onLogout} style={{ width: "100%", padding: "6px 8px", fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.45)", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.3px", marginBottom: 10, transition: "all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}>
+              ⎋ Sign out
+            </button>
           </div>
-          <button onClick={onLogout}
-            style={{ width: "100%", padding: "5px 8px", fontSize: 11, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "rgba(255,255,255,0.6)", cursor: "pointer", fontFamily: "inherit", textAlign: "center" }}>
-            Sign out
-          </button>
-        </div>
+        )}
 
-        {/* View mode */}
-        <div style={{ padding: "0 12px 12px" }}>
-          <div style={{ display: "flex", background: "rgba(0,0,0,0.25)", borderRadius: 6, padding: 2, gap: 2 }}>
-            {["normal", "excel"].map((m) => (
-              <button key={m} onClick={() => setViewMode(m)}
-                style={{ flex: 1, padding: "5px 4px", fontSize: 11, border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "inherit", background: viewMode === m ? B.yellow : "transparent", color: viewMode === m ? B.blue : "rgba(255,255,255,0.55)", fontWeight: viewMode === m ? 700 : 400, transition: "all 0.15s" }}>
-                {m === "normal" ? "🃏 Cards" : "📊 Excel"}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Collapse toggle */}
+        <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          style={{ width: "100%", padding: "8px 0", fontSize: 12, background: "rgba(0,0,0,0.2)", border: "none", borderTop: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.35)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s", flexShrink: 0 }}
+          onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.7)"; e.currentTarget.style.background = "rgba(0,0,0,0.35)"; }}
+          onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.35)"; e.currentTarget.style.background = "rgba(0,0,0,0.2)"; }}>
+          {sidebarCollapsed ? "▶" : "◀"}
+        </button>
       </div>
 
       {/* Main */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, minHeight: 0 }}>
         <OfflineBanner />
         {/* Topbar */}
-        <div style={{ height: 46, background: B.white, borderBottom: `1px solid ${B.border}`, display: "flex", alignItems: "center", padding: "0 16px", gap: 10, flexShrink: 0, position: "relative" }}>
+        <div style={{ height: 48, background: B.white, borderBottom: `1px solid ${B.border}`, display: "flex", alignItems: "center", padding: "0 16px", gap: 10, flexShrink: 0, position: "relative", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
           {/* Hamburger — mobile only */}
           <button className="hamburger-btn" onClick={() => setDrawerOpen(true)}
             style={{ display: "none", width: 32, height: 32, borderRadius: 6, background: B.light, border: `1px solid ${B.border}`, alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
             ☰
           </button>
-          <div style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{titles[activeTab]}</div>
+          <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: B.text, lineHeight: 1.2 }}>{titles[activeTab]}</div>
+            <div style={{ fontSize: 10, color: B.muted, letterSpacing: "0.2px" }}>
+              {navItems.find(n => n.id === activeTab)?.group ? `${navItems.find(n => n.id === activeTab).group} · ` : ""}{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+            </div>
+          </div>
 
           {/* Search */}
-          <div className="topbar-search" style={{ display: "flex", alignItems: "center", gap: 6, background: B.light, border: `1px solid ${B.border}`, borderRadius: 6, padding: "5px 10px" }}>
-            <span style={{ fontSize: 13, color: B.muted }}>🔍</span>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..."
+          <div className="topbar-search" style={{ display: "flex", alignItems: "center", gap: 6, background: B.light, border: `1px solid ${B.border}`, borderRadius: 6, padding: "5px 10px", transition: "border-color 0.15s" }}
+            onFocus={() => {}} >
+            <span style={{ fontSize: 12, color: B.muted }}>⌕</span>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search anything…"
               style={{ border: "none", background: "transparent", outline: "none", fontSize: 12, color: B.text, width: 160, fontFamily: "inherit" }} />
+            {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>}
           </div>
 
           {/* Role switcher (dev tool) */}
@@ -246,6 +345,25 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
               </div>
             )}
           </div>
+
+          {/* Auto-save status */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : B.muted }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : B.border }} />
+            {autoSaveStatus === "saved" ? "Saved" : autoSaveStatus === "saving" ? "Saving…" : "Unsaved"}
+          </div>
+
+          {/* Presence indicators */}
+          {presence.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: -4 }}>
+              {presence.slice(0, 4).map((p, i) => (
+                <div key={p.userId} title={`${p.name} · ${p.activeTab || "browsing"}`}
+                  style={{ width: 24, height: 24, borderRadius: "50%", background: p.color || B.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", border: "2px solid #fff", marginLeft: i === 0 ? 0 : -6, zIndex: 10 - i, position: "relative", cursor: "default" }}>
+                  {p.avatar || p.name?.[0]}
+                </div>
+              ))}
+              {presence.length > 4 && <div style={{ width: 24, height: 24, borderRadius: "50%", background: B.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", border: "2px solid #fff", marginLeft: -6 }}>+{presence.length - 4}</div>}
+            </div>
+          )}
 
           {/* Bell */}
           <div style={{ position: "relative" }}>

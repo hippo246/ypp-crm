@@ -211,6 +211,29 @@ export default function AccountingTab({ viewMode, search }) {
         />
       </div>
 
+      {/* Aging buckets */}
+      {overdueList.length > 0 && (() => {
+        const now = new Date();
+        const bucket = (days) => overdueList.filter(i => {
+          const d = (now - new Date(i.due)) / 86_400_000;
+          return days === "60+" ? d > 60 : days === "31-60" ? d > 30 && d <= 60 : d <= 30;
+        });
+        const b0 = bucket("0-30"), b1 = bucket("31-60"), b2 = bucket("60+");
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            {[["0–30 days", b0, B.yellow], ["31–60 days", b1, B.orange], ["60+ days", b2, B.red]].map(([label, items, color]) => (
+              <div key={label} style={{ background: color + "0e", border: `1px solid ${color}30`, borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 10, color, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{label} overdue</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: B.text, marginTop: 2 }}>{items.length} <span style={{ fontSize: 11, fontWeight: 400, color: B.muted }}>invoices</span></div>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color }}>{aed(items.reduce((s, i) => s + (amountWithVAT(i.amount, i.vatRate ?? 5) - i.paid), 0))}</div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Toolbar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", gap: 8 }}>
@@ -222,12 +245,27 @@ export default function AccountingTab({ viewMode, search }) {
             danger
           />
         </div>
-        <button
-          onClick={() => setModal(true)}
-          style={{ padding: "6px 14px", background: B.blue, color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}
-        >
-          + Add Invoice
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {overdueList.length > 0 && (
+            <button onClick={() => {
+              overdueList.forEach(inv => {
+                const title = `Chase payment — ${inv.client} (${inv.id})`;
+                const alreadyExists = (data.tasks || []).some(t => t.ref === inv.id && t.title.startsWith("Chase payment"));
+                if (!alreadyExists) {
+                  setData(d => ({ ...d, tasks: [...(d.tasks||[]), { id: `T-AUTO-${Date.now()}-${inv.id}`, title, assigned: "Alex Reyes", priority: "High", status: "Pending", due: new Date(Date.now() + 86_400_000).toISOString().slice(0,10), ref: inv.id }] }));
+                }
+              });
+            }} style={{ padding: "6px 12px", background: B.orange + "18", color: B.orange, border: `1px solid ${B.orange}40`, borderRadius: 6, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+              ⚡ Push overdue → Tasks
+            </button>
+          )}
+          <button
+            onClick={() => setModal(true)}
+            style={{ padding: "6px 14px", background: B.blue, color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}
+          >
+            + Add Invoice
+          </button>
+        </div>
       </div>
 
       {/* Table */}

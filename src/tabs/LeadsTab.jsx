@@ -58,6 +58,13 @@ export default function LeadsTab({ viewMode, search }) {
   rows = filterSearch(rows, search, ["name", "email", "phone", "service", "source", "notes"]);
 
   const cols = [
+    {
+      key: "_sel", label: "", width: 36,
+      render: (_, r) => (
+        <input type="checkbox" checked={bulkSelected.has(r.id)} onChange={() => toggleBulkSelect(r.id)}
+          style={{ accentColor: B.blue, cursor: "pointer" }} />
+      ),
+    },
     { key: "id", label: "ID", width: 70 },
     {
       key: "name", label: "Name", width: 160,
@@ -129,7 +136,41 @@ export default function LeadsTab({ viewMode, search }) {
     });
   };
 
-  // Kanban drag state
+  const handleConvertToClient = (lead) => {
+    const already = data.clients.some(c => c.name === lead.name || c.email === lead.email);
+    if (already) { alert(`${lead.name} is already a client.`); return; }
+    const newClient = {
+      id: nextId("C"),
+      name: lead.name,
+      contact: lead.name,
+      email: lead.email || "",
+      phone: lead.phone || "",
+      service: lead.service || "",
+      licenseNumber: "",
+      status: "Active",
+      value: lead.value || 0,
+      renewal: "",
+      progress: 0,
+      notes: `Converted from lead ${lead.id} on ${new Date().toISOString().slice(0,10)}`,
+      started: new Date().toISOString().slice(0,10),
+    };
+    const updatedLeads = data.leads.map(l => l.id === lead.id ? { ...l, status: "Won", updatedAt: new Date().toISOString().slice(0,10) } : l);
+    setData({ ...data, clients: [...data.clients, newClient], leads: updatedLeads });
+  };
+
+  const handleMergeDupes = () => {
+    const seen = new Map();
+    const toRemove = new Set();
+    data.leads.forEach(l => {
+      const key = (l.email || l.phone || "").toLowerCase().trim();
+      if (!key) return;
+      if (seen.has(key)) toRemove.add(l.id);
+      else seen.set(key, l.id);
+    });
+    if (toRemove.size === 0) { alert("No duplicates to merge."); return; }
+    setData({ ...data, leads: data.leads.filter(l => !toRemove.has(l.id)) });
+  };
+
   const handleKanbanDrop = (leadId, newStatus) => {
     const updated = data.leads.map((l) =>
       l.id === leadId
@@ -137,6 +178,26 @@ export default function LeadsTab({ viewMode, search }) {
         : l
     );
     setData({ ...data, leads: updated });
+  };
+
+  // Bulk stage-move: select multiple leads → move to a stage
+  const [bulkSelected, setBulkSelected] = useState(new Set());
+  const [bulkTarget, setBulkTarget] = useState("");
+
+  const handleBulkMove = () => {
+    if (!bulkTarget || bulkSelected.size === 0) return;
+    const updated = data.leads.map(l =>
+      bulkSelected.has(l.id) ? { ...l, status: bulkTarget, updatedAt: new Date().toISOString().slice(0, 10) } : l
+    );
+    setData({ ...data, leads: updated });
+    setBulkSelected(new Set());
+    setBulkTarget("");
+  };
+
+  const toggleBulkSelect = (id) => {
+    const next = new Set(bulkSelected);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setBulkSelected(next);
   };
 
   return (
@@ -166,6 +227,35 @@ export default function LeadsTab({ viewMode, search }) {
           <FilterBtn active={showStaleOnly} label={`⏰ Stale (${staleLeads.length})`} onClick={() => { setShowStaleOnly(!showStaleOnly); setShowDupesOnly(false); }} warn />
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {bulkSelected.size > 0 && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", background: B.blue + "0d", border: `1px solid ${B.blue}30`, borderRadius: 8, padding: "4px 10px" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: B.blue }}>{bulkSelected.size} selected</span>
+              <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)}
+                style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
+                <option value="">Move to…</option>
+                {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button onClick={handleBulkMove} disabled={!bulkTarget}
+                style={{ padding: "3px 10px", fontSize: 11, background: B.blue, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkTarget ? 1 : 0.5 }}>
+                Move
+              </button>
+              <button onClick={() => setBulkSelected(new Set())}
+                style={{ padding: "3px 6px", fontSize: 11, background: "none", border: "none", cursor: "pointer", color: B.muted }}>✕</button>
+            </div>
+          )}
+          {dupeIds.size > 0 && (
+            <button onClick={handleMergeDupes} style={{ padding: "6px 12px", background: B.orange + "15", color: B.orange, border: `1px solid ${B.orange}40`, borderRadius: 6, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+              ⚡ Merge dupes ({dupeIds.size})
+            </button>
+          )}
+          {rows.some(l => l.status === "Won") && (
+            <button onClick={() => {
+              const wonLead = rows.find(l => l.status === "Won");
+              if (wonLead) handleConvertToClient(wonLead);
+            }} style={{ padding: "6px 12px", background: B.green + "15", color: B.green, border: `1px solid ${B.green}40`, borderRadius: 6, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+              ↗ Convert Won → Client
+            </button>
+          )}
           <ModeBtn active={displayMode === "table"} label="Table" onClick={() => setDisplayMode("table")} />
           <ModeBtn active={displayMode === "kanban"} label="Kanban" onClick={() => setDisplayMode("kanban")} />
           <button onClick={() => setModal(true)} style={{ padding: "6px 14px", background: B.blue, color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>+ Add Lead</button>
@@ -174,7 +264,13 @@ export default function LeadsTab({ viewMode, search }) {
 
       {/* Content */}
       {displayMode === "kanban" ? (
-        <KanbanBoard leads={rows} onDrop={handleKanbanDrop} dupeIds={dupeIds} staleLeads={staleLeads} />
+        <KanbanBoard leads={rows} onDrop={handleKanbanDrop} dupeIds={dupeIds} staleLeads={staleLeads}
+          onConvert={handleConvertToClient}
+          onSetFollowUp={(lead, date) => {
+            const updated = data.leads.map(l => l.id === lead.id ? { ...l, followUpDate: date, updatedAt: new Date().toISOString().slice(0,10) } : l);
+            setData({ ...data, leads: updated });
+          }}
+        />
       ) : (
         <SectionCard title={`Leads — ${rows.length} records`} style={{ flex: 1, minHeight: 0 }}>
           {viewMode === "excel"
@@ -204,8 +300,9 @@ export default function LeadsTab({ viewMode, search }) {
 
 // ─── Kanban ────────────────────────────────────────────────────────────────────
 
-function KanbanBoard({ leads, onDrop, dupeIds, staleLeads }) {
+function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onSetFollowUp }) {
   const [dragId, setDragId] = useState(null);
+  const [editFollowUp, setEditFollowUp] = useState(null); // lead id
 
   const handleDragOver = (e) => e.preventDefault();
   const handleDrop = (e, stage) => {
@@ -250,6 +347,7 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads }) {
                 const sLabel = scoreLabel(score);
                 const isDupe = dupeIds.has(lead.id);
                 const isStale = staleLeads.some((s) => s.id === lead.id);
+                const isEditingFU = editFollowUp === lead.id;
                 return (
                   <div
                     key={lead.id}
@@ -274,6 +372,33 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads }) {
                       <span style={{ fontSize: 10, fontWeight: 700, color: SCORE_COLORS[sLabel] }}>{sLabel}</span>
                     </div>
                     {isStale && <div style={{ marginTop: 4, fontSize: 10, color: B.orange, fontWeight: 600 }}>⏰ Follow up needed</div>}
+
+                    {/* Follow-up date setter */}
+                    <div style={{ marginTop: 6, borderTop: `1px solid ${B.border}`, paddingTop: 6 }}>
+                      {isEditingFU ? (
+                        <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
+                          <input type="date" defaultValue={lead.followUpDate || ""}
+                            onBlur={e => { onSetFollowUp(lead, e.target.value); setEditFollowUp(null); }}
+                            autoFocus
+                            style={{ fontSize: 10, border: `1px solid ${B.blue}`, borderRadius: 4, padding: "2px 4px", flex: 1, fontFamily: "inherit" }} />
+                          <button onClick={() => setEditFollowUp(null)} style={{ fontSize: 10, background: "none", border: "none", cursor: "pointer", color: B.muted }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); setEditFollowUp(lead.id); }}
+                          style={{ fontSize: 10, color: lead.followUpDate ? B.blue : B.muted, background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+                          📅 {lead.followUpDate ? `Follow up: ${lead.followUpDate}` : "Set follow-up date"}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Convert to Client on Won cards */}
+                    {stage === "Won" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onConvert(lead); }}
+                        style={{ marginTop: 6, width: "100%", fontSize: 10, fontWeight: 700, padding: "3px 0", background: B.green + "18", color: B.green, border: `1px solid ${B.green}40`, borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+                        ↗ Convert to Client
+                      </button>
+                    )}
                   </div>
                 );
               })}

@@ -22,9 +22,16 @@ const InventoryTab = ({ data, setData, viewMode, search }) => {
   const [modal, setModal] = useState(false);
   let rows = filterSearch(data.inventory, search, ["id", "name", "category", "supplier", "status"]);
 
+  const handleReorder = (item) => {
+    const title = `Reorder: ${item.name} (min qty: ${item.reorder}) from ${item.supplier || "supplier"}`;
+    const alreadyExists = (data.tasks || []).some(t => t.ref === item.id && t.title.startsWith("Reorder:"));
+    if (alreadyExists) { alert("Reorder task already exists for this item."); return; }
+    setData({ ...data, tasks: [...(data.tasks || []), { id: nextId("T"), title, assigned: "", priority: item.status === "Critical" ? "High" : "Medium", status: "Pending", due: new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0,10), ref: item.id }] });
+  };
+
   const cols = [
     { key: "id", label: "ID", width: 70 },
-    { key: "name", label: "Item Name", width: 220 },
+    { key: "name", label: "Item Name", width: 200 },
     { key: "category", label: "Category", width: 120 },
     { key: "qty", label: "Qty", width: 80 },
     { key: "unit", label: "Unit", width: 80 },
@@ -32,6 +39,14 @@ const InventoryTab = ({ data, setData, viewMode, search }) => {
     { key: "cost", label: "Unit Cost", width: 100, render: (v) => aed(v), xlRender: (v) => aed(v) },
     { key: "supplier", label: "Supplier", width: 90 },
     { key: "status", label: "Status", width: 110, render: (v) => <Badge label={v} /> },
+    {
+      key: "reorderBtn", label: "Action", width: 100,
+      render: (_, r) => r.status !== "In Stock" ? (
+        <button onClick={() => handleReorder(r)} style={{ padding: "3px 9px", fontSize: 10, fontWeight: 700, background: B.orange + "18", color: B.orange, border: `1px solid ${B.orange}40`, borderRadius: 4, cursor: "pointer" }}>
+          ↺ Reorder
+        </button>
+      ) : <span style={{ fontSize: 11, color: B.muted }}>—</span>,
+    },
   ];
 
   const handleChange = (ri, key, val) => {

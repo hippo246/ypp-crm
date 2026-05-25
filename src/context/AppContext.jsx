@@ -8,6 +8,9 @@ const INITIAL_META = {
   currentUser: null,   // { id, name, role, avatar, email }
   auditLog: [],
   notifReadIds: [],    // ids of notifications the user has dismissed/read
+  presence: [],        // [{ userId, name, avatar, color, activeTab, lastSeen }]
+  autoSaveStatus: "saved", // "saved" | "saving" | "unsaved"
+  versionHistory: [],  // [{ id, timestamp, user, snapshot, label }]
 };
 
 function reducer(state, action) {
@@ -24,6 +27,30 @@ function reducer(state, action) {
     // ── Generic ─────────────────────────────────────────────────────────────
     case "SET_DATA":
       return { ...state, ...action.payload };
+
+    // ── Auto-save status ─────────────────────────────────────────────────────
+    case "SET_AUTOSAVE_STATUS":
+      return { ...state, autoSaveStatus: action.status };
+
+    // ── Presence ─────────────────────────────────────────────────────────────
+    case "UPDATE_PRESENCE": {
+      const existing = state.presence.filter(p => p.userId !== action.payload.userId);
+      return { ...state, presence: [...existing, { ...action.payload, lastSeen: Date.now() }] };
+    }
+    case "REMOVE_PRESENCE":
+      return { ...state, presence: state.presence.filter(p => p.userId !== action.userId) };
+
+    // ── Version history ───────────────────────────────────────────────────────
+    case "SAVE_VERSION": {
+      const snap = { id: `V${Date.now()}`, timestamp: new Date().toISOString(), user, label: action.label || "Manual save", snapshot: { tasks: state.tasks, leads: state.leads, clients: state.clients, accounting: state.accounting } };
+      return { ...state, versionHistory: [snap, ...state.versionHistory].slice(0, 50) };
+    }
+    case "RESTORE_VERSION": {
+      const ver = state.versionHistory.find(v => v.id === action.id);
+      if (!ver) return state;
+      const entry = createAuditEntry(AUDIT_ACTIONS.UPDATE, "system", null, `Restored snapshot: ${ver.label} (${ver.timestamp})`, user);
+      return { ...state, ...ver.snapshot, auditLog: [entry, ...state.auditLog] };
+    }
 
     // ── Notifications ────────────────────────────────────────────────────────
     case "MARK_NOTIF_READ": {
@@ -117,6 +144,28 @@ function reducer(state, action) {
       const entry = createAuditEntry(AUDIT_ACTIONS.DELETE, "tasks", removed.id, `Deleted task: ${removed.title}`, user);
       return { ...state, tasks, auditLog: [entry, ...state.auditLog] };
     }
+    case "ADD_TASK_COMMENT": {
+      const tasks = [...state.tasks];
+      const t = tasks[action.taskIndex];
+      const comment = { id: `CM${Date.now()}`, author: user, text: action.text, time: new Date().toISOString(), mentions: action.mentions || [] };
+      tasks[action.taskIndex] = { ...t, comments: [...(t.comments || []), comment], activityLog: [...(t.activityLog || []), { type: "comment", user, time: comment.time, text: `Commented: "${action.text.slice(0, 40)}"` }] };
+      return { ...state, tasks };
+    }
+    case "TOGGLE_SUBTASK": {
+      const tasks = [...state.tasks];
+      const t = { ...tasks[action.taskIndex] };
+      t.subtasks = (t.subtasks || []).map(s => s.id === action.subtaskId ? { ...s, done: !s.done } : s);
+      const done = t.subtasks.filter(s => s.done).length;
+      t.progress = t.subtasks.length ? Math.round((done / t.subtasks.length) * 100) : t.progress;
+      tasks[action.taskIndex] = t;
+      return { ...state, tasks };
+    }
+    case "SET_APPROVAL": {
+      const tasks = [...state.tasks];
+      const t = tasks[action.taskIndex];
+      tasks[action.taskIndex] = { ...t, approvalStatus: action.status, activityLog: [...(t.activityLog || []), { type: "approval", user, time: new Date().toISOString(), text: `Approval ${action.status}` }] };
+      return { ...state, tasks };
+    }
 
     // ── Inventory ─────────────────────────────────────────────────────────────
     case "ADD_INVENTORY": {
@@ -182,7 +231,7 @@ export function AppProvider({ children, initialData }) {
   const setData = useCallback((newData) => dispatch({ type: "SET_DATA", payload: newData }), []);
 
   return (
-    <AppContext.Provider value={{ data: state, setData, dispatch, notifications, unreadCount }}>
+    <AppContext.Provider value={{ data: state, setData, dispatch, notifications, unreadCount, presence: state.presence, autoSaveStatus: state.autoSaveStatus, versionHistory: state.versionHistory }}>
       {children}
     </AppContext.Provider>
   );

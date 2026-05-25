@@ -810,15 +810,66 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
   const [history, dispatchHistory]          = useReducer(historyReducer,{past:[],future:[]});
   const [ribbonTab, setRibbonTab]           = useState("Home");
   // Phase 2: per-cell formatting: { "ri-ci": { bold, italic, underline, fontSize, fillColor, textColor, borderStyle, align } }
+  // Phase 3+: per-sheet state stored on sheet object; fallback to global for backward compat
+  const sheetMeta = useMemo(()=>sheets.find(s=>s.id===activeSheet)||sheets[0],[sheets,activeSheet]);
   const [cellFmt, setCellFmt]               = useState({});
   // Phase 4: merges: [{ r1,c1,r2,c2 }]
   const [merges, setMerges]                 = useState([]);
   // Phase 5: comments: { "ri-ci": "text" }
   const [comments, setComments]             = useState({});
   const [commentPopover, setCommentPopover] = useState(null);
+
+  // Reset per-sheet state when active sheet changes
+  const prevSheetRef = useRef(activeSheet);
+  const [sheetState, setSheetState] = useState({}); // keyed by sheet id
+  const saveSheetState = useCallback((id) => {
+    setSheetState(ss=>({...ss,[id]:{cellFmt,merges,comments,condFmtRules,namedRanges,validation}}));
+  },[cellFmt,merges,comments,condFmtRules,namedRanges,validation]);
+
+  useEffect(()=>{
+    if(prevSheetRef.current===activeSheet)return;
+    // Save old sheet state
+    saveSheetState(prevSheetRef.current);
+    // Load new sheet state
+    const saved=sheetState[activeSheet];
+    if(saved){
+      setCellFmt(saved.cellFmt||{});
+      setMerges(saved.merges||[]);
+      setComments(saved.comments||{});
+      setCondFmtRules(saved.condFmtRules||[]);
+      setNamedRanges(saved.namedRanges||{});
+      setValidation(saved.validation||{});
+    } else {
+      setCellFmt({});setMerges([]);setComments({});
+      setCondFmtRules([]);setNamedRanges({});setValidation({});
+    }
+    prevSheetRef.current=activeSheet;
+  },[activeSheet]);
   // Formula autocomplete
   const [acSuggestions, setAcSuggestions]   = useState([]);
   const [acIndex, setAcIndex]               = useState(0);
+  // ── Drag-to-fill ──────────────────────────────────────────────────────────
+  const [fillDrag, setFillDrag]             = useState(null); // {startRi,startCi,endRi,endCi}
+  // ── Pinned rows ───────────────────────────────────────────────────────────
+  const [pinnedRows, setPinnedRows]         = useState(new Set());
+  // ── Row grouping ──────────────────────────────────────────────────────────
+  const [rowGroups, setRowGroups]           = useState([]); // [{start,end,collapsed}]
+  // ── Split pane ───────────────────────────────────────────────────────────
+  const [splitPane, setSplitPane]           = useState(false);
+  const [splitRatio, setSplitRatio]         = useState(0.5);
+  // ── Saved filters ─────────────────────────────────────────────────────────
+  const [savedFilters, setSavedFilters]     = useState([]); // [{name, filters}]
+  // ── Quick search ──────────────────────────────────────────────────────────
+  const [quickSearch, setQuickSearch]       = useState("");
+  const [showQuickSearch, setShowQuickSearch] = useState(false);
+  // ── Formula trace ─────────────────────────────────────────────────────────
+  const [traceCell, setTraceCell]           = useState(null); // {ri,ci}
+  // ── Drag row reorder ──────────────────────────────────────────────────────
+  const [rowDrag, setRowDrag]               = useState(null); // {fromRi}
+  const [rowDragOver, setRowDragOver]       = useState(null);
+  // ── Drag col reorder ──────────────────────────────────────────────────────
+  const [colDrag, setColDrag]               = useState(null); // {fromCi}
+  const [colDragOver, setColDragOver]       = useState(null);
   const tableRef = useRef(null);
 
   // ── Undo/Redo ──────────────────────────────────────────────────────────────
@@ -833,6 +884,8 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
     if(rule.type==="number"){const n=Number(value);if(isNaN(n))return "Must be a number";if(rule.op===">"&&!(n>Number(rule.min)))return `Must be > ${rule.min}`;if(rule.op==="<"&&!(n<Number(rule.min)))return `Must be < ${rule.min}`;if(rule.op===">="&&!(n>=Number(rule.min)))return `Must be ≥ ${rule.min}`;if(rule.op==="<="&&!(n<=Number(rule.min)))return `Must be ≤ ${rule.min}`;if(rule.op==="between"&&!(n>=Number(rule.min)&&n<=Number(rule.max)))return `Must be ${rule.min}–${rule.max}`;}
     return null;
   },[validation]);
+  // validErrors keyed by "origIdx-colKey" so they survive sort/filter
+  const validErrKey=(ri,ci)=>`${processedRows[ri]?.__origIdx}-${visibleCols[ci]?.key}`;
 
   // ── Processed rows ─────────────────────────────────────────────────────────
   const processedRows = useMemo(()=>{
@@ -843,7 +896,25 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
   },[rows,filters,sortConfig]);
 
   const visibleCols = useMemo(()=>baseCols.filter((_,i)=>!hiddenCols.has(i)),[baseCols,hiddenCols]);
-  const visibleProcessedRows = processedRows.filter((_,ri)=>!hiddenRows.has(ri));
+
+  // Apply row group collapsing
+  const collapsedRowIdxs = useMemo(()=>{
+    const s = new Set();
+    rowGroups.forEach(g=>{ if(g.collapsed) for(let r=g.start+1;r<=g.end;r++) s.add(r); });
+    return s;
+  }, [rowGroups]);
+
+  const visibleProcessedRows = useMemo(()=>{
+    let base = processedRows.filter((_,ri)=>!hiddenRows.has(ri)&&!collapsedRowIdxs.has(ri));
+    if (quickSearch.trim()) {
+      const q = quickSearch.toLowerCase();
+      base = base.filter(r => visibleCols.some(c => String(r[c.key]??"").toLowerCase().includes(q)));
+    }
+    // Pinned rows bubble to top (keyed by __origIdx)
+    const pinned = base.filter(r=>pinnedRows.has(r.__origIdx));
+    const rest   = base.filter(r=>!pinnedRows.has(r.__origIdx));
+    return [...pinned, ...rest];
+  }, [processedRows, hiddenRows, collapsedRowIdxs, quickSearch, visibleCols, pinnedRows]);
 
   const evalCell = useCallback((val,ri,ci)=>{
     if(typeof val==="string"&&val.startsWith("="))return evaluateFormula(val,processedRows,visibleCols,namedRanges);
@@ -879,9 +950,10 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
     const row=processedRows[ri]; if(!row||!onChange)return;
     const raw=overrideVal!==undefined?overrideVal:editVal;
     const col=visibleCols[ci];
+    const errKey=`${row.__origIdx}-${col?.key}`;
     const err=validateCell(col?.key,raw);
-    if(err)setValidErrors(e=>({...e,[`${ri}-${ci}`]:err}));
-    else setValidErrors(e=>{const n={...e};delete n[`${ri}-${ci}`];return n;});
+    if(err)setValidErrors(e=>({...e,[errKey]:err}));
+    else setValidErrors(e=>{const n={...e};delete n[errKey];return n;});
     const isFormula=typeof raw==="string"&&raw.startsWith("=");
     const parsed=!isFormula&&raw.trim()!==""&&!isNaN(raw)?Number(raw):raw;
     pushHistory([{ri:row.__origIdx,key:col?.key,val:row[col?.key]}]);
@@ -999,14 +1071,15 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
   };
 
   // ── Resize cols ────────────────────────────────────────────────────────────
-  const startResize=(e,ci)=>{e.preventDefault();e.stopPropagation();setResizing({ci,startX:e.clientX,startW:colWidths[ci]||visibleCols[ci].width||120});};
+  const startResize=(e,ci)=>{e.preventDefault();e.stopPropagation();const key=visibleCols[ci]?.key||ci;setResizing({ci,key,startX:e.clientX,startW:colWidths[key]||visibleCols[ci]?.width||120});};
   useEffect(()=>{
     if(!resizing)return;
-    const onMove=e=>setColWidths(p=>({...p,[resizing.ci]:Math.max(40,resizing.startW+e.clientX-resizing.startX)}));
+    const onMove=e=>setColWidths(p=>({...p,[resizing.key]:Math.max(40,resizing.startW+e.clientX-resizing.startX)}));
     const onUp=()=>setResizing(null);
     window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);
     return()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
   },[resizing]);
+  const colW=(ci)=>{const key=visibleCols[ci]?.key;return (key&&colWidths[key])||visibleCols[ci]?.width||120;};
 
   // ── Formula bar commit ─────────────────────────────────────────────────────
   const commitFormulaBar=()=>{
@@ -1018,6 +1091,138 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
     onChange(row.__origIdx,visibleCols[start.ci]?.key,val);
     setEditing(null);
   };
+
+  // ── Drag-to-fill ──────────────────────────────────────────────────────────
+  const detectPattern = (startRi, startCi) => {
+    // Look at up to 3 values above the start cell in the same column
+    const colKey = visibleCols[startCi]?.key;
+    const vals = [];
+    for(let r = Math.max(0, startRi - 3); r <= startRi; r++) {
+      const v = processedRows[r]?.[colKey];
+      if(v !== "" && v !== undefined) vals.push(v);
+    }
+    const nums = vals.map(Number);
+    if(nums.length >= 2 && nums.every(n=>!isNaN(n))) {
+      const diffs = nums.slice(1).map((n,i)=>n-nums[i]);
+      if(diffs.every(d=>d===diffs[0])) return { type:"arithmetic", step:diffs[0], lastVal:nums[nums.length-1] };
+    }
+    return { type:"repeat", val:processedRows[startRi]?.[colKey] };
+  };
+  const applyFillDrag = useCallback(() => {
+    if (!fillDrag || !onChange) return;
+    const { startRi, startCi, endRi, endCi } = fillDrag;
+    if (startRi === endRi && startCi === endCi) return;
+    const snapshot = [];
+    if (endRi !== startRi) {
+      const pat = detectPattern(startRi, startCi);
+      for (let r = Math.min(startRi + 1, endRi); r <= Math.max(endRi, startRi); r++) {
+        if (r >= processedRows.length) break;
+        const row = processedRows[r]; const col = visibleCols[startCi];
+        const steps = r - startRi;
+        let val = pat.type === "arithmetic"
+          ? pat.lastVal + pat.step * steps
+          : pat.val;
+        snapshot.push({ ri: row.__origIdx, key: col.key, val: row[col.key] });
+        onChange(row.__origIdx, col.key, val);
+      }
+    } else {
+      const srcVal = processedRows[startRi]?.[visibleCols[startCi]?.key];
+      for (let c = Math.min(startCi + 1, endCi); c <= Math.max(endCi, startCi); c++) {
+        if (c >= visibleCols.length) break;
+        const row = processedRows[startRi]; const col = visibleCols[c];
+        snapshot.push({ ri: row.__origIdx, key: col.key, val: row[col.key] });
+        onChange(row.__origIdx, col.key, srcVal);
+      }
+    }
+    if (snapshot.length) pushHistory(snapshot);
+    setFillDrag(null);
+  }, [fillDrag, processedRows, visibleCols, onChange, pushHistory]);
+
+  // ── Fill drag window-level tracking ────────────────────────────────────────
+  useEffect(()=>{
+    if(!fillDrag)return;
+    const onUp=()=>applyFillDrag();
+    window.addEventListener("mouseup",onUp);
+    return()=>window.removeEventListener("mouseup",onUp);
+  },[fillDrag,applyFillDrag]);
+  const handleRowDragEnd = useCallback(() => {
+    if (rowDrag === null || rowDragOver === null || rowDrag === rowDragOver) { setRowDrag(null); setRowDragOver(null); return; }
+    const fromOrig = visibleProcessedRows[rowDrag]?.__origIdx;
+    const toOrig   = visibleProcessedRows[rowDragOver]?.__origIdx;
+    if(fromOrig===undefined||toOrig===undefined){setRowDrag(null);setRowDragOver(null);return;}
+    updateSheetRows(rs => {
+      const n = [...rs];
+      const fromIdx = n.findIndex((_,i)=>i===fromOrig);
+      const toIdx   = n.findIndex((_,i)=>i===toOrig);
+      if(fromIdx<0||toIdx<0)return rs;
+      const [moved] = n.splice(fromIdx, 1);
+      n.splice(toIdx, 0, moved);
+      return n;
+    });
+    setRowDrag(null); setRowDragOver(null);
+  }, [rowDrag, rowDragOver, updateSheetRows, visibleProcessedRows]);
+
+  // ── Col drag-reorder ───────────────────────────────────────────────────────
+  const handleColDragEnd = useCallback(() => {
+    if (colDrag === null || colDragOver === null || colDrag === colDragOver) { setColDrag(null); setColDragOver(null); return; }
+    updateSheetCols(cs => {
+      const n = [...cs]; const [moved] = n.splice(colDrag, 1); n.splice(colDragOver, 0, moved); return n;
+    });
+    setColDrag(null); setColDragOver(null);
+  }, [colDrag, colDragOver, updateSheetCols]);
+
+  // ── Quick duplicate row ───────────────────────────────────────────────────
+  const duplicateRow = useCallback((ri) => {
+    const row = processedRows[ri]; if (!row) return;
+    const blank = { ...row }; delete blank.__origIdx;
+    updateSheetRows(rs => { const n = [...rs]; n.splice(ri + 1, 0, blank); return n; });
+  }, [processedRows, updateSheetRows]);
+
+  // ── Auto row expansion ────────────────────────────────────────────────────
+  const autoExpandRows = useCallback((count = 10) => {
+    const blank = Object.fromEntries(baseCols.map(c => [c.key, ""]));
+    updateSheetRows(rs => [...rs, ...Array(count).fill(null).map(() => ({ ...blank }))]);
+  }, [baseCols, updateSheetRows]);
+
+  // ── Bulk edit ─────────────────────────────────────────────────────────────
+  const bulkSetValue = useCallback((value) => {
+    if (!selection.start || !onChange) return;
+    const { start, end } = selection, e = end || start;
+    const snapshot = [];
+    for (let r = Math.min(start.ri, e.ri); r <= Math.max(start.ri, e.ri); r++)
+      for (let c = Math.min(start.ci, e.ci); c <= Math.max(start.ci, e.ci); c++) {
+        const row = processedRows[r]; const col = visibleCols[c]; if (!row || !col) continue;
+        snapshot.push({ ri: row.__origIdx, key: col.key, val: row[col.key] });
+        onChange(row.__origIdx, col.key, value);
+      }
+    pushHistory(snapshot);
+  }, [selection, processedRows, visibleCols, onChange, pushHistory]);
+
+  // ── Row grouping ──────────────────────────────────────────────────────────
+  const addRowGroup = useCallback(() => {
+    if (!selection.start) return;
+    const { start, end } = selection, e = end || start;
+    const s = Math.min(start.ri, e.ri), en = Math.max(start.ri, e.ri);
+    if (s === en) return;
+    setRowGroups(gs => [...gs, { start: s, end: en, collapsed: false }]);
+  }, [selection]);
+  const toggleGroup = useCallback((idx) => {
+    setRowGroups(gs => gs.map((g, i) => i === idx ? { ...g, collapsed: !g.collapsed } : g));
+  }, []);
+
+  // ── Formula trace ─────────────────────────────────────────────────────────
+  const getTracedCells = useCallback((ri, ci) => {
+    const val = processedRows[ri]?.[visibleCols[ci]?.key] ?? "";
+    if (typeof val !== "string" || !val.startsWith("=")) return [];
+    return [...val.matchAll(/([A-Z]+)(\d+)/g)].map(m => ({ ci: m[1].charCodeAt(0) - 65, ri: parseInt(m[2]) - 1 }));
+  }, [processedRows, visibleCols]);
+
+  // ── Pinned rows - keyed by __origIdx for stability across sort/filter ────
+  const togglePinRow = useCallback((ri) => {
+    const origIdx = processedRows[ri]?.__origIdx;
+    if(origIdx===undefined)return;
+    setPinnedRows(s => { const n = new Set(s); n.has(origIdx) ? n.delete(origIdx) : n.add(origIdx); return n; });
+  }, [processedRows]);
 
   // ── Status stats ───────────────────────────────────────────────────────────
   const statusStats=useMemo(()=>{
@@ -1034,33 +1239,46 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
 
   const numericCols=useMemo(()=>visibleCols.filter(c=>rows.some(r=>!isNaN(Number(r[c.key]))&&r[c.key]!==""&&r[c.key]!==undefined)),[visibleCols,rows]);
   const hasSparklines=Object.values(sparkCols).some(Boolean);
-  const colW=(ci)=>colWidths[ci]||visibleCols[ci]?.width||120;
   const frozenLeft=(ci)=>{let left=44+(onDelete?28:0);for(let i=0;i<ci;i++)left+=colW(i);return left;};
 
   // ── Row/Col Insert+Delete (Phase 4) ───────────────────────────────────────
   const insertRowAbove=(ri)=>{
+    setEditing(null);
     const blank=Object.fromEntries(baseCols.map(c=>[c.key,""]));
-    updateSheetRows(rs=>{const n=[...rs];n.splice(ri,0,blank);return n;});
+    updateSheetRows(rs=>{const n=[...rs];n.splice(processedRows[ri]?.__origIdx??ri,0,blank);return n;});
   };
   const insertRowBelow=(ri)=>{
+    setEditing(null);
     const blank=Object.fromEntries(baseCols.map(c=>[c.key,""]));
-    updateSheetRows(rs=>{const n=[...rs];n.splice(ri+1,0,blank);return n;});
+    updateSheetRows(rs=>{const n=[...rs];n.splice((processedRows[ri]?.__origIdx??ri)+1,0,blank);return n;});
   };
-  const deleteRow=(ri)=>{updateSheetRows(rs=>rs.filter((_,i)=>i!==ri));};
+  const deleteRow=(ri)=>{
+    const origIdx=processedRows[ri]?.__origIdx;
+    if(origIdx===undefined)return;
+    updateSheetRows(rs=>rs.filter((_,i)=>i!==origIdx));
+  };
+  // Convert visibleCols index → baseCols index (accounts for hidden cols)
+  const toBaseColIdx=(ci)=>{
+    const colKey=visibleCols[ci]?.key;
+    return baseCols.findIndex(c=>c.key===colKey);
+  };
   const insertColLeft=(ci)=>{
     const key="col"+Date.now(); const label="Col "+(baseCols.length+1);
-    updateSheetCols(cs=>{const n=[...cs];n.splice(ci,0,{key,label,width:100});return n;});
+    const bci=toBaseColIdx(ci);
+    updateSheetCols(cs=>{const n=[...cs];n.splice(bci<0?0:bci,0,{key,label,width:100});return n;});
     updateSheetRows(rs=>rs.map(r=>({...r,[key]:""})));
   };
   const insertColRight=(ci)=>{
     const key="col"+Date.now(); const label="Col "+(baseCols.length+1);
-    updateSheetCols(cs=>{const n=[...cs];n.splice(ci+1,0,{key,label,width:100});return n;});
+    const bci=toBaseColIdx(ci);
+    updateSheetCols(cs=>{const n=[...cs];n.splice(bci<0?cs.length:bci+1,0,{key,label,width:100});return n;});
     updateSheetRows(rs=>rs.map(r=>({...r,[key]:""})));
   };
   const deleteCol=(ci)=>{
-    const col=visibleCols[ci];
+    const col=visibleCols[ci]; if(!col)return;
     updateSheetCols(cs=>cs.filter(c=>c.key!==col.key));
     updateSheetRows(rs=>rs.map(r=>{const n={...r};delete n[col.key];return n;}));
+    setColWidths(w=>{const n={...w};delete n[col.key];return n;});
   };
 
   // ── Merge Cells (Phase 4) ─────────────────────────────────────────────────
@@ -1093,6 +1311,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
       if(e.key==="Escape"){setContextMenu(null);setCommentPopover(null);}
       if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undo();}
       if((e.ctrlKey||e.metaKey)&&(e.key==="y"||(e.key==="z"&&e.shiftKey))){e.preventDefault();redo();}
+      if((e.ctrlKey||e.metaKey)&&e.key==="k"){e.preventDefault();setShowQuickSearch(s=>!s);}
     };
     window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);
   },[undo,redo]);
@@ -1114,7 +1333,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
     "---",
     {icon:"🔗",label:"Merge Cells",action:mergeCells},
     {icon:"⊠",label:"Unmerge Cells",action:unmergeCells},
-    {icon:"💬",label:"Add Comment",action:()=>{const k=`${contextMenu.ri}-${contextMenu.ci}`;setCommentPopover({x:contextMenu.x,y:contextMenu.y,cellKey:k});}},
+    {icon:"💬",label:"Add Comment",action:()=>{const row=processedRows[contextMenu.ri];const col=visibleCols[contextMenu.ci];const k=`${row?.__origIdx}-${col?.key}`;setCommentPopover({x:contextMenu.x,y:contextMenu.y,cellKey:k});}},
     "---",
     {icon:"👁",label:"Hide Column",action:()=>setHiddenCols(s=>{const n=new Set(s);n.add(contextMenu.ci);return n;})},
     {icon:"🙈",label:"Hide Row",action:()=>setHiddenRows(s=>{const n=new Set(s);n.add(contextMenu.ri);return n;})},
@@ -1123,6 +1342,10 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
     {icon:"🎨",label:"Conditional Format…",action:()=>setModal("condfmt")},
     {icon:"✅",label:"Data Validation…",action:()=>setModal("validation")},
     {icon:"📌",label:"Named Ranges…",action:()=>setModal("namedranges")},
+    "---",
+    {icon:"⧉",label:"Duplicate Row",shortcut:"",action:()=>duplicateRow(contextMenu.ri)},
+    {icon:"📌",label:pinnedRows.has(contextMenu.ri)?"Unpin Row":"Pin Row",action:()=>togglePinRow(contextMenu.ri)},
+    {icon:"⊞",label:"Group Selected Rows",action:addRowGroup},
     "---",
     {icon:"↩️",label:"Undo",shortcut:"Ctrl+Z",action:undo,disabled:!history.past.length},
     {icon:"↪️",label:"Redo",shortcut:"Ctrl+Y",action:redo,disabled:!history.future.length},
@@ -1169,7 +1392,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
       <RibbonGroup label="Cells">
         <IBtn icon="🔗" label="Merge" onClick={mergeCells} title="Merge Cells"/>
         <IBtn icon="⊠" label="Unmerge" onClick={unmergeCells} title="Unmerge Cells"/>
-        <IBtn icon="💬" label="Comment" onClick={()=>{if(!selection.start)return;const k=`${selection.start.ri}-${selection.start.ci}`;const rect=document.getElementById(cellId(selection.start.ri,selection.start.ci))?.getBoundingClientRect();setCommentPopover({x:(rect?.right||400)+4,y:rect?.top||200,cellKey:k});}} title="Add/Edit Comment"/>
+        <IBtn icon="💬" label="Comment" onClick={()=>{if(!selection.start)return;const row=processedRows[selection.start.ri];const col=visibleCols[selection.start.ci];const k=`${row?.__origIdx}-${col?.key}`;const rect=document.getElementById(cellId(selection.start.ri,selection.start.ci))?.getBoundingClientRect();setCommentPopover({x:(rect?.right||400)+4,y:rect?.top||200,cellKey:k});}} title="Add/Edit Comment"/>
       </RibbonGroup>
       <RibbonGroup label="Format">
         <IBtn icon="🎨" label="Cond Fmt" onClick={()=>setModal("condfmt")} title="Conditional Formatting"/>
@@ -1287,6 +1510,15 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
       <RibbonGroup label="Cond Format">
         <IBtn icon="🎨" label="Rules" onClick={()=>setModal("condfmt")} title="Conditional Formatting"/>
       </RibbonGroup>
+      <RibbonGroup label="Saved Filters">
+        <IBtn icon="💾" label="Save Filter" onClick={()=>{if(!Object.values(filters).some(f=>f?.size>0)){alert("No active filters to save.");return;}const name=prompt("Filter name:");if(name)setSavedFilters(fs=>[...fs,{name,filters:{...filters}}]);}} title="Save current filter set"/>
+        {savedFilters.map((sf,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:2}}>
+            <button onClick={()=>setFilters(sf.filters)} style={{...tBtn,fontSize:10,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis"}} title={sf.name}>{sf.name}</button>
+            <button onClick={()=>setSavedFilters(fs=>fs.filter((_,j)=>j!==i))} style={{...tBtn,fontSize:9,padding:"0 2px",color:"#ef4444",background:"transparent",border:"none"}}>✕</button>
+          </div>
+        ))}
+      </RibbonGroup>
     </div>
   );
 
@@ -1316,6 +1548,27 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
       </RibbonGroup>
       <RibbonGroup label="Table">
         <IBtn icon="⚙️" label="Customize" onClick={()=>setModal("customize")} title="Customize Table: rename columns, set types, reorder, show/hide"/>
+      </RibbonGroup>
+      <RibbonGroup label="Pane">
+        <IBtn icon="⧠" label="Split" onClick={()=>setSplitPane(s=>!s)} active={splitPane} title="Toggle split pane"/>
+      </RibbonGroup>
+      <RibbonGroup label="Search">
+        <IBtn icon="🔎" label="Quick" onClick={()=>setShowQuickSearch(s=>!s)} active={showQuickSearch} title="Quick search (Ctrl+K)"/>
+      </RibbonGroup>
+      <RibbonGroup label="Groups">
+        <IBtn icon="⊞" label="Group" onClick={addRowGroup} title="Group selected rows"/>
+        {rowGroups.map((g,i)=><button key={i} onClick={()=>toggleGroup(i)} style={{...tBtn,fontSize:10,background:g.collapsed?"#fef9c3":"#e8eaed"}}>{g.collapsed?"▶":"▼"} R{g.start+1}:{g.end+1}</button>)}
+        {rowGroups.length>0&&<IBtn icon="✕" label="Clear" onClick={()=>setRowGroups([])} title="Remove all groups"/>}
+      </RibbonGroup>
+      <RibbonGroup label="Bulk Edit">
+        <IBtn icon="✏️" label="Set Value" onClick={()=>{const v=prompt("Set all selected cells to:");if(v!==null)bulkSetValue(v);}} title="Bulk set selected cells to a value"/>
+        <IBtn icon="🗑" label="Clear" onClick={()=>bulkSetValue("")} title="Clear all selected cells"/>
+      </RibbonGroup>
+      <RibbonGroup label="Trace">
+        <IBtn icon="🔗" label="Trace" onClick={()=>{if(selection.start)setTraceCell(traceCell?null:selection.start);}} active={!!traceCell} title="Toggle formula trace arrows"/>
+      </RibbonGroup>
+      <RibbonGroup label="Rows">
+        <IBtn icon="+" label="+10 Rows" onClick={()=>autoExpandRows(10)} title="Add 10 empty rows"/>
       </RibbonGroup>
     </div>
   );
@@ -1376,8 +1629,24 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
         {(formulaInput||editVal)&&<button onClick={commitFormulaBar} style={{...tBtn,background:"#1a73e8",color:"#fff",padding:"2px 10px"}}>✓</button>}
       </div>
 
+      {/* ── Quick Search Bar ── */}
+      {showQuickSearch&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 8px",background:"#fffbeb",borderBottom:`1px solid #fde68a`,flexShrink:0}}>
+          <span style={{fontSize:12,color:"#92400e"}}>🔎 Quick Search</span>
+          <input autoFocus value={quickSearch} onChange={e=>setQuickSearch(e.target.value)}
+            placeholder="Filter visible rows…"
+            style={{flex:1,padding:"3px 8px",fontSize:12,border:"1px solid #fde68a",borderRadius:4,fontFamily:"monospace",background:"#fff"}}
+          />
+          {quickSearch&&<button onClick={()=>setQuickSearch("")} style={{...tBtn,fontSize:10}}>✕ Clear</button>}
+          <button onClick={()=>{setShowQuickSearch(false);setQuickSearch("");}} style={{...tBtn,fontSize:10}}>Close</button>
+          <span style={{fontSize:10,color:"#b45309"}}>{visibleProcessedRows.length} row(s) visible · Ctrl+K to toggle</span>
+        </div>
+      )}
+
+      {/* ── Table (with optional split pane) ── */}
+      <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"row",overflow:"hidden"}}>
       {/* ── Table ── */}
-      <div ref={tableRef} style={{flex:1,minHeight:0,overflow:"auto",position:"relative"}} tabIndex={-1}>
+      <div ref={tableRef} style={{flex:splitPane?splitRatio:1,minHeight:0,overflow:"auto",position:"relative"}} tabIndex={-1}>
         <table style={{borderCollapse:"collapse",tableLayout:"fixed",fontSize:12,fontFamily:"'Courier New',monospace",minWidth:"100%"}}>
           <thead>
             <tr>
@@ -1386,7 +1655,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
               {visibleCols.map((c,ci)=>{
                 const isFrozen=ci<frozenCols,hasFilter=filters[c.key]?.size>0,isSorted=sortConfig.key===c.key,vRule=validation[c.key];
                 return (
-                  <th key={ci} className="xl-filter-anchor" style={{background:HEADER_BG,padding:"0 4px",textAlign:"left",fontWeight:600,fontSize:11,color:"#555",border:showGridLines?`1px solid ${BORDER}`:"none",whiteSpace:"nowrap",position:"sticky",top:0,left:isFrozen?frozenLeft(ci):undefined,zIndex:isFrozen?30:10,userSelect:"none",height:28,minWidth:colW(ci),width:colW(ci)}}>
+                  <th key={ci} className="xl-filter-anchor" draggable onDragStart={()=>setColDrag(ci)} onDragOver={e=>{e.preventDefault();setColDragOver(ci);}} onDrop={handleColDragEnd} style={{background:colDragOver===ci?"#c7d2fe":HEADER_BG,padding:"0 4px",textAlign:"left",fontWeight:600,fontSize:11,color:"#555",border:showGridLines?`1px solid ${BORDER}`:"none",whiteSpace:"nowrap",position:"sticky",top:0,left:isFrozen?frozenLeft(ci):undefined,zIndex:isFrozen?30:10,userSelect:"none",height:28,minWidth:colW(ci),width:colW(ci),cursor:"grab"}}>
                     <div style={{display:"flex",alignItems:"center",gap:3,height:"100%",position:"relative"}}>
                       <span style={{color:"#bbb",fontSize:10}}>{colLetter(ci)}</span>
                       <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}} onClick={()=>setSortConfig(s=>({key:c.key,dir:s.key===c.key&&s.dir==="asc"?"desc":"asc"}))}>
@@ -1411,7 +1680,20 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
               const isFrozenRow=ri<frozenRows;
               return (
                 <tr key={ri} style={{height:rowHeights[ri]||26,position:isFrozenRow?"sticky":"relative",top:isFrozenRow?28+ri*26:undefined,zIndex:isFrozenRow?20:undefined,background:isFrozenRow?FROZEN_BG:"transparent"}}>
-                  <td style={{background:"#E8EAED",textAlign:"center",color:"#888",fontSize:11,fontWeight:600,position:"sticky",left:0,zIndex:isFrozenRow?25:5,border:showGridLines?`1px solid ${BORDER}`:"none",cursor:"default",height:rowHeights[ri]||26,padding:0,fontFamily:"monospace",width:44,minWidth:44}}>{ri+1}</td>
+                  <td
+                    draggable
+                    onDragStart={()=>setRowDrag(ri)}
+                    onDragOver={e=>{e.preventDefault();setRowDragOver(ri);}}
+                    onDrop={handleRowDragEnd}
+                    title="Drag to reorder row"
+                    style={{background:rowDragOver===ri?"#c7d2fe":"#E8EAED",textAlign:"center",color:"#888",fontSize:11,fontWeight:600,position:"sticky",left:0,zIndex:isFrozenRow?25:5,border:showGridLines?`1px solid ${BORDER}`:"none",cursor:"grab",height:rowHeights[ri]||26,padding:0,fontFamily:"monospace",width:44,minWidth:44,userSelect:"none"}}
+                  >
+                    {/* Group toggle indicator */}
+                    {rowGroups.map((g,gi)=>g.start===ri?(
+                      <span key={gi} onClick={e=>{e.stopPropagation();toggleGroup(gi);}} style={{fontSize:9,cursor:"pointer",marginRight:1}}>{g.collapsed?"▶":"▼"}</span>
+                    ):null)}
+                    {ri+1}
+                  </td>
                   {onDelete&&<td style={{background:"#E8EAED",textAlign:"center",padding:"0 2px",position:"sticky",left:44,zIndex:isFrozenRow?25:5,border:showGridLines?`1px solid ${BORDER}`:"none",width:28,minWidth:28}}><button onClick={()=>onDelete(r.__origIdx)} style={{background:"none",border:"none",cursor:"pointer",color:"#EF4444",fontSize:12,padding:"1px 3px",lineHeight:1}}>✕</button></td>}
                   {visibleCols.map((c,ci)=>{
                     const isEd=editing?.ri===ri&&editing?.ci===ci;
@@ -1421,11 +1703,12 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
                     const isFrozenC=ci<frozenCols;
                     const isFormula=typeof rawVal==="string"&&rawVal.startsWith("=");
                     const condStyle=applyCondFmt(dispVal,condFmtRules,c.key,rows.map(row=>row[c.key]));
-                    const hasValError=validErrors[`${ri}-${ci}`];
+                    const stableKey=`${r.__origIdx}-${c.key}`;
+                    const hasValError=validErrors[stableKey];
                     const vRule=validation[c.key];
                     const isDropdown=vRule?.type==="list"&&isEd;
                     const fmt=getFmt(ri,ci);
-                    const hasComment=!!comments[`${ri}-${ci}`];
+                    const hasComment=!!comments[stableKey];
                     const rowBg=zebra?(ri%2===0?"#fff":"#FAFAFA"):"#fff";
                     const baseBg=(!condStyle||condStyle.__databar)?undefined:condStyle?.background||(fmt.fillColor&&fmt.fillColor!=="#ffffff"?fmt.fillColor:isSel?SEL_BG:isFrozenC?FROZEN_BG:rowBg);
                     const resolvedBg=baseBg||(fmt.fillColor&&fmt.fillColor!=="#ffffff"?fmt.fillColor:isSel?SEL_BG:isFrozenC?FROZEN_BG:rowBg);
@@ -1462,7 +1745,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
                         onContextMenu={e=>openContextMenu(e,ri,ci)}
                         onFocus={()=>{if(!editing){setSelection({start:{ri,ci},end:null});const v=r[c.key];setFormulaInput(v!==undefined?String(v):"");}}}
                         onKeyDown={e=>handleCellKeyDown(e,ri,ci)}
-                        title={hasValError?hasValError:hasComment?comments[`${ri}-${ci}`]:undefined}
+                        title={hasValError?hasValError:hasComment?comments[stableKey]:undefined}
                       >
                         {/* Comment indicator */}
                         {hasComment&&!isEd&&<div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",borderWidth:"0 6px 6px 0",borderColor:"transparent #f59e0b transparent transparent",pointerEvents:"none"}}/>}
@@ -1487,6 +1770,21 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
                               {c.xlRender?c.xlRender(dispVal,r):String(dispVal??"")}
                             </span>
                             {condStyle?.__databar&&<div style={{position:"absolute",left:0,top:0,bottom:0,width:`${condStyle.pct}%`,background:condStyle.color,opacity:0.25,pointerEvents:"none"}}/>}
+                            {/* Fill handle – bottom-right corner of selection's last cell */}
+                            {isSel&&!isEd&&selection.start&&!selection.end&&selection.start.ri===ri&&selection.start.ci===ci&&(
+                              <div
+                                onMouseDown={e=>{e.preventDefault();e.stopPropagation();setFillDrag({startRi:ri,startCi:ci,endRi:ri,endCi:ci});}}
+                                onMouseMove={e=>{if(fillDrag){setFillDrag(fd=>fd?{...fd,endRi:ri,endCi:ci}:fd);}}}
+                                onMouseUp={applyFillDrag}
+                                style={{position:"absolute",right:-4,bottom:-4,width:8,height:8,background:SEL_COLOR,border:"1px solid #fff",cursor:"crosshair",zIndex:20,borderRadius:1}}
+                              />
+                            )}
+                            {/* Trace arrow highlight */}
+                            {traceCell&&getTracedCells(traceCell.ri,traceCell.ci).some(t=>t.ri===ri&&t.ci===ci)&&(
+                              <div style={{position:"absolute",inset:0,border:`2px solid #f59e0b`,pointerEvents:"none",borderRadius:1,zIndex:12}}/>
+                            )}
+                            {/* Pin indicator */}
+                            {pinnedRows.has(ri)&&ci===0&&<span style={{position:"absolute",left:2,top:2,fontSize:8,opacity:0.5}}>📌</span>}
                           </>
                         )}
                       </td>
@@ -1498,6 +1796,37 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete }
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* ── Split pane second panel ── */}
+      {splitPane&&(
+        <>
+          <div onMouseDown={e=>{const sx=e.clientX;const onMove=ev=>{const dx=ev.clientX-sx;setSplitRatio(r=>Math.max(0.2,Math.min(0.8,r+dx/window.innerWidth)));};const onUp=()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);e.preventDefault();}} style={{width:4,background:BORDER,cursor:"col-resize",flexShrink:0,zIndex:10}}/>
+          <div style={{flex:1,minHeight:0,overflow:"auto",borderLeft:`1px solid ${BORDER}`}} tabIndex={-1}>
+            <table style={{borderCollapse:"collapse",tableLayout:"fixed",fontSize:12,fontFamily:"'Courier New',monospace",minWidth:"100%"}}>
+              <thead><tr>
+                <th style={{background:HEADER_BG,width:44,minWidth:44,position:"sticky",left:0,top:0,zIndex:10,textAlign:"center",border:`1px solid ${BORDER}`,fontSize:11,color:"#888",height:28}}>
+                  <span style={{fontSize:10}}>⧠</span>
+                </th>
+                {visibleCols.map((c,ci)=>(
+                  <th key={ci} style={{background:HEADER_BG,padding:"0 4px",textAlign:"left",fontWeight:600,fontSize:11,color:"#555",border:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:10,height:28,minWidth:colW(ci),width:colW(ci)}}>
+                    <span style={{color:"#bbb",fontSize:10}}>{colLetter(ci)} </span>{c.label}
+                  </th>
+                ))}
+              </tr></thead>
+              <tbody>{visibleProcessedRows.map((r,ri)=>(
+                <tr key={ri}>
+                  <td style={{background:"#E8EAED",textAlign:"center",color:"#888",fontSize:11,position:"sticky",left:0,border:`1px solid ${BORDER}`,padding:0,width:44,height:rowHeights[ri]||26}}>{ri+1}</td>
+                  {visibleCols.map((c,ci)=>{
+                    const v=evalCell(r[c.key],ri,ci);
+                    return <td key={ci} onClick={e=>select(ri,ci,e.shiftKey)} style={{padding:"0 6px",border:`1px solid ${BORDER}`,fontSize:12,height:rowHeights[ri]||26,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:colW(ci),width:colW(ci),background:isSelected(ri,ci)?SEL_BG:"inherit",cursor:"cell"}}>{String(v??"")}</td>;
+                  })}
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </>
+      )}
       </div>
 
       {/* ── Sheet Tabs ── */}

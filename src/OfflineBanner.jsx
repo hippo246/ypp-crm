@@ -9,18 +9,23 @@
 
 import { useOfflineStatus } from "./services/offlineManager";
 import { B } from "./constants";
+import { useAppData } from "./context/AppContext";
 
 export default function OfflineBanner() {
   const { online, queueLength } = useOfflineStatus();
+  const { autoSaveStatus } = useAppData();
 
-  if (online && queueLength === 0) return null;
+  const showSaving = autoSaveStatus === "saving";
+  if (online && queueLength === 0 && !showSaving) return null;
 
   const syncing = online && queueLength > 0;
-  const bg     = syncing ? "#FFF7ED" : "#FEF2F2";
-  const color  = syncing ? "#C2410C" : "#B91C1C";
-  const border = syncing ? "#FED7AA" : "#FECACA";
-  const icon   = syncing ? "🔄" : "📡";
-  const msg    = syncing
+  const bg     = showSaving ? "#EFF6FF" : syncing ? "#FFF7ED" : "#FEF2F2";
+  const color  = showSaving ? "#1D4ED8" : syncing ? "#C2410C" : "#B91C1C";
+  const border = showSaving ? "#BFDBFE" : syncing ? "#FED7AA" : "#FECACA";
+  const icon   = showSaving ? "💾" : syncing ? "🔄" : "📡";
+  const msg    = showSaving
+    ? "Auto-saving…"
+    : syncing
     ? `Syncing ${queueLength} pending change${queueLength !== 1 ? "s" : ""}…`
     : "You're offline — changes saved locally and will sync on reconnect";
 
