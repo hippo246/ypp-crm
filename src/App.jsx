@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { B, INIT } from "./constants";
 import { AppProvider, useAppData } from "./context/AppContext";
 import { can, getVisibleModules } from "./services/permissions";
@@ -40,43 +40,130 @@ const ROLE_COLORS = {
 
 const ROLES = ["Admin", "Sales", "Accountant", "Operations"];
 
+// ── Theme tokens (light / dark) ────────────────────────────────────────────────
+function getTheme(dark) {
+  return dark ? {
+    bg: "#0f1117", surface: "#1a1d27", border: "#2a2d3a", text: "#e8eaf0",
+    muted: "#6b7280", accent: "#5b9bd5", sidebar: "linear-gradient(180deg,#0d1520 0%,#0a1018 100%)",
+    topbar: "#13161f", card: "#1e2130", input: "#252836", hover: "#252836",
+  } : {
+    bg: B.bg, surface: B.white, border: B.border, text: B.text,
+    muted: B.muted, accent: B.accent, sidebar: "linear-gradient(180deg,#1a2f4a 0%,#152539 100%)",
+    topbar: B.white, card: B.white, input: B.light, hover: B.light,
+  };
+}
+
+// ── Command palette ────────────────────────────────────────────────────────────
+function CommandPalette({ navItems, onNavigate, onClose, dark }) {
+  const T = getTheme(dark);
+  const [q, setQ] = useState("");
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const NAV_CMDS = navItems.map(n => ({ label: n.label, icon: n.icon, action: () => onNavigate(n.id), group: "Navigate" }));
+  const ALL_CMDS = [
+    ...NAV_CMDS,
+    { label: "Toggle dark mode", icon: "🌙", action: () => { onClose(); }, group: "Settings" },
+    { label: "Add Task", icon: "✚", action: () => { onNavigate("tasks"); onClose(); }, group: "Quick Add" },
+    { label: "Add Lead", icon: "✚", action: () => { onNavigate("leads"); onClose(); }, group: "Quick Add" },
+  ];
+  const filtered = q ? ALL_CMDS.filter(c => c.label.toLowerCase().includes(q.toLowerCase())) : ALL_CMDS;
+  const groups = [...new Set(filtered.map(c => c.group))];
+
+  const handleKey = (e) => {
+    if (e.key === "Escape") onClose();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh" }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ width: 560, background: T.surface, borderRadius: 14, boxShadow: "0 24px 64px rgba(0,0,0,0.35)", overflow: "hidden", border: `1px solid ${T.border}`, animation: "slideDown 0.15s ease" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 16, color: T.muted }}>⌕</span>
+          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={handleKey}
+            placeholder="Type a command or search…"
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 14, background: "transparent", color: T.text, fontFamily: "inherit" }} />
+          <kbd style={{ fontSize: 10, color: T.muted, background: T.input, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px" }}>esc</kbd>
+        </div>
+        <div style={{ maxHeight: 380, overflowY: "auto", padding: "6px 0" }}>
+          {groups.map(group => (
+            <div key={group}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.8px", color: T.muted, padding: "8px 16px 4px", textTransform: "uppercase" }}>{group}</div>
+              {filtered.filter(c => c.group === group).map((c, i) => (
+                <div key={i} onClick={() => { c.action(); onClose(); }}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer", color: T.text, fontSize: 13, transition: "background 0.1s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <span style={{ fontSize: 14, width: 20, textAlign: "center", opacity: 0.7 }}>{c.icon}</span>
+                  {c.label}
+                </div>
+              ))}
+            </div>
+          ))}
+          {filtered.length === 0 && <div style={{ padding: "24px 16px", textAlign: "center", color: T.muted, fontSize: 13 }}>No results for "{q}"</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Hover preview card ─────────────────────────────────────────────────────────
+function NavHoverCard({ n, badges, T }) {
+  const TIPS = { dashboard: "Overview & KPIs", leads: "Pipeline & prospects", clients: "Active accounts", tasks: "Work & assignments", accounting: "Invoices & payments", inventory: "Stock levels", suppliers: "Vendor management", calendar: "Schedule & deadlines", analytics: "Charts & trends", reports: "Exports & summaries", automations: "Workflow rules" };
+  return (
+    <div style={{ position: "absolute", left: "calc(100% + 8px)", top: "50%", transform: "translateY(-50%)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", boxShadow: "0 8px 24px rgba(0,0,0,0.15)", zIndex: 200, whiteSpace: "nowrap", pointerEvents: "none", minWidth: 160 }}>
+      <div style={{ fontWeight: 700, fontSize: 12, color: T.text, marginBottom: 2 }}>{n.label}</div>
+      <div style={{ fontSize: 11, color: T.muted }}>{TIPS[n.id] || ""}</div>
+      {badges?.[n.id] > 0 && <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: B.orange }}>{badges[n.id]} pending</div>}
+    </div>
+  );
+}
+
 // ── Notification panel ────────────────────────────────────────────────────────
-function NotifPanel({ notifications, onClose, onMarkRead, onMarkAll }) {
+function NotifPanel({ notifications, onClose, onMarkRead, onMarkAll, dark }) {
+  const T = getTheme(dark);
   const SCOLOR = { high: B.red, medium: B.orange, low: B.muted };
   return (
     <div style={{
-      position: "absolute", top: 50, right: 10, width: 340, maxHeight: 460,
-      background: B.white, border: `1px solid ${B.border}`, borderRadius: 10,
-      boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 1000,
+      position: "absolute", top: 50, right: 0, width: 360, maxHeight: 480,
+      background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12,
+      boxShadow: "0 12px 40px rgba(0,0,0,0.18)", zIndex: 1000,
       display: "flex", flexDirection: "column", overflow: "hidden",
+      animation: "fadeIn 0.15s ease",
     }}>
-      <div style={{ padding: "12px 14px", borderBottom: `1px solid ${B.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <span style={{ fontWeight: 700, fontSize: 13 }}>Notifications</span>
+      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div>
+          <span style={{ fontWeight: 700, fontSize: 13, color: T.text }}>Notifications</span>
+          {notifications.filter(n => !n.read).length > 0 && <span style={{ marginLeft: 8, fontSize: 10, background: B.red, color: "#fff", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{notifications.filter(n => !n.read).length}</span>}
+        </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={onMarkAll} style={{ fontSize: 11, color: B.accent, background: "none", border: "none", cursor: "pointer", padding: 0 }}>Mark all read</button>
-          <button onClick={onClose} style={{ fontSize: 16, color: B.muted, background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1 }}>✕</button>
+          <button onClick={onClose} style={{ fontSize: 16, color: T.muted, background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1 }}>✕</button>
         </div>
       </div>
       <div style={{ overflowY: "auto", flex: 1 }}>
         {notifications.length === 0 && (
-          <div style={{ padding: 24, textAlign: "center", color: B.muted, fontSize: 13 }}>All clear! No notifications.</div>
+          <div style={{ padding: 32, textAlign: "center", color: T.muted, fontSize: 13 }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🎉</div>
+            All clear! No notifications.
+          </div>
         )}
         {notifications.map((n) => (
           <div key={n.id} onClick={() => onMarkRead(n.id)}
             style={{
-              padding: "10px 14px", borderBottom: `1px solid ${B.border}`,
-              background: n.read ? "transparent" : "#F0F7FF",
-              cursor: "pointer", transition: "background 0.1s",
+              padding: "11px 16px", borderBottom: `1px solid ${T.border}`,
+              background: n.read ? "transparent" : (dark ? "rgba(93,130,200,0.08)" : "#F0F7FF"),
+              cursor: "pointer", transition: "background 0.12s", display: "flex", gap: 10, alignItems: "flex-start",
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background = "#F8FAFC"}
-            onMouseLeave={(e) => e.currentTarget.style.background = n.read ? "transparent" : "#F0F7FF"}
+            onMouseEnter={(e) => e.currentTarget.style.background = T.hover}
+            onMouseLeave={(e) => e.currentTarget.style.background = n.read ? "transparent" : (dark ? "rgba(93,130,200,0.08)" : "#F0F7FF")}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: SCOLOR[n.severity], flexShrink: 0 }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: B.text, flex: 1 }}>{n.title}</span>
-              {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: B.accent, flexShrink: 0 }} />}
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: SCOLOR[n.severity], flexShrink: 0, marginTop: 4 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 2 }}>{n.title}</div>
+              <div style={{ fontSize: 11, color: T.muted }}>{n.body}</div>
             </div>
-            <div style={{ fontSize: 11, color: B.muted, paddingLeft: 12 }}>{n.body}</div>
+            {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: B.accent, flexShrink: 0, marginTop: 4 }} />}
           </div>
         ))}
       </div>
@@ -102,27 +189,26 @@ function useSidebarBadges(data) {
 }
 
 // ── Sidebar nav item ──────────────────────────────────────────────────────────
-function SideNavItem({ n, active, collapsed, badge, onClick }) {
+function SideNavItem({ n, active, collapsed, badge, onClick, onContextMenu }) {
   const [hovered, setHovered] = useState(false);
   return (
-    <div onClick={onClick}
+    <div onClick={onClick} onContextMenu={onContextMenu}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       title={collapsed ? n.label : undefined}
       style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: collapsed ? "9px 0" : "8px 14px",
+        display: "flex", alignItems: "center", gap: 9,
+        padding: collapsed ? "9px 0" : "7px 14px",
         justifyContent: collapsed ? "center" : "flex-start",
         cursor: "pointer",
-        color: active ? "#fff" : hovered ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.52)",
-        background: active ? "rgba(255,255,255,0.11)" : hovered ? "rgba(255,255,255,0.055)" : "transparent",
-        borderLeft: collapsed ? "none" : `3px solid ${active ? B.yellow : "transparent"}`,
-        borderRight: collapsed ? `3px solid ${active ? B.yellow : "transparent"}` : "none",
-        fontSize: 12, fontWeight: active ? 700 : 400,
-        transition: "all 0.13s",
+        color: active ? "#fff" : hovered ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.50)",
+        background: active ? "rgba(255,255,255,0.10)" : hovered ? "rgba(255,255,255,0.05)" : "transparent",
+        borderLeft: collapsed ? "none" : `2px solid ${active ? B.yellow : "transparent"}`,
+        fontSize: 12, fontWeight: active ? 600 : 400,
+        transition: "all 0.12s",
         position: "relative",
       }}>
-      <span style={{ fontSize: 13, flexShrink: 0, opacity: active ? 1 : 0.75 }}>{n.icon}</span>
+      <span style={{ fontSize: 13, flexShrink: 0, opacity: active ? 1 : 0.72 }}>{n.icon}</span>
       {!collapsed && <span style={{ flex: 1, letterSpacing: "0.1px" }}>{n.label}</span>}
       {!collapsed && badge > 0 && (
         <span style={{ fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, background: n.id === "accounting" ? "#ef4444" : B.yellow, color: n.id === "accounting" ? "#fff" : "#1a2f4a", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", flexShrink: 0 }}>
@@ -132,6 +218,8 @@ function SideNavItem({ n, active, collapsed, badge, onClick }) {
       {collapsed && badge > 0 && (
         <span style={{ position: "absolute", top: 5, right: 6, width: 7, height: 7, borderRadius: "50%", background: n.id === "accounting" ? "#ef4444" : B.yellow }} />
       )}
+      {/* Hover preview card — only in collapsed mode */}
+      {collapsed && hovered && <NavHoverCard n={n} badges={{ [n.id]: badge }} T={getTheme(false)} />}
     </div>
   );
 }
@@ -145,16 +233,50 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   const [showNotifs, setShowNotifs] = useState(false);
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // UI modes
+  const [dark, setDark] = useState(false);
+  const [compact, setCompact] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const T = getTheme(dark);
   const badges = useSidebarBadges(data);
 
   const role = currentUser.role;
   const visibleModules = getVisibleModules(role);
   const navItems = ALL_NAV.filter((n) => n.id === "dashboard" || visibleModules.includes(n.id));
-
-  // If current tab got hidden by role change, reset to dashboard
   const activeTab = navItems.find((n) => n.id === tab) ? tab : "dashboard";
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setShowPalette(p => !p); }
+      if (e.key === "Escape") { setShowPalette(false); setContextMenu(null); setShowNotifs(false); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "\\") { e.preventDefault(); setSidebarCollapsed(c => !c); }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "F") { e.preventDefault(); setFocusMode(f => !f); }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "D") { e.preventDefault(); setDark(d => !d); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Close context menu on scroll/click
+  useEffect(() => {
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
+  }, []);
+
+  // Apply dark mode to body
+  useEffect(() => {
+    document.body.style.background = T.bg;
+    document.body.style.colorScheme = dark ? "dark" : "light";
+  }, [dark]);
 
   const titles = {
     dashboard: "Dashboard", leads: "Leads", clients: "Ongoing Clients",
@@ -165,13 +287,22 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
   const legacyProps = { data, setData, viewMode, search };
 
+  const handleNavContextMenu = (e, n) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: `Open ${n.label}`, action: () => setTab(n.id) },
+      { label: "Open in focus mode", action: () => { setTab(n.id); setFocusMode(true); } },
+      { label: badges[n.id] ? `${badges[n.id]} pending items` : "No pending items", disabled: true },
+    ]});
+  };
+
   const renderTab = () => {
     if (activeTab !== "dashboard" && !can(role, activeTab, "view")) {
       return (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 8, color: B.muted }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 8, color: T.muted }}>
           <div style={{ fontSize: 32 }}>🔒</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: B.text }}>Access restricted</div>
-          <div style={{ fontSize: 13 }}>Your role ({role}) cannot view this module.</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Access restricted</div>
+          <div style={{ fontSize: 13, color: T.muted }}>Your role ({role}) cannot view this module.</div>
         </div>
       );
     }
@@ -191,212 +322,255 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
     }
   };
 
-  function markRead(id) {
-    dispatch({ type: "MARK_NOTIF_READ", id });
-  }
-
-  function markAll() {
-    dispatch({ type: "MARK_ALL_READ", ids: notifications.map((n) => n.id) });
-  }
+  function markRead(id) { dispatch({ type: "MARK_NOTIF_READ", id }); }
+  function markAll() { dispatch({ type: "MARK_ALL_READ", ids: notifications.map((n) => n.id) }); }
 
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: 13, color: B.text, background: B.bg }}>
-      {/* Mobile overlay */}
+    <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: compact ? 12 : 13, color: T.text, background: T.bg, transition: "background 0.2s, color 0.2s" }}>
+
+      {/* Command palette */}
+      {showPalette && <CommandPalette navItems={navItems} onNavigate={(id) => { setTab(id); setShowPalette(false); }} onClose={() => setShowPalette(false)} dark={dark} />}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div style={{ position: "fixed", left: contextMenu.x, top: contextMenu.y, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 8px 28px rgba(0,0,0,0.18)", zIndex: 9998, overflow: "hidden", minWidth: 180, animation: "fadeIn 0.1s ease" }}
+          onClick={e => e.stopPropagation()}>
+          {contextMenu.items.map((item, i) => (
+            <div key={i} onClick={() => { if (!item.disabled) { item.action(); setContextMenu(null); } }}
+              style={{ padding: "8px 14px", fontSize: 12, cursor: item.disabled ? "default" : "pointer", color: item.disabled ? T.muted : T.text, fontWeight: item.disabled ? 400 : 500, transition: "background 0.1s" }}
+              onMouseEnter={e => { if (!item.disabled) e.currentTarget.style.background = T.hover; }}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              {item.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Sidebar overlay (mobile) */}
       <div className={`sidebar-overlay${drawerOpen ? " open" : ""}`} onClick={() => setDrawerOpen(false)} />
 
-      {/* Sidebar — desktop: static, mobile: drawer */}
-      <div className={`sidebar sidebar-drawer${drawerOpen ? " open" : ""}`} style={{
-        width: sidebarCollapsed ? 56 : 220,
-        background: "linear-gradient(180deg, #1a2f4a 0%, #152539 100%)",
-        display: "flex", flexDirection: "column", flexShrink: 0,
-        transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)",
-        overflow: "hidden",
-        boxShadow: "2px 0 12px rgba(0,0,0,0.18)",
-      }}>
-        {/* Logo row */}
-        <div style={{ padding: sidebarCollapsed ? "14px 0" : "14px 14px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9, justifyContent: sidebarCollapsed ? "center" : "flex-start" }}>
-            <div style={{ width: 30, height: 30, background: B.yellow, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}>☀</div>
-            {!sidebarCollapsed && (
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: "#fff", fontWeight: 800, fontSize: 11, letterSpacing: "0.8px", textTransform: "uppercase" }}>Yes Pinoy Pro</div>
-                <div style={{ color: "rgba(255,255,255,0.38)", fontSize: 9.5, letterSpacing: "0.3px" }}>Business CRM · Dubai</div>
-              </div>
-            )}
-            {!sidebarCollapsed && (
-              <button onClick={() => setDrawerOpen(false)} style={{ display: "none", background: "none", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 18, cursor: "pointer", padding: 0 }} className="sidebar-close-btn">✕</button>
-            )}
-          </div>
-        </div>
-
-        {/* Nav */}
-        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "10px 0", scrollbarWidth: "none" }}>
-          {/* Dashboard (ungrouped) */}
-          {navItems.filter(n => n.group === null).map(n => (
-            <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]} onClick={() => { setTab(n.id); setDrawerOpen(false); }} />
-          ))}
-
-          {/* Grouped sections */}
-          {["CRM", "Finance", "Ops"].map(group => {
-            const items = navItems.filter(n => n.group === group);
-            if (!items.length) return null;
-            return (
-              <div key={group}>
-                {!sidebarCollapsed && (
-                  <div style={{ padding: "14px 14px 4px", fontSize: 9, fontWeight: 700, letterSpacing: "1.2px", color: "rgba(255,255,255,0.25)", textTransform: "uppercase" }}>
-                    {group}
-                  </div>
-                )}
-                {sidebarCollapsed && <div style={{ height: 10, borderTop: "1px solid rgba(255,255,255,0.07)", margin: "4px 8px" }} />}
-                {items.map(n => (
-                  <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]} onClick={() => { setTab(n.id); setDrawerOpen(false); }} />
-                ))}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Bottom section */}
-        {!sidebarCollapsed && (
-          <div style={{ padding: "10px 12px 0", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-            {/* User card */}
-            <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 0 10px" }}>
-              <div style={{ width: 30, height: 30, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", flexShrink: 0, border: "2px solid rgba(255,255,255,0.15)" }}>
-                {currentUser.avatar}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: "#fff", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 1 }}>
-                  <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#4ade80" }} />
-                  <span style={{ color: "rgba(255,255,255,0.38)", fontSize: 9.5 }}>{role}</span>
+      {/* Sidebar */}
+      {!focusMode && (
+        <div className={`sidebar sidebar-drawer${drawerOpen ? " open" : ""}`} style={{
+          width: sidebarCollapsed ? 54 : 216,
+          background: T.sidebar,
+          display: "flex", flexDirection: "column", flexShrink: 0,
+          transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)",
+          overflow: "hidden",
+          boxShadow: "2px 0 16px rgba(0,0,0,0.15)",
+        }}>
+          {/* Logo */}
+          <div style={{ padding: sidebarCollapsed ? "14px 0" : "14px 14px 10px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, justifyContent: sidebarCollapsed ? "center" : "flex-start" }}>
+              <div style={{ width: 28, height: 28, background: B.yellow, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}>☀</div>
+              {!sidebarCollapsed && (
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "#fff", fontWeight: 800, fontSize: 10.5, letterSpacing: "0.8px", textTransform: "uppercase" }}>Yes Pinoy Pro</div>
+                  <div style={{ color: "rgba(255,255,255,0.32)", fontSize: 9, letterSpacing: "0.3px" }}>Business CRM · Dubai</div>
                 </div>
-              </div>
+              )}
+              <button onClick={() => setDrawerOpen(false)} className="sidebar-close-btn"
+                style={{ display: "none", background: "none", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 16, cursor: "pointer", padding: 0 }}>✕</button>
             </div>
-            {/* View mode toggle */}
-            <div style={{ display: "flex", background: "rgba(0,0,0,0.3)", borderRadius: 7, padding: 2, gap: 2, marginBottom: 8 }}>
-              {[["normal","▣ Cards"],["excel","⊞ Excel"]].map(([m, lbl]) => (
-                <button key={m} onClick={() => setViewMode(m)} style={{ flex: 1, padding: "5px 4px", fontSize: 10, fontWeight: 700, border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: viewMode === m ? B.yellow : "transparent", color: viewMode === m ? "#1a2f4a" : "rgba(255,255,255,0.45)", transition: "all 0.15s", letterSpacing: "0.2px" }}>
-                  {lbl}
+          </div>
+
+          {/* Search hint */}
+          {!sidebarCollapsed && (
+            <button onClick={() => setShowPalette(true)}
+              style={{ margin: "8px 10px 2px", padding: "6px 10px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 7, display: "flex", alignItems: "center", gap: 7, cursor: "pointer", color: "rgba(255,255,255,0.38)", fontSize: 11, fontFamily: "inherit", transition: "all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.10)"; e.currentTarget.style.color = "rgba(255,255,255,0.65)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.38)"; }}>
+              <span style={{ fontSize: 12 }}>⌕</span>
+              <span style={{ flex: 1 }}>Search…</span>
+              <kbd style={{ fontSize: 9, background: "rgba(255,255,255,0.1)", borderRadius: 3, padding: "1px 5px", letterSpacing: "0.3px" }}>⌘K</kbd>
+            </button>
+          )}
+
+          {/* Nav items */}
+          <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "6px 0 4px", scrollbarWidth: "none" }}>
+            {navItems.filter(n => n.group === null).map(n => (
+              <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]}
+                onClick={() => { setTab(n.id); setDrawerOpen(false); }}
+                onContextMenu={(e) => handleNavContextMenu(e, n)} />
+            ))}
+            {["CRM", "Finance", "Ops"].map(group => {
+              const items = navItems.filter(n => n.group === group);
+              if (!items.length) return null;
+              return (
+                <div key={group}>
+                  {!sidebarCollapsed && (
+                    <div style={{ padding: "12px 14px 3px", fontSize: 8.5, fontWeight: 700, letterSpacing: "1.2px", color: "rgba(255,255,255,0.22)", textTransform: "uppercase" }}>{group}</div>
+                  )}
+                  {sidebarCollapsed && <div style={{ height: 8, borderTop: "1px solid rgba(255,255,255,0.06)", margin: "3px 8px" }} />}
+                  {items.map(n => (
+                    <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]}
+                      onClick={() => { setTab(n.id); setDrawerOpen(false); }}
+                      onContextMenu={(e) => handleNavContextMenu(e, n)} />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Bottom */}
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+            {!sidebarCollapsed && (
+              <div style={{ padding: "10px 12px 8px" }}>
+                {/* User card */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0 8px" }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", flexShrink: 0, border: "2px solid rgba(255,255,255,0.12)" }}>
+                    {currentUser.avatar}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: "#fff", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentUser.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 1 }}>
+                      <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#4ade80" }} />
+                      <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 9 }}>{role}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mode toggles row */}
+                <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                  {[["🌙", dark, () => setDark(d => !d), "Dark"], ["⚡", compact, () => setCompact(c => !c), "Compact"], ["◎", focusMode, () => setFocusMode(f => !f), "Focus"], ["⊞", viewMode === "excel", () => setViewMode(v => v === "excel" ? "normal" : "excel"), "Excel"]].map(([icon, on, fn, tip]) => (
+                    <button key={tip} onClick={fn} title={tip}
+                      style={{ flex: 1, padding: "5px 0", fontSize: 12, background: on ? "rgba(255,200,0,0.18)" : "rgba(255,255,255,0.06)", border: `1px solid ${on ? "rgba(255,200,0,0.35)" : "rgba(255,255,255,0.09)"}`, borderRadius: 6, color: on ? B.yellow : "rgba(255,255,255,0.4)", cursor: "pointer", transition: "all 0.15s" }}>
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+
+                <button onClick={onLogout}
+                  style={{ width: "100%", padding: "5px 8px", fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 6, color: "rgba(255,255,255,0.38)", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.3px", transition: "all 0.15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,60,60,0.15)"; e.currentTarget.style.color = "#fca5a5"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.38)"; }}>
+                  ⎋ Sign out
                 </button>
-              ))}
-            </div>
-            <button onClick={onLogout} style={{ width: "100%", padding: "6px 8px", fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.45)", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.3px", marginBottom: 10, transition: "all 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}>
-              ⎋ Sign out
+              </div>
+            )}
+
+            {/* Collapse toggle */}
+            <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              style={{ width: "100%", padding: compact ? "6px 0" : "7px 0", fontSize: 11, background: "rgba(0,0,0,0.15)", border: "none", borderTop: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.28)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.65)"; e.currentTarget.style.background = "rgba(0,0,0,0.28)"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.28)"; e.currentTarget.style.background = "rgba(0,0,0,0.15)"; }}>
+              {sidebarCollapsed ? "▶" : "◀"}
             </button>
           </div>
-        )}
-
-        {/* Collapse toggle */}
-        <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          style={{ width: "100%", padding: "8px 0", fontSize: 12, background: "rgba(0,0,0,0.2)", border: "none", borderTop: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.35)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s", flexShrink: 0 }}
-          onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.7)"; e.currentTarget.style.background = "rgba(0,0,0,0.35)"; }}
-          onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.35)"; e.currentTarget.style.background = "rgba(0,0,0,0.2)"; }}>
-          {sidebarCollapsed ? "▶" : "◀"}
-        </button>
-      </div>
+        </div>
+      )}
 
       {/* Main */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, minHeight: 0 }}>
         <OfflineBanner />
+
         {/* Topbar */}
-        <div style={{ height: 48, background: B.white, borderBottom: `1px solid ${B.border}`, display: "flex", alignItems: "center", padding: "0 16px", gap: 10, flexShrink: 0, position: "relative", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-          {/* Hamburger — mobile only */}
+        <div style={{ height: compact ? 40 : 46, background: T.topbar, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 14px", gap: 8, flexShrink: 0, position: "relative", boxShadow: dark ? "none" : "0 1px 3px rgba(0,0,0,0.04)", transition: "background 0.2s" }}>
+
+          {/* Hamburger (mobile) */}
           <button className="hamburger-btn" onClick={() => setDrawerOpen(true)}
-            style={{ display: "none", width: 32, height: 32, borderRadius: 6, background: B.light, border: `1px solid ${B.border}`, alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
+            style={{ display: "none", width: 30, height: 30, borderRadius: 6, background: T.input, border: `1px solid ${T.border}`, alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 15, flexShrink: 0 }}>
             ☰
           </button>
-          <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, color: B.text, lineHeight: 1.2 }}>{titles[activeTab]}</div>
-            <div style={{ fontSize: 10, color: B.muted, letterSpacing: "0.2px" }}>
-              {navItems.find(n => n.id === activeTab)?.group ? `${navItems.find(n => n.id === activeTab).group} · ` : ""}{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+
+          {/* Focus mode toggle */}
+          {focusMode && (
+            <button onClick={() => setFocusMode(false)} title="Exit focus mode"
+              style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${T.border}`, background: T.input, borderRadius: 6, cursor: "pointer", color: T.muted, fontFamily: "inherit" }}>
+              ◀ Exit focus
+            </button>
+          )}
+
+          {/* Page title */}
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: compact ? 12 : 13, color: T.text, lineHeight: 1.2, whiteSpace: "nowrap" }}>{titles[activeTab]}</div>
+            {!compact && <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: "0.2px" }}>{navItems.find(n => n.id === activeTab)?.group ? `${navItems.find(n => n.id === activeTab).group} · ` : ""}{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>}
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Search bar */}
+          <div className="topbar-search"
+            style={{ display: "flex", alignItems: "center", gap: 6, background: T.input, border: `1px solid ${searchFocused ? B.accent : T.border}`, borderRadius: 7, padding: "5px 10px", transition: "border-color 0.15s, box-shadow 0.15s", boxShadow: searchFocused ? `0 0 0 3px ${B.accent}20` : "none", cursor: "text" }}
+            onClick={() => { if (!searchFocused) document.querySelector(".topbar-search input")?.focus(); }}>
+            <span style={{ fontSize: 12, color: T.muted }}>⌕</span>
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+              onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
+              placeholder="Search…"
+              style={{ border: "none", background: "transparent", outline: "none", fontSize: 12, color: T.text, width: 140, fontFamily: "inherit" }} />
+            {search
+              ? <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+              : <kbd style={{ fontSize: 9, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>⌘K</kbd>
+            }
+          </div>
+
+          {/* Auto-save dot */}
+          <div title={autoSaveStatus} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.muted }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.border, transition: "background 0.3s" }} />
+            {!compact && <span>{autoSaveStatus === "saved" ? "Saved" : autoSaveStatus === "saving" ? "Saving…" : "Unsaved"}</span>}
+          </div>
+
+          {/* Presence avatars */}
+          {presence.length > 0 && (
+            <div style={{ display: "flex" }}>
+              {presence.slice(0, 4).map((p, i) => (
+                <div key={p.userId} title={`${p.name} · ${p.activeTab || "browsing"}`}
+                  style={{ width: 24, height: 24, borderRadius: "50%", background: p.color || B.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: i === 0 ? 0 : -7, zIndex: 10 - i, position: "relative" }}>
+                  {p.avatar || p.name?.[0]}
+                </div>
+              ))}
+              {presence.length > 4 && <div style={{ width: 24, height: 24, borderRadius: "50%", background: T.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: -7 }}>+{presence.length - 4}</div>}
             </div>
-          </div>
+          )}
 
-          {/* Search */}
-          <div className="topbar-search" style={{ display: "flex", alignItems: "center", gap: 6, background: B.light, border: `1px solid ${B.border}`, borderRadius: 6, padding: "5px 10px", transition: "border-color 0.15s" }}
-            onFocus={() => {}} >
-            <span style={{ fontSize: 12, color: B.muted }}>⌕</span>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search anything…"
-              style={{ border: "none", background: "transparent", outline: "none", fontSize: 12, color: B.text, width: 160, fontFamily: "inherit" }} />
-            {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>}
-          </div>
-
-          {/* Role switcher (dev tool) */}
+          {/* Role picker */}
           <div className="topbar-role-picker" style={{ position: "relative" }}>
             <button onClick={() => setShowRolePicker(!showRolePicker)}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", background: B.light, border: `1px solid ${B.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: ROLE_COLORS[role] }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: ROLE_COLORS[role] }} />
-              {role} ▾
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: ROLE_COLORS[role], transition: "all 0.15s" }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: ROLE_COLORS[role] }} />{role} ▾
             </button>
             {showRolePicker && (
-              <div style={{ position: "absolute", top: 34, right: 0, background: B.white, border: `1px solid ${B.border}`, borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 999, minWidth: 130, overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 36, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", zIndex: 999, minWidth: 140, overflow: "hidden" }}>
                 {ROLES.map((r) => (
                   <div key={r} onClick={() => { onRoleChange(r); setShowRolePicker(false); }}
-                    style={{ padding: "8px 14px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: r === role ? B.light : "transparent", fontWeight: r === role ? 600 : 400 }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = B.light}
-                    onMouseLeave={(e) => e.currentTarget.style.background = r === role ? B.light : "transparent"}
-                  >
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: ROLE_COLORS[r] }} />
-                    {r}
+                    style={{ padding: "8px 14px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: r === role ? T.hover : "transparent", fontWeight: r === role ? 600 : 400, color: T.text, transition: "background 0.1s" }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = T.hover}
+                    onMouseLeave={(e) => e.currentTarget.style.background = r === role ? T.hover : "transparent"}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: ROLE_COLORS[r] }} />{r}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Auto-save status */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : B.muted }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : B.border }} />
-            {autoSaveStatus === "saved" ? "Saved" : autoSaveStatus === "saving" ? "Saving…" : "Unsaved"}
-          </div>
-
-          {/* Presence indicators */}
-          {presence.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: -4 }}>
-              {presence.slice(0, 4).map((p, i) => (
-                <div key={p.userId} title={`${p.name} · ${p.activeTab || "browsing"}`}
-                  style={{ width: 24, height: 24, borderRadius: "50%", background: p.color || B.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", border: "2px solid #fff", marginLeft: i === 0 ? 0 : -6, zIndex: 10 - i, position: "relative", cursor: "default" }}>
-                  {p.avatar || p.name?.[0]}
-                </div>
-              ))}
-              {presence.length > 4 && <div style={{ width: 24, height: 24, borderRadius: "50%", background: B.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", border: "2px solid #fff", marginLeft: -6 }}>+{presence.length - 4}</div>}
-            </div>
-          )}
-
           {/* Bell */}
           <div style={{ position: "relative" }}>
             <button onClick={() => setShowNotifs(!showNotifs)}
-              style={{ width: 32, height: 32, borderRadius: 6, background: B.light, border: `1px solid ${B.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 15, position: "relative" }}>
+              style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.hover}
+              onMouseLeave={e => e.currentTarget.style.background = T.input}>
               🔔
               {unreadCount > 0 && (
-                <div style={{ position: "absolute", top: 3, right: 3, width: 14, height: 14, borderRadius: "50%", background: B.red, color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+                <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: B.red, color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {unreadCount > 9 ? "9+" : unreadCount}
                 </div>
               )}
             </button>
-            {showNotifs && (
-              <NotifPanel
-                notifications={notifications}
-                onClose={() => setShowNotifs(false)}
-                onMarkRead={markRead}
-                onMarkAll={markAll}
-              />
-            )}
+            {showNotifs && <NotifPanel notifications={notifications} onClose={() => setShowNotifs(false)} onMarkRead={markRead} onMarkAll={markAll} dark={dark} />}
           </div>
 
           {/* Avatar */}
-          <div style={{ width: 30, height: 30, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
             {currentUser.avatar}
           </div>
         </div>
 
         {/* Content */}
-        <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: viewMode === "excel" ? "hidden" : "auto", padding: viewMode === "excel" ? 0 : 16 }}>
+        <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: viewMode === "excel" ? "hidden" : "auto", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
           {renderTab()}
         </div>
-        <MobileBottomNav navItems={navItems} activeTab={activeTab} onTabChange={(id) => setTab(id)} />
+
+        {!focusMode && <MobileBottomNav navItems={navItems} activeTab={activeTab} onTabChange={(id) => setTab(id)} />}
       </div>
 
       {/* Close dropdowns on outside click */}
@@ -404,6 +578,35 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
         <div style={{ position: "fixed", inset: 0, zIndex: 998 }}
           onClick={() => { setShowNotifs(false); setShowRolePicker(false); }} />
       )}
+
+      {/* CSS animations */}
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 10px; }
+        .main-content-area { scrollbar-width: thin; }
+        @media (max-width: 768px) {
+          .sidebar { display: none !important; }
+          .sidebar-drawer.open { display: flex !important; position: fixed; top: 0; left: 0; bottom: 0; z-index: 900; }
+          .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 899; }
+          .sidebar-overlay.open { display: block; }
+          .sidebar-close-btn { display: flex !important; }
+          .mobile-bottom-nav { display: flex !important; }
+          .main-content-area { padding-bottom: 70px !important; }
+          .topbar-search { display: none; }
+          .topbar-role-picker { display: none; }
+          .hamburger-btn { display: flex !important; }
+        }
+        @media (max-width: 480px) {
+          .page-pad { padding: 8px !important; }
+        }
+        @media (min-width: 769px) and (max-width: 1024px) {
+          .topbar-search input { width: 110px !important; }
+        }
+      `}</style>
     </div>
   );
 }

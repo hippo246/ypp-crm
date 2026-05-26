@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { B } from "../constants";
 import { filterSearch, nextId } from "../helpers";
 import Badge from "../components/Badge";
@@ -87,11 +87,208 @@ const GanttView = ({ tasks }) => {
   );
 };
 
-// ── Task detail panel ─────────────────────────────────────────────────────────
+// ── Calendar view ─────────────────────────────────────────────────────────────
+const CalendarView = ({ tasks, onOpenDetail, onQuickAdd }) => {
+  const [calDate, setCalDate] = useState(new Date());
+  const [quickDay, setQuickDay] = useState(null);
+  const [quickTitle, setQuickTitle] = useState("");
+
+  const year = calDate.getFullYear();
+  const month = calDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const tasksByDay = useMemo(() => {
+    const map = {};
+    tasks.forEach(t => {
+      if (!t.due) return;
+      const d = t.due.slice(0, 10);
+      if (!map[d]) map[d] = [];
+      map[d].push(t);
+    });
+    return map;
+  }, [tasks]);
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const monthStr = calDate.toLocaleString("en-GB", { month: "long", year: "numeric" });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${B.border}` }}>
+        <button onClick={() => setCalDate(new Date(year, month - 1, 1))}
+          style={{ background: "none", border: `1px solid ${B.border}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 13 }}>‹</button>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{monthStr}</span>
+        <button onClick={() => setCalDate(new Date(year, month + 1, 1))}
+          style={{ background: "none", border: `1px solid ${B.border}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 13 }}>›</button>
+      </div>
+      {/* Day labels */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", background: B.light }}>
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => (
+          <div key={d} style={{ padding: "6px 0", textAlign: "center", fontSize: 10, fontWeight: 700, color: B.muted }}>{d}</div>
+        ))}
+      </div>
+      {/* Day cells */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", flex: 1 }}>
+        {cells.map((day, i) => {
+          if (!day) return <div key={`e${i}`} style={{ borderRight: `1px solid ${B.border}`, borderBottom: `1px solid ${B.border}`, minHeight: 80, background: "#fafafa" }} />;
+          const dateStr = `${year}-${String(month + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+          const dayTasks = tasksByDay[dateStr] || [];
+          const isToday = dateStr === today;
+          const isQuick = quickDay === dateStr;
+          return (
+            <div key={day}
+              style={{ borderRight: `1px solid ${B.border}`, borderBottom: `1px solid ${B.border}`, minHeight: 80, padding: "4px 5px", background: isToday ? B.blue + "08" : "#fff", cursor: "pointer", position: "relative" }}
+              onClick={() => { setQuickDay(isQuick ? null : dateStr); setQuickTitle(""); }}>
+              <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: isToday ? B.blue : B.text,
+                width: 20, height: 20, borderRadius: "50%", background: isToday ? B.blue : "transparent",
+                color: isToday ? "#fff" : B.text, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 3 }}>
+                {day}
+              </div>
+              {dayTasks.slice(0, 3).map(t => (
+                <div key={t.id} onClick={e => { e.stopPropagation(); onOpenDetail(t); }}
+                  style={{ fontSize: 9, padding: "1px 4px", borderRadius: 3, marginBottom: 2, background: t.status === "Done" ? B.green + "22" : t.priority === "High" ? B.red + "22" : B.blue + "18", color: t.status === "Done" ? B.green : t.priority === "High" ? B.red : B.blue, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>
+                  {t.title}
+                </div>
+              ))}
+              {dayTasks.length > 3 && <div style={{ fontSize: 9, color: B.muted }}>+{dayTasks.length - 3} more</div>}
+              {/* Quick-add inline */}
+              {isQuick && (
+                <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "100%", left: 0, zIndex: 50, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 7, padding: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", minWidth: 200 }}>
+                  <div style={{ fontSize: 10, color: B.muted, marginBottom: 4 }}>Add task for {dateStr}</div>
+                  <input autoFocus value={quickTitle} onChange={e => setQuickTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && quickTitle.trim()) { onQuickAdd(quickTitle, dateStr); setQuickDay(null); setQuickTitle(""); } if (e.key === "Escape") setQuickDay(null); }}
+                    placeholder="Task title… Enter to save"
+                    style={{ width: "100%", fontSize: 11, padding: "4px 7px", border: `1px solid ${B.border}`, borderRadius: 5, fontFamily: "inherit", boxSizing: "border-box", outline: "none" }} />
+                  <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+                    <button onClick={() => { if (quickTitle.trim()) { onQuickAdd(quickTitle, dateStr); setQuickDay(null); setQuickTitle(""); }}}
+                      style={{ flex: 1, padding: "4px 0", background: B.blue, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Add</button>
+                    <button onClick={() => setQuickDay(null)}
+                      style={{ padding: "4px 8px", background: "none", border: `1px solid ${B.border}`, borderRadius: 4, fontSize: 10, cursor: "pointer", color: B.muted }}>✕</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ── Private Notes (per-user, localStorage) ────────────────────────────────────
+const PrivateNotes = ({ members }) => {
+  const [identity, setIdentity] = useState(() => localStorage.getItem("ypp_notes_user") || "");
+  const [notes, setNotes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("ypp_private_notes") || "{}"); } catch { return {}; }
+  });
+  const [draft, setDraft] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
+
+  useEffect(() => {
+    if (identity) {
+      localStorage.setItem("ypp_notes_user", identity);
+      setDraft(notes[identity] || "");
+      setUnlocked(true);
+    }
+  }, [identity]);
+
+  const save = () => {
+    const updated = { ...notes, [identity]: draft };
+    setNotes(updated);
+    localStorage.setItem("ypp_private_notes", JSON.stringify(updated));
+  };
+
+  const switchUser = () => {
+    save();
+    setIdentity("");
+    setUnlocked(false);
+    setDraft("");
+  };
+
+  if (!unlocked) {
+    return (
+      <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+        <div style={{ fontSize: 28 }}>🔒</div>
+        <div style={{ fontWeight: 700, fontSize: 14, color: B.text }}>Private Notes</div>
+        <div style={{ fontSize: 12, color: B.muted, textAlign: "center", maxWidth: 280 }}>
+          Your notes are private — only visible to you. Select your identity to continue.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 260 }}>
+          {members.map(m => (
+            <button key={m} onClick={() => setIdentity(m)}
+              style={{ padding: "10px 16px", border: `1px solid ${B.border}`, borderRadius: 8, background: B.white, cursor: "pointer", fontSize: 13, fontWeight: 600, color: B.text, display: "flex", alignItems: "center", gap: 10 }}
+              onMouseEnter={e => e.currentTarget.style.background = B.light}
+              onMouseLeave={e => e.currentTarget.style.background = B.white}>
+              <div style={{ width: 28, height: 28, borderRadius: "50%", background: B.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>{m[0]}</div>
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", background: B.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>{identity[0]}</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: B.text }}>{identity}'s Notes</div>
+            <div style={{ fontSize: 10, color: B.muted }}>Private — only you can see this</div>
+          </div>
+        </div>
+        <button onClick={switchUser} style={{ fontSize: 11, color: B.muted, background: "none", border: `1px solid ${B.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+          Switch user
+        </button>
+      </div>
+      <textarea
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        rows={12}
+        placeholder="Your private notes… only you can see this."
+        style={{ width: "100%", fontSize: 12, padding: "10px 12px", border: `1px solid ${B.border}`, borderRadius: 8, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", lineHeight: 1.6, outline: "none" }}
+      />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 10, color: B.muted }}>{draft.length} chars</span>
+        <button onClick={save}
+          style={{ padding: "6px 18px", background: B.blue, color: "#fff", border: "none", borderRadius: 6, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+          Save Notes
+        </button>
+      </div>
+    </div>
+  );
+};
+
+
 const TaskDetailPanel = ({ task, taskIndex, allTasks, onClose, onUpdate, onAddComment, onToggleSubtask, onSetApproval, currentUser }) => {
   const [newComment, setNewComment] = useState("");
   const [newSubtask, setNewSubtask] = useState("");
   const [mentionSearch, setMentionSearch] = useState(null);
+  const attachInputRef = useRef(null);
+
+  const handleAttachFile = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const newAttach = { id: `AT${Date.now()}${Math.random().toString(36).slice(2,6)}`, name: file.name, size: file.size, type: file.type, data: ev.target.result, uploadedAt: new Date().toISOString() };
+        onUpdate(taskIndex, "attachments", [...(task.attachments || []), newAttach]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const removeAttach = (id) => {
+    onUpdate(taskIndex, "attachments", (task.attachments || []).filter(a => a.id !== id));
+  };
 
   const handleCommentChange = (e) => {
     const val = e.target.value;
@@ -249,6 +446,46 @@ const TaskDetailPanel = ({ task, taskIndex, allTasks, onClose, onUpdate, onAddCo
             style={{ width: "100%", fontSize: 11, padding: "6px 8px", border: `1px solid ${B.border}`, borderRadius: 5, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} placeholder="Add notes…" />
         </div>
 
+        {/* Attachments */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: B.muted }}>Attachments ({(task.attachments || []).length})</div>
+            <button onClick={() => attachInputRef.current?.click()}
+              style={{ fontSize: 10, padding: "3px 10px", background: B.blue, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 600 }}>
+              + Attach File
+            </button>
+            <input ref={attachInputRef} type="file" multiple style={{ display: "none" }} onChange={handleAttachFile} />
+          </div>
+          {(task.attachments || []).length === 0 ? (
+            <div style={{ fontSize: 11, color: B.muted, fontStyle: "italic", padding: "6px 0" }}>No attachments yet</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {(task.attachments || []).map(a => {
+                const isImage = a.type?.startsWith("image/");
+                const sizeKb = (a.size / 1024).toFixed(1);
+                return (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, background: B.light, borderRadius: 6, padding: "6px 10px", border: `1px solid ${B.border}` }}>
+                    <span style={{ fontSize: 16 }}>{isImage ? "🖼" : a.type?.includes("pdf") ? "📄" : a.type?.includes("sheet") || a.name?.endsWith(".xlsx") ? "📊" : "📎"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: B.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+                      <div style={{ fontSize: 9, color: B.muted }}>{sizeKb} KB · {new Date(a.uploadedAt).toLocaleDateString()}</div>
+                    </div>
+                    {isImage && (
+                      <img src={a.data} alt={a.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, border: `1px solid ${B.border}` }} />
+                    )}
+                    <a href={a.data} download={a.name}
+                      style={{ fontSize: 10, color: B.blue, textDecoration: "none", padding: "2px 7px", border: `1px solid ${B.blue}`, borderRadius: 4 }}>
+                      ↓
+                    </a>
+                    <button onClick={() => removeAttach(a.id)}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 12, padding: "0 2px" }}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Comments */}
         <div>
           <div style={{ fontSize: 11, color: B.muted, marginBottom: 6 }}>Comments</div>
@@ -310,6 +547,7 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
   const [templateModal, setTemplateModal] = useState(false);
   const [versionModal, setVersionModal] = useState(false);
   const [colabFilter, setColabFilter] = useState("All"); // for collaboration filter
+  const [notesOpen, setNotesOpen] = useState(false);
   const dragRef = useRef(null);
   const statuses = ["All", "Pending", "In Progress", "In Review", "Done", "Blocked"];
 
@@ -490,7 +728,7 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {/* View switcher */}
-          {[["list","☰ List"], ["kanban","⬛ Board"], ["gantt","📅 Gantt"]].map(([v, lbl]) => (
+          {[["list","☰ List"], ["kanban","⬛ Board"], ["gantt","📅 Gantt"], ["calendar","🗓 Calendar"]].map(([v, lbl]) => (
             <button key={v} onClick={() => setTaskView(v)}
               style={{ padding: "5px 12px", fontSize: 11, border: `1px solid ${taskView === v ? B.blue : B.border}`, background: taskView === v ? B.blue + "18" : B.white, color: taskView === v ? B.blue : B.muted, borderRadius: 6, cursor: "pointer", fontWeight: taskView === v ? 700 : 400 }}>
               {lbl}
@@ -521,6 +759,19 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
         </SectionCard>
       )}
 
+      {/* Calendar view */}
+      {taskView === "calendar" && (
+        <SectionCard title="Calendar">
+          <CalendarView
+            tasks={rows}
+            onOpenDetail={openDetail}
+            onQuickAdd={(title, due) => {
+              setData({ ...data, tasks: [...data.tasks, { id: nextId("T"), title, assigned: "", reviewAssignee: "", team: [], priority: "Medium", status: "Pending", due, start: "", ref: "", progress: 0, risk: "Low", subtasks: [], dependsOn: [], recurring: null, milestone: false, notes: "", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: null }] });
+            }}
+          />
+        </SectionCard>
+      )}
+
       {/* List view */}
       {taskView === "list" && (
         <SectionCard title={`Tasks — ${rows.length} records`}>
@@ -538,6 +789,20 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
               </>}
         </SectionCard>
       )}
+
+      {/* Private Notes — collapsible dropdown */}
+      <div style={{ border: `1px solid ${B.border}`, borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+        <button onClick={() => setNotesOpen(o => !o)}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", background: notesOpen ? B.light : "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: B.text }}>🔒 Private Notes</span>
+          <span style={{ fontSize: 14, color: B.muted, display: "inline-block", transform: notesOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▾</span>
+        </button>
+        {notesOpen && (
+          <div style={{ borderTop: `1px solid ${B.border}` }}>
+            <PrivateNotes members={MEMBERS} />
+          </div>
+        )}
+      </div>
 
       {/* Template modal */}
       {templateModal && (
