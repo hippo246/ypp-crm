@@ -74,13 +74,16 @@ const StatCard = ({
   value,
   sub,
   color = B.blue,
-  trend = null,          // number — % change
-  sparkData = null,      // array of 6-8 numbers for mini sparkline
+  trend = null,
+  sparkData = null,
   animate = true,
   icon = null,
-  alert = false,         // if true, adds a pulsing left border
+  alert = false,
 }) => {
   const [hovered, setHovered] = useState(false);
+
+  // derive a soft glow color from the accent
+  const glowColor = color + "30";
 
   return (
     <>
@@ -89,20 +92,37 @@ const StatCard = ({
           0%, 100% { opacity: 1; }
           50%       { opacity: 0.4; }
         }
+        @keyframes sc-shine {
+          0%   { transform: translateX(-100%) skewX(-15deg); }
+          100% { transform: translateX(250%) skewX(-15deg); }
+        }
+        .statcard-shine::after {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.55) 50%, transparent 60%);
+          animation: sc-shine 2.4s ease-in-out infinite;
+          pointer-events: none;
+          border-radius: inherit;
+          overflow: hidden;
+        }
       `}</style>
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
-          background: B.white,
-          border: `1px solid ${B.border}`,
-          borderRadius: 10,
-          padding: "14px 16px",
-          borderTop: `3px solid ${color}`,
-          borderLeft: alert ? `3px solid ${B.red}` : undefined,
-          transition: "box-shadow 0.18s, transform 0.18s",
-          boxShadow: hovered ? "0 6px 20px rgba(0,0,0,0.09)" : "0 1px 3px rgba(0,0,0,0.04)",
-          transform: hovered ? "translateY(-2px)" : "translateY(0)",
+          background: hovered
+            ? `linear-gradient(145deg, #ffffff 0%, ${color}08 100%)`
+            : "#ffffff",
+          border: `1px solid ${hovered ? color + "40" : "#E2E8F0"}`,
+          borderRadius: 14,
+          padding: "16px 18px 14px",
+          borderTop: `4px solid ${color}`,
+          transition: "box-shadow 0.2s, transform 0.2s, border-color 0.2s, background 0.2s",
+          boxShadow: hovered
+            ? `0 8px 32px ${glowColor}, 0 2px 8px rgba(0,0,0,0.06)`
+            : "0 1px 4px rgba(0,0,0,0.05)",
+          transform: hovered ? "translateY(-3px) scale(1.01)" : "translateY(0) scale(1)",
           cursor: "default",
           position: "relative",
           overflow: "hidden",
@@ -110,20 +130,42 @@ const StatCard = ({
       >
         {/* Background sparkline watermark */}
         {sparkData && (
-          <div style={{ position: "absolute", right: 8, bottom: 8, opacity: 0.35, pointerEvents: "none" }}>
+          <div style={{ position: "absolute", right: 8, bottom: 8, opacity: hovered ? 0.5 : 0.25, pointerEvents: "none", transition: "opacity 0.2s" }}>
             <Sparkline data={sparkData} color={color} height={32} />
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
-          <div style={{ fontSize: 10, color: B.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", display: "flex", alignItems: "center", gap: 5 }}>
-            {icon && <span style={{ fontSize: 13 }}>{icon}</span>}
+        {/* Subtle color wash bottom-right */}
+        <div style={{
+          position: "absolute", right: -20, bottom: -20,
+          width: 80, height: 80, borderRadius: "50%",
+          background: `radial-gradient(circle, ${color}18 0%, transparent 70%)`,
+          pointerEvents: "none",
+        }} />
+
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{
+            fontSize: 10, color: B.muted, fontWeight: 700,
+            textTransform: "uppercase", letterSpacing: "0.8px",
+            display: "flex", alignItems: "center", gap: 5,
+          }}>
+            {icon && (
+              <span style={{
+                fontSize: 14, width: 22, height: 22, borderRadius: 6,
+                background: color + "18", display: "inline-flex",
+                alignItems: "center", justifyContent: "center",
+              }}>{icon}</span>
+            )}
             {label}
           </div>
           {trend !== null && <Trend delta={trend} />}
         </div>
 
-        <div style={{ fontSize: 22, fontWeight: 800, color: B.text, lineHeight: 1, letterSpacing: "-0.5px" }}>
+        <div style={{
+          fontSize: 26, fontWeight: 900, color: B.text,
+          lineHeight: 1, letterSpacing: "-1px",
+          fontVariantNumeric: "tabular-nums",
+        }}>
           {animate && typeof value === "number"
             ? <AnimCount target={value} />
             : value}
@@ -132,9 +174,11 @@ const StatCard = ({
         {sub && (
           <div style={{
             fontSize: 11, color: alert ? B.red : B.muted,
-            marginTop: 5,
+            marginTop: 6, fontWeight: 500,
             animation: alert ? "sc-alert-pulse 2s ease-in-out infinite" : "none",
+            display: "flex", alignItems: "center", gap: 4,
           }}>
+            {alert && <span style={{ width: 5, height: 5, borderRadius: "50%", background: B.red, display: "inline-block", animation: "sc-alert-pulse 1.4s ease-in-out infinite" }} />}
             {sub}
           </div>
         )}

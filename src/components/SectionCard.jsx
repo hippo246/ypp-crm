@@ -60,14 +60,17 @@ const SectionCard = ({
         style={{
           background: surface,
           border: `1px solid ${border}`,
-          borderLeft: accent ? `3px solid ${accent}` : `1px solid ${border}`,
-          borderRadius: 10,
+          borderLeft: accent ? `4px solid ${accent}` : `1px solid ${border}`,
+          boxShadow: accent
+            ? `0 2px 16px ${accent}22, 0 1px 4px rgba(0,0,0,0.05)`
+            : "0 1px 6px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)",
+          borderRadius: 12,
           display: "flex",
-          flexDirection: "collapsible" ? "column" : "column",
+          flexDirection: "column",
           minHeight: 0,
           position: "relative",
           overflow: "hidden",
-          transition: "box-shadow 0.15s",
+          transition: "box-shadow 0.2s",
           ...extraStyle,
         }}
       >
@@ -77,29 +80,30 @@ const SectionCard = ({
         {/* Header */}
         <div
           style={{
-            padding: "10px 14px",
+            padding: "11px 16px",
             borderBottom: open ? `1px solid ${border}` : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            borderRadius: open ? "10px 10px 0 0" : 10,
+            borderRadius: open ? "12px 12px 0 0" : 12,
             flexShrink: 0,
             position: stickyHeader ? "sticky" : "relative",
             top: stickyHeader ? 0 : undefined,
             zIndex: stickyHeader ? 5 : undefined,
-            background: surface,
+            background: dark ? surface : "linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)",
             cursor: collapsible ? "pointer" : "default",
             userSelect: "none",
           }}
           onClick={collapsible ? () => setOpen(o => !o) : undefined}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ fontWeight: 700, fontSize: 13, color: text }}>{title}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontWeight: 800, fontSize: 13, color: text, letterSpacing: "-0.2px" }}>{title}</span>
             {badge !== null && badge !== undefined && (
               <span style={{
-                fontSize: 10, fontWeight: 700,
-                background: B.accent + "22", color: B.accent,
-                borderRadius: 20, padding: "1px 7px", minWidth: 20, textAlign: "center",
+                fontSize: 10, fontWeight: 800,
+                background: "#DBEAFE", color: "#2563EB",
+                borderRadius: 20, padding: "2px 8px", minWidth: 22, textAlign: "center",
+                border: "1px solid #BFDBFE",
               }}>
                 {badge}
               </span>
