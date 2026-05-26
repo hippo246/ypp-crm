@@ -242,6 +242,12 @@ const AnalyticsTab = ({ data }) => {
   const [chartMetric, setChartMetric] = useState("revenue");
   const [pivotGroup, setPivotGroup] = useState("assigned");
   const [pivotAgg, setPivotAgg] = useState("count");
+  const [viewMode, setViewMode] = useState("normal"); // "normal" | "compact" | "focus"
+  const [collapsed, setCollapsed] = useState({});
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, items }
+  const [hoverCard, setHoverCard] = useState(null); // { data, x, y }
+  const toggleCollapse = (key) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
+  const openCtx = (e, items) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, items }); };
   const ranges = [["all","All Time"],["thisMonth","This Month"],["lastMonth","Last Month"],["thisQuarter","This Quarter"]];
 
   const { leads = [], clients = [], tasks = [], accounting = [] } = data;
@@ -279,6 +285,11 @@ const AnalyticsTab = ({ data }) => {
   const doneTasks = filteredTasks.filter(t => t.status === "Done").length;
   const overdueTasks = filteredTasks.filter(t => t.status !== "Done" && t.due && new Date(t.due) < new Date()).length;
   const completionPct = filteredTasks.length ? Math.round((doneTasks / filteredTasks.length) * 100) : 0;
+  const recurringTasks = filteredTasks.filter(t => t.recurring && t.recurring !== "none" && t.recurring !== "").length;
+  const pendingApprovals = filteredTasks.filter(t => t.approvalStatus === "pending").length;
+  const templateCount = filteredTasks.filter(t => t.isTemplate).length;
+  const avgAttachments = filteredTasks.length ? (filteredTasks.reduce((a, t) => a + (t.attachments?.length || 0), 0) / filteredTasks.length).toFixed(1) : 0;
+  const reviewPending = filteredTasks.filter(t => t.reviewAssignee && t.status !== "Done").length;
 
   // ── Team performance ────────────────────────────────────────────────────────
   const teamStats = useMemo(() => {
@@ -288,12 +299,14 @@ const AnalyticsTab = ({ data }) => {
       const done = mt.filter(t => t.status === "Done").length;
       const overdue = mt.filter(t => t.status !== "Done" && t.due && new Date(t.due) < new Date()).length;
       const avgProgress = mt.length ? Math.round(mt.reduce((a, t) => a + (t.progress || 0), 0) / mt.length) : 0;
+      const subtaskTotal = mt.reduce((a, t) => a + (t.subtasks?.length || 0), 0);
+      const subtaskDone = mt.reduce((a, t) => a + (t.subtasks?.filter(s => s.done)?.length || 0), 0);
       const delayDays = mt.filter(t => t.status === "Done" && t.due).map(t => {
         const diff = (new Date(t.due) - new Date()) / 86400000;
         return diff < 0 ? Math.abs(diff) : 0;
       });
       const avgDelay = delayDays.length ? Math.round(delayDays.reduce((a, b) => a + b, 0) / delayDays.length) : 0;
-      return { name: m, total: mt.length, done, overdue, avgProgress, avgDelay, completionPct: mt.length ? Math.round((done / mt.length) * 100) : 0 };
+      return { name: m, total: mt.length, done, overdue, avgProgress, avgDelay, completionPct: mt.length ? Math.round((done / mt.length) * 100) : 0, subtaskTotal, subtaskDone };
     }).sort((a, b) => b.done - a.done);
   }, [tasks]);
 
@@ -305,6 +318,10 @@ const AnalyticsTab = ({ data }) => {
       open: tasks.filter(t => t.assigned === m && t.status !== "Done").length,
       overdue: tasks.filter(t => t.assigned === m && t.status !== "Done" && t.due && new Date(t.due) < new Date()).length,
       blocked: tasks.filter(t => t.assigned === m && t.status === "Blocked").length,
+      reviewLoad: tasks.filter(t => t.reviewAssignee === m && t.status !== "Done").length,
+      approvalLoad: tasks.filter(t => t.approver === m && t.approvalStatus === "pending").length,
+      recurring: tasks.filter(t => t.assigned === m && t.recurring && t.recurring !== "none").length,
+      withAttachments: tasks.filter(t => t.assigned === m && t.attachments?.length > 0).length,
     })).sort((a, b) => b.open - a.open);
   }, [tasks]);
   const maxWorkload = Math.max(...workloadStats.map(w => w.open), 1);
@@ -364,7 +381,9 @@ const AnalyticsTab = ({ data }) => {
   const delayReport = useMemo(() => {
     return filteredTasks.filter(t => t.due).map(t => {
       const diff = (new Date() - new Date(t.due)) / 86400000;
-      return { ...t, delayDays: t.status === "Done" ? 0 : diff > 0 ? Math.round(diff) : 0 };
+      const delayDays = t.status === "Done" ? 0 : diff > 0 ? Math.round(diff) : 0;
+      const delayReason = t.delayReason || (t.status === "Blocked" ? "Blocked" : t.approvalStatus === "pending" ? "Awaiting approval" : t.reviewAssignee && t.status !== "Done" ? "Awaiting review" : "Overdue");
+      return { ...t, delayDays, delayReason };
     }).filter(t => t.delayDays > 0).sort((a, b) => b.delayDays - a.delayDays);
   }, [filteredTasks]);
 
@@ -382,24 +401,67 @@ const AnalyticsTab = ({ data }) => {
 
   // ── Toolbar ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Sub-tabs + range */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", gap: 2, background: B.light, borderRadius: 8, padding: 3 }}>
-          {SUBTABS.map(([val, lbl]) => (
-            <button key={val} onClick={() => setSubTab(val)}
-              style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, border: "none", background: subTab === val ? "#fff" : "transparent", color: subTab === val ? B.text : B.muted, cursor: "pointer", fontWeight: subTab === val ? 700 : 400, boxShadow: subTab === val ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s", fontFamily: "inherit" }}>
-              {lbl}
+    <div style={{ display: "flex", flexDirection: "column", gap: viewMode === "compact" ? 8 : 14 }}
+      onClick={() => { if (ctxMenu) setCtxMenu(null); }}
+      className={viewMode === "focus" ? "analytics-focus" : ""}
+      style={{ ...(viewMode === "focus" ? { maxWidth: 860, margin: "0 auto", paddingTop: 8 } : {}) }}>
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <div style={{ position: "fixed", top: ctxMenu.y, left: ctxMenu.x, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 9999, minWidth: 160, padding: 4 }}>
+          {ctxMenu.items.map((item, i) => (
+            <button key={i} onClick={() => { item.action(); setCtxMenu(null); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 12px", fontSize: 12, background: "none", border: "none", cursor: "pointer", borderRadius: 5, color: item.danger ? B.red : B.text, fontFamily: "inherit" }}
+              onMouseEnter={e => e.target.style.background = B.light}
+              onMouseLeave={e => e.target.style.background = "none"}>
+              {item.label}
             </button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {ranges.map(([val, lbl]) => (
-            <button key={val} onClick={() => setRange(val)}
-              style={{ padding: "4px 11px", borderRadius: 20, fontSize: 11, border: `1px solid ${range === val ? B.blue : B.border}`, background: range === val ? B.blue : B.white, color: range === val ? "#fff" : B.muted, cursor: "pointer", fontWeight: range === val ? 600 : 400 }}>
-              {lbl}
-            </button>
+      )}
+
+      {/* Hover preview card */}
+      {hoverCard && (
+        <div style={{ position: "fixed", top: hoverCard.y + 12, left: hoverCard.x + 12, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 9998, padding: "12px 16px", minWidth: 180, pointerEvents: "none" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: B.text, marginBottom: 6 }}>{hoverCard.data.title}</div>
+          {hoverCard.data.rows.map(([k, v], i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, gap: 16, color: B.muted, marginBottom: 2 }}>
+              <span>{k}</span><span style={{ fontWeight: 600, color: B.text }}>{v}</span>
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* Sticky toolbar */}
+      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", borderBottom: `1px solid ${B.border}`, padding: "8px 0 8px", marginBottom: 2 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          {/* Sub-tabs */}
+          <div style={{ display: "flex", gap: 2, background: B.light, borderRadius: 8, padding: 3 }}>
+            {SUBTABS.map(([val, lbl]) => (
+              <button key={val} onClick={() => setSubTab(val)}
+                style={{ padding: viewMode === "compact" ? "3px 10px" : "5px 12px", borderRadius: 6, fontSize: 11, border: "none", background: subTab === val ? "#fff" : "transparent", color: subTab === val ? B.text : B.muted, cursor: "pointer", fontWeight: subTab === val ? 700 : 400, boxShadow: subTab === val ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s", fontFamily: "inherit" }}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {/* Range pills */}
+            {viewMode !== "focus" && ranges.map(([val, lbl]) => (
+              <button key={val} onClick={() => setRange(val)}
+                style={{ padding: "4px 11px", borderRadius: 20, fontSize: 11, border: `1px solid ${range === val ? B.blue : B.border}`, background: range === val ? B.blue : B.white, color: range === val ? "#fff" : B.muted, cursor: "pointer", fontWeight: range === val ? 600 : 400 }}>
+                {lbl}
+              </button>
+            ))}
+            {/* Mode toggles */}
+            <div style={{ display: "flex", gap: 2, background: B.light, borderRadius: 6, padding: 2, marginLeft: 4 }}>
+              {[["normal","⊞"],["compact","⊟"],["focus","◎"]].map(([m, icon]) => (
+                <button key={m} title={m.charAt(0).toUpperCase()+m.slice(1)+" mode"} onClick={() => setViewMode(m)}
+                  style={{ padding: "3px 7px", borderRadius: 4, fontSize: 13, border: "none", background: viewMode === m ? "#fff" : "transparent", cursor: "pointer", color: viewMode === m ? B.blue : B.muted, boxShadow: viewMode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none", transition: "all 0.15s" }}>
+                  {icon}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -415,13 +477,19 @@ const AnalyticsTab = ({ data }) => {
             <KPICard label="Completion" value={completionPct} color={completionPct > 70 ? B.green : B.orange} format={v => `${v}%`} />
             <KPICard label="Overdue Tasks" value={overdueTasks} color={overdueTasks > 0 ? B.red : B.green} />
             <KPICard label="Revenue (Paid)" value={totalRevenue} color={B.blue} format={aed} sparkValues={trendData.map(d => d.revenue)} />
+            <KPICard label="Recurring Tasks" value={recurringTasks} color={B.accent} />
+            <KPICard label="Pending Approvals" value={pendingApprovals} color={pendingApprovals > 0 ? B.orange : B.green} />
+            <KPICard label="Awaiting Review" value={reviewPending} color={reviewPending > 0 ? B.yellow : B.green} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <SectionCard title="Revenue by Service">
-              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <SectionCard title="Revenue by Service" onContextMenu={e => openCtx(e, [{ label: "Copy data", action: () => {} }, { label: "Collapse section", action: () => toggleCollapse("revService") }])}
+              headerRight={<button onClick={() => toggleCollapse("revService")} style={{ background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 14, lineHeight: 1 }}>{collapsed.revService ? "▸" : "▾"}</button>}>
+              {!collapsed.revService && <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                 {Object.entries(serviceRevenue).length === 0 && <div style={{ fontSize: 12, color: B.muted }}>No data</div>}
                 {Object.entries(serviceRevenue).map(([service, rev]) => (
-                  <div key={service}>
+                  <div key={service}
+                    onMouseEnter={e => setHoverCard({ x: e.clientX, y: e.clientY, data: { title: service, rows: [["Revenue", aed(rev)], ["Share", `${Math.round(rev/maxRev*100)}%`]] } })}
+                    onMouseLeave={() => setHoverCard(null)}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
                       <span style={{ color: B.muted }}>{service}</span><span style={{ fontWeight: 600 }}>{aed(rev)}</span>
                     </div>
@@ -430,9 +498,10 @@ const AnalyticsTab = ({ data }) => {
                     </div>
                   </div>
                 ))}
-              </div>
+              </div>}
             </SectionCard>
-            <SectionCard title="Task Completion">
+            <SectionCard title="Task Completion"
+              headerRight={<button onClick={() => toggleCollapse("taskCompletion")} style={{ background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 14, lineHeight: 1 }}>{collapsed.taskCompletion ? "▸" : "▾"}</button>}>
               <div style={{ padding: "14px", display: "flex", gap: 16, alignItems: "center" }}>
                 <DonutChart slices={[{ value: doneTasks }, { value: filteredTasks.length - doneTasks }]} size={100} />
                 <div style={{ flex: 1 }}>
@@ -516,7 +585,7 @@ const AnalyticsTab = ({ data }) => {
             <div style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, color: B.muted, fontWeight: 600, alignSelf: "center" }}>Group by:</span>
-                {["assigned","priority","status","risk","recurring"].map(f => (
+                {["assigned","priority","status","risk","recurring","approvalStatus","reviewAssignee","team"].map(f => (
                   <button key={f} onClick={() => setPivotGroup(f)} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 11, border: `1px solid ${pivotGroup === f ? B.blue : B.border}`, background: pivotGroup === f ? B.blue : B.white, color: pivotGroup === f ? "#fff" : B.muted, cursor: "pointer" }}>{f}</button>
                 ))}
                 <span style={{ fontSize: 11, color: B.muted, fontWeight: 600, marginLeft: 8, alignSelf: "center" }}>Agg:</span>
@@ -533,8 +602,8 @@ const AnalyticsTab = ({ data }) => {
       {/* ── WORKLOAD ──────────────────────────────────────────────────────────── */}
       {subTab === "workload" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <SectionCard title="Workload Distribution">
-            <div style={{ padding: "14px" }}>
+          <SectionCard title="Workload Distribution" headerRight={<button onClick={() => toggleCollapse("workload")} style={{ background: "none", border: "none", cursor: "pointer", color: B.muted, fontSize: 14, lineHeight: 1 }}>{collapsed.workload ? "▸" : "▾"}</button>}>
+            {!collapsed.workload && <div style={{ padding: "14px" }}>
               {workloadStats.map((w, i) => (
                 <div key={w.name} style={{ marginBottom: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5 }}>
@@ -552,17 +621,25 @@ const AnalyticsTab = ({ data }) => {
                     <div style={{ width: `${((w.open - w.overdue) / maxWorkload) * 100}%`, background: B.blue, transition: "width 0.4s" }} />
                     <div style={{ width: `${(w.overdue / maxWorkload) * 100}%`, background: B.red, opacity: 0.8 }} />
                     <div style={{ width: `${(w.blocked / maxWorkload) * 100}%`, background: B.orange, opacity: 0.8 }} />
+                    <div title="Review load" style={{ width: `${(w.reviewLoad / maxWorkload) * 100}%`, background: "#7C3AED", opacity: 0.7 }} />
+                    <div title="Approval load" style={{ width: `${(w.approvalLoad / maxWorkload) * 100}%`, background: "#EC4899", opacity: 0.7 }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 10, color: B.muted }}>
+                    {w.reviewLoad > 0 && <span style={{ color: "#7C3AED" }}>👁 {w.reviewLoad} review</span>}
+                    {w.approvalLoad > 0 && <span style={{ color: "#EC4899" }}>✓ {w.approvalLoad} approval</span>}
+                    {w.recurring > 0 && <span>↺ {w.recurring} recurring</span>}
+                    {w.withAttachments > 0 && <span>📎 {w.withAttachments} attachments</span>}
                   </div>
                 </div>
               ))}
-            </div>
+            </div>}
           </SectionCard>
           <SectionCard title="Delay Report">
             {delayReport.length === 0
               ? <div style={{ padding: 24, textAlign: "center", color: B.muted, fontSize: 12 }}>No delayed tasks 🎉</div>
               : <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead><tr style={{ background: B.light }}>
-                    {["ID","Task","Assigned","Priority","Due","Delay"].map(h => <th key={h} style={{ padding: "7px 12px", textAlign: "left", fontWeight: 700, fontSize: 10, color: B.muted, letterSpacing: "0.5px" }}>{h.toUpperCase()}</th>)}
+                    {["ID","Task","Assigned","Priority","Due","Delay","Reason"].map(h => <th key={h} style={{ padding: "7px 12px", textAlign: "left", fontWeight: 700, fontSize: 10, color: B.muted, letterSpacing: "0.5px" }}>{h.toUpperCase()}</th>)}
                   </tr></thead>
                   <tbody>
                     {delayReport.slice(0, 15).map(t => (
@@ -573,6 +650,7 @@ const AnalyticsTab = ({ data }) => {
                         <td style={{ padding: "7px 12px" }}><Badge label={t.priority} /></td>
                         <td style={{ padding: "7px 12px", color: B.red }}>{t.due}</td>
                         <td style={{ padding: "7px 12px", fontWeight: 700, color: t.delayDays > 7 ? B.red : B.orange }}>+{t.delayDays}d</td>
+                        <td style={{ padding: "7px 12px", fontSize: 11, color: B.muted, fontStyle: "italic" }}>{t.delayReason}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -584,10 +662,11 @@ const AnalyticsTab = ({ data }) => {
 
       {/* ── TEAM ──────────────────────────────────────────────────────────────── */}
       {subTab === "team" && (
+        <>
         <SectionCard title="Team Performance">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead><tr style={{ background: B.light }}>
-              {["Member","Total","Done","Overdue","Avg Progress","Avg Delay","Completion"].map(h => (
+              {["Member","Total","Done","Overdue","Subtasks","Avg Progress","Avg Delay","Completion"].map(h => (
                 <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontWeight: 700, fontSize: 10, color: B.muted, letterSpacing: "0.5px" }}>{h.toUpperCase()}</th>
               ))}
             </tr></thead>
@@ -603,6 +682,9 @@ const AnalyticsTab = ({ data }) => {
                   <td style={{ padding: "10px 12px", color: B.muted }}>{m.total}</td>
                   <td style={{ padding: "10px 12px", fontWeight: 700, color: B.green }}>{m.done}</td>
                   <td style={{ padding: "10px 12px", fontWeight: m.overdue > 0 ? 700 : 400, color: m.overdue > 0 ? B.red : B.muted }}>{m.overdue}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 11 }}>
+                    {m.subtaskTotal > 0 ? <span style={{ color: m.subtaskDone === m.subtaskTotal ? B.green : B.muted }}>{m.subtaskDone}/{m.subtaskTotal}</span> : <span style={{ color: B.muted }}>—</span>}
+                  </td>
                   <td style={{ padding: "10px 12px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <div style={{ width: 60, height: 6, background: B.light, borderRadius: 3 }}>
@@ -625,6 +707,16 @@ const AnalyticsTab = ({ data }) => {
             </tbody>
           </table>
         </SectionCard>
+        {/* Workload legend */}
+        <div style={{ display: "flex", gap: 14, fontSize: 10, color: B.muted, flexWrap: "wrap" }}>
+          {[["Normal", B.blue], ["Overdue", B.red], ["Blocked", B.orange], ["Review", "#7C3AED"], ["Approval", "#EC4899"]].map(([lbl, col]) => (
+            <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, background: col, opacity: 0.8 }} />
+              <span>{lbl}</span>
+            </div>
+          ))}
+        </div>
+        </>
       )}
 
       {/* ── TRENDS ────────────────────────────────────────────────────────────── */}

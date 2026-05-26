@@ -41,6 +41,15 @@ const KanbanCol = ({ status, tasks, onDrop, onDragStart, onEdit }) => (
           {t.risk && t.risk !== "Low" && <span style={{ fontSize: 9, fontWeight: 700, color: RISK_COLORS[t.risk], background: RISK_COLORS[t.risk] + "18", borderRadius: 4, padding: "1px 5px" }}>⚠ {t.risk} risk</span>}
           {t.bottleneck && <span style={{ fontSize: 9, fontWeight: 700, color: B.red, background: B.red + "18", borderRadius: 4, padding: "1px 5px" }}>🚧 Bottleneck</span>}
           {t.recurring && <span style={{ fontSize: 9, color: B.accent, background: B.accent + "18", borderRadius: 4, padding: "1px 5px" }}>🔁 {t.recurring}</span>}
+          {(() => {
+            const today = new Date().toISOString().slice(0,10);
+            const isOverdue = t.status !== "Done" && t.due && t.due < today;
+            const daysLate = isOverdue ? Math.floor((new Date() - new Date(t.due)) / 86_400_000) : 0;
+            return (<>
+              {isOverdue && <span style={{ fontSize: 9, fontWeight: 700, color: B.red, background: B.red + "18", borderRadius: 4, padding: "1px 5px" }}>⏰ {daysLate}d late</span>}
+              {t.approvalStatus && <span style={{ fontSize: 9, fontWeight: 700, borderRadius: 4, padding: "1px 5px", color: APPROVAL_COLORS[t.approvalStatus] || B.muted, background: (APPROVAL_COLORS[t.approvalStatus] || B.muted) + "18" }}>{t.approvalStatus === "Approved" ? "✓" : t.approvalStatus === "Rejected" ? "✗" : "⧖"} {t.approvalStatus}</span>}
+            </>);
+          })()}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: B.muted }}>
           <span>👤 {t.assigned || "—"}</span>
@@ -76,8 +85,14 @@ const GanttView = ({ tasks }) => {
           <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, height: 32 }}>
             <div style={{ width: 180, fontSize: 11, color: B.text, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>{t.milestone ? "🏁 " : ""}{t.title}</div>
             <div style={{ flex: 1, height: 20, background: B.border, borderRadius: 4, position: "relative" }}>
-              <div style={{ position: "absolute", left: `${toX(t.start)}%`, width: `${toW(t.start, t.due)}%`, height: "100%", background: t.milestone ? B.orange : t.status === "Done" ? B.green : t.status === "In Progress" ? B.accent : B.muted, borderRadius: 4, minWidth: 4, transition: "all 0.2s", opacity: 0.85 }} title={`${t.start || "?"} → ${t.due || "?"}`} />
-              <div style={{ position: "absolute", left: `${toX(t.start)}%`, width: `${toW(t.start, t.due) * (t.progress || 0) / 100}%`, height: "100%", background: B.blue, borderRadius: 4, opacity: 0.6 }} />
+              {(() => {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const isOverdue = t.status !== "Done" && t.due && t.due < todayStr;
+                return (<>
+                  <div style={{ position: "absolute", left: `${toX(t.start)}%`, width: `${toW(t.start, t.due)}%`, height: "100%", background: isOverdue ? B.red + "cc" : t.milestone ? B.orange : t.status === "Done" ? B.green : t.status === "In Progress" ? B.accent : B.muted, borderRadius: 4, minWidth: 4, transition: "all 0.2s", opacity: 0.85 }} title={`${t.start || "?"} → ${t.due || "?"}${isOverdue ? " ⚠ OVERDUE" : ""}`} />
+                  <div style={{ position: "absolute", left: `${toX(t.start)}%`, width: `${toW(t.start, t.due) * (t.progress || 0) / 100}%`, height: "100%", background: isOverdue ? B.red : B.blue, borderRadius: 4, opacity: 0.6 }} />
+                </>);
+              })()}
             </div>
             <div style={{ width: 60, fontSize: 10, color: B.muted, flexShrink: 0 }}><Badge label={t.status} /></div>
           </div>
@@ -319,6 +334,23 @@ const TaskDetailPanel = ({ task, taskIndex, allTasks, onClose, onUpdate, onAddCo
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: B.text }}>{task.milestone ? "🏁 " : ""}{task.title}</div>
           <div style={{ fontSize: 10, color: B.muted, marginTop: 2 }}>{task.id} · {task.ref || "No ref"}</div>
+          {(task.team || []).length > 0 && (
+            <div style={{ display: "flex", gap: 4, marginTop: 5, flexWrap: "wrap" }}>
+              {(task.team || []).map(name => (
+                <div key={name} style={{ width: 22, height: 22, borderRadius: "50%", background: B.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 700 }} title={name}>{name[0]}</div>
+              ))}
+            </div>
+          )}
+          {task.due && task.status !== "Done" && (() => {
+            const diff = (new Date(task.due) - new Date()) / 86_400_000;
+            if (diff >= 0) return null;
+            const days = Math.abs(Math.floor(diff));
+            return (
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, background: B.red + "0f", border: `1px solid ${B.red}30`, borderLeft: `3px solid ${B.red}`, borderRadius: 6, padding: "5px 8px", fontSize: 11, color: B.red, fontWeight: 700 }}>
+                ⏰ {days} day{days !== 1 ? "s" : ""} overdue
+              </div>
+            );
+          })()}
         </div>
         <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: B.muted, lineHeight: 1 }}>✕</button>
       </div>
@@ -427,17 +459,39 @@ const TaskDetailPanel = ({ task, taskIndex, allTasks, onClose, onUpdate, onAddCo
         </div>
 
         {/* Approval */}
-        {task.approvalStatus !== null && task.approvalStatus !== undefined && (
-          <div>
-            <div style={{ fontSize: 11, color: B.muted, marginBottom: 4 }}>Approval</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {["Approved", "Rejected", "Pending"].map(s => (
-                <button key={s} onClick={() => onSetApproval(taskIndex, s)}
-                  style={{ fontSize: 10, padding: "3px 10px", borderRadius: 20, border: `1px solid ${task.approvalStatus === s ? APPROVAL_COLORS[s] : B.border}`, background: task.approvalStatus === s ? APPROVAL_COLORS[s] + "18" : "#fff", color: task.approvalStatus === s ? APPROVAL_COLORS[s] : B.muted, cursor: "pointer", fontWeight: task.approvalStatus === s ? 700 : 400 }}>{s}</button>
+        <div>
+          <div style={{ fontSize: 11, color: B.muted, marginBottom: 8 }}>Approval Workflow</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: B.muted, width: 56, flexShrink: 0 }}>Reviewer</div>
+            <select value={task.reviewAssignee || ""} onChange={e => onUpdate(taskIndex, "reviewAssignee", e.target.value)}
+              style={{ flex: 1, padding: "4px 6px", border: `1px solid ${B.border}`, borderRadius: 5, fontSize: 11, fontFamily: "inherit" }}>
+              <option value="">None</option>
+              {MEMBERS.map(m => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[{ id: null, label: "None", icon: "○" }, { id: "Pending", label: "Pending", icon: "⧖", color: B.orange }, { id: "Approved", label: "Approved", icon: "✓", color: B.green }, { id: "Rejected", label: "Rejected", icon: "✗", color: B.red }].map(s => {
+              const active = task.approvalStatus === s.id;
+              return (
+                <button key={String(s.id)} onClick={() => onSetApproval(taskIndex, s.id)}
+                  style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, border: `1px solid ${active ? (s.color || B.muted) : B.border}`, background: active ? (s.color || B.muted) + "18" : "#fff", color: active ? (s.color || B.text) : B.muted, fontWeight: active ? 700 : 400, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, transition: "all 0.12s" }}>
+                  <span style={{ fontSize: 10 }}>{s.icon}</span>
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          {(task.activityLog || []).filter(a => a.type === "approval").length > 0 && (
+            <div style={{ marginTop: 10, borderTop: `1px solid ${B.border}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 10, color: B.muted, marginBottom: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>History</div>
+              {[...(task.activityLog || [])].filter(a => a.type === "approval").reverse().slice(0, 4).map((a, i) => (
+                <div key={i} style={{ fontSize: 10, color: B.muted, paddingLeft: 8, borderLeft: `2px solid ${B.border}`, marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600, color: B.text }}>{a.user}</span> · {a.text} · {new Date(a.time).toLocaleString()}
+                </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Notes */}
         <div>
@@ -583,6 +637,14 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
     { key: "progress", label: "Progress", width: 120, render: (v) => <ProgressBar value={v || 0} /> },
     { key: "risk", label: "Risk", width: 80, render: v => v ? <span style={{ fontSize: 11, fontWeight: 600, color: RISK_COLORS[v] || B.muted }}>{v}</span> : null },
     { key: "due", label: "Due Date", width: 110, render: (v) => <span style={{ color: dueDateColor(v), fontWeight: dueDateColor(v) !== B.muted ? 700 : 400 }}>{v || "—"}{v && (new Date(v) - new Date()) / 86_400_000 < 0 ? " ⚠" : ""}</span> },
+    { key: "due", label: "Delay", width: 70, render: (v, row) => {
+        if (!v || row.status === "Done") return null;
+        const diff = (new Date(v) - new Date()) / 86_400_000;
+        if (diff >= 0) return null;
+        const days = Math.abs(Math.floor(diff));
+        return <span style={{ fontSize: 10, fontWeight: 700, color: "#E63946", background: "#E6394618", borderRadius: 4, padding: "1px 5px" }}>+{days}d</span>;
+      }
+    },
     { key: "start", label: "Start", width: 100, render: v => <span style={{ color: B.muted, fontSize: 11 }}>{v || "—"}</span> },
     { key: "recurring", label: "Recurring", width: 80, render: v => v ? <span style={{ fontSize: 10, color: B.accent }}>🔁 {v}</span> : null },
     { key: "approvalStatus", label: "Approval", width: 90, render: v => v ? <span style={{ fontSize: 10, fontWeight: 700, color: APPROVAL_COLORS[v] || B.muted }}>{v}</span> : null },
@@ -696,16 +758,16 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
           <span style={{ fontSize: 10, fontWeight: 700, color: B.muted, letterSpacing: "0.5px" }}>WORKLOAD</span>
           {Object.entries(workload).map(([name, count]) => (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: B.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 700 }}>{name[0]}</div>
+              <div style={{ width: 20, height: 20, borderRadius: "50%", background: count >= 4 ? B.red : B.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 700 }}>{name[0]}</div>
               <span style={{ color: B.text, fontWeight: 600 }}>{name}</span>
-              <span style={{ background: count >= 4 ? B.red + "18" : B.light, color: count >= 4 ? B.red : B.muted, borderRadius: 10, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>{count}</span>
+              <span style={{ background: count >= 4 ? B.red + "18" : B.light, color: count >= 4 ? B.red : B.muted, borderRadius: 10, padding: "1px 6px", fontSize: 10, fontWeight: 700, border: `1px solid ${count >= 4 ? B.red + "40" : B.border}` }}>{count}</span>
             </div>
           ))}
         </div>
       )}
 
       {/* Toolbar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, position: "sticky", top: 0, zIndex: 10, background: B.white, padding: "8px 0", marginBottom: 4 }}>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           {/* Status filters */}
           {statuses.map((s) => (

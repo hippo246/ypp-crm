@@ -40,7 +40,7 @@ export default function Dashboard() {
   const [dragOver, setDragOver] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
-  const [activeWidgets, setActiveWidgets] = useState(["progress","workload"]);
+  const [activeWidgets, setActiveWidgets] = useState(["progress","workload","delay","productivity"]);
 
   const toggleCollapse = (id) => setCollapsed(c => ({ ...c, [id]: !c[id] }));
 
@@ -85,6 +85,32 @@ export default function Dashboard() {
   }, [tasks]);
   const maxWorkload = Math.max(...workloadMini.map(w=>w.open), 1);
 
+  const delayData = useMemo(() => {
+    const today = new Date().toISOString().slice(0,10);
+    const overdueTasks = tasks.filter(t => t.status !== "Done" && t.due && t.due < today);
+    const byAssignee = [...new Set(overdueTasks.map(t => t.assigned).filter(Boolean))].map(name => ({
+      name,
+      count: overdueTasks.filter(t => t.assigned === name).length,
+    })).sort((a,b) => b.count - a.count);
+    return { total: overdueTasks.length, byAssignee, items: overdueTasks.slice(0, 5) };
+  }, [tasks]);
+
+  const productivityData = useMemo(() => {
+    const now = new Date();
+    const weeks = Array.from({ length: 6 }, (_, i) => {
+      const end   = new Date(now); end.setDate(end.getDate() - i * 7);
+      const start = new Date(end); start.setDate(start.getDate() - 7);
+      const label = `W-${i}`;
+      const done = tasks.filter(t => {
+        if (t.status !== "Done" || !t.due) return false;
+        const d = new Date(t.due);
+        return d >= start && d < end;
+      }).length;
+      return { label, done };
+    }).reverse();
+    return { weeks, sparkDone: weeks.map(w => w.done) };
+  }, [tasks]);
+
   const maxServiceVal = Math.max(...revenueByService.map((r) => r.val), 1);
 
   return (
@@ -122,14 +148,14 @@ export default function Dashboard() {
       {(() => {
         const primary = ["revenue","outstanding","clients","leads","tasks"];
         const kpiDefs = {
-          revenue:     { label:"Total Revenue",    value:`AED ${(kpis.totalRevenue/1000).toFixed(1)}K`, sub:<Delta delta={mom.delta} />, color:B.blue },
-          outstanding: { label:"Outstanding",      value:`AED ${(kpis.outstanding/1000).toFixed(1)}K`,  sub:`${kpis.overdueCount} overdue`, color:B.red },
-          clients:     { label:"Active Clients",   value:kpis.activeClients, sub:kpis.expiringClients>0?`⚠ ${kpis.expiringClients} renewing soon`:"all good", color:B.green },
-          leads:       { label:"Open Leads",       value:kpis.openLeads,     sub:<Delta delta={momLeads.delta} suffix=" vs last mo" />, color:B.yellow },
-          tasks:       { label:"Pending Tasks",    value:kpis.pendingTasks,  sub:kpis.highPriorityTasks>0?`${kpis.highPriorityTasks} high priority`:"no urgent items", color:B.orange },
-          collection:  { label:"Collection Rate",  value:`${kpis.collectionRate}%`, sub:"of invoiced amount", color:B.accent, small:true },
-          conversion:  { label:"Conversion Rate",  value:`${kpis.conversionRate}%`, sub:"leads → won", color:B.green, small:true },
-          wonValue:    { label:"Won Value (Total)", value:aed(kpis.wonValue), sub:"all time", color:B.blue, small:true },
+          revenue:     { label:"Total Revenue",    value:`AED ${(kpis.totalRevenue/1000).toFixed(1)}K`, sub:<Delta delta={mom.delta} />, color:B.blue, sparkData:mom.history, trend:mom.delta },
+          outstanding: { label:"Outstanding",      value:`AED ${(kpis.outstanding/1000).toFixed(1)}K`,  sub:`${kpis.overdueCount} overdue`, color:B.red, sparkData:null, trend:null },
+          clients:     { label:"Active Clients",   value:kpis.activeClients, sub:kpis.expiringClients>0?`⚠ ${kpis.expiringClients} renewing soon`:"all good", color:B.green, sparkData:null, trend:null },
+          leads:       { label:"Open Leads",       value:kpis.openLeads,     sub:<Delta delta={momLeads.delta} suffix=" vs last mo" />, color:B.yellow, sparkData:momLeads.history, trend:momLeads.delta },
+          tasks:       { label:"Pending Tasks",    value:kpis.pendingTasks,  sub:kpis.highPriorityTasks>0?`${kpis.highPriorityTasks} high priority`:"no urgent items", color:B.orange, sparkData:null, trend:null },
+          collection:  { label:"Collection Rate",  value:`${kpis.collectionRate}%`, sub:"of invoiced amount", color:B.accent, small:true, sparkData:null, trend:null },
+          conversion:  { label:"Conversion Rate",  value:`${kpis.conversionRate}%`, sub:"leads → won", color:B.green, small:true, sparkData:null, trend:null },
+          wonValue:    { label:"Won Value (Total)", value:aed(kpis.wonValue), sub:"all time", color:B.blue, small:true, sparkData:null, trend:null },
         };
         const orderedPrimary = cardOrder.filter(id => primary.includes(id));
         return (
@@ -190,8 +216,10 @@ export default function Dashboard() {
               <button onClick={() => setWidgetPickerOpen(false)} style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", color:B.muted }}>×</button>
             </div>
             {[
-              { id:"progress",  icon:"◎", label:"Task Progress",       desc:"Overall completion ring + by assignee/priority" },
-              { id:"workload",  icon:"▤", label:"Workload Mini-Chart",  desc:"Horizontal bars per team member" },
+              { id:"progress",     icon:"◎", label:"Task Progress",        desc:"Overall completion ring + by assignee/priority" },
+              { id:"workload",     icon:"▤", label:"Workload Chart",        desc:"Horizontal bars per team member" },
+              { id:"delay",        icon:"⏰", label:"Delay Report",         desc:"Overdue tasks grouped by owner" },
+              { id:"productivity", icon:"📈", label:"Productivity Tracker", desc:"Tasks closed per week — last 6 weeks" },
             ].map(w => {
               const active = activeWidgets.includes(w.id);
               return (
@@ -212,8 +240,8 @@ export default function Dashboard() {
       )}
 
       {/* ── Optional Widgets row ── */}
-      {(activeWidgets.includes("progress") || activeWidgets.includes("workload")) && (
-        <div style={{ display:"grid", gridTemplateColumns: activeWidgets.length===2?"1fr 1fr":"1fr", gap:14 }}>
+      {activeWidgets.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns: activeWidgets.length >= 2 ? "1fr 1fr" : "1fr", gap:14 }}>
           {activeWidgets.includes("progress") && (
             <SectionCard title="Task Progress Analytics">
               <div style={{ padding:"14px", display:"flex", gap:20, alignItems:"flex-start", flexWrap:"wrap" }}>
@@ -280,6 +308,85 @@ export default function Dashboard() {
                   </div>
                 ))}
                 {workloadMini.length===0 && <div style={{ fontSize:12, color:B.muted }}>No tasks assigned yet.</div>}
+              </div>
+            </SectionCard>
+          )}
+          {activeWidgets.includes("delay") && (
+            <SectionCard title="Delay Report" accent={B.red}>
+              <div style={{ padding:14 }}>
+                {delayData.total === 0 ? (
+                  <div style={{ fontSize:12, color:B.muted }}>🎉 No overdue tasks!</div>
+                ) : (
+                  <>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                      <span style={{ fontSize:28, fontWeight:800, color:B.red }}>{delayData.total}</span>
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:700, color:B.red }}>Overdue tasks</div>
+                        <div style={{ fontSize:10, color:B.muted }}>Across {delayData.byAssignee.length} team member{delayData.byAssignee.length !== 1 ? "s" : ""}</div>
+                      </div>
+                    </div>
+                    <div style={{ marginBottom:12 }}>
+                      <div style={{ fontSize:10, fontWeight:700, color:B.muted, letterSpacing:"0.6px", textTransform:"uppercase", marginBottom:6 }}>By assignee</div>
+                      {delayData.byAssignee.map(a => (
+                        <div key={a.name} style={{ marginBottom:6 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}>
+                            <span style={{ fontWeight:600 }}>{a.name}</span>
+                            <span style={{ fontWeight:700, color:B.red }}>{a.count} overdue</span>
+                          </div>
+                          <div style={{ height:5, background:B.light, borderRadius:3, overflow:"hidden" }}>
+                            <div style={{ width:`${(a.count/delayData.total)*100}%`, height:"100%", background:B.red, borderRadius:3 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize:10, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:6 }}>Recent overdue</div>
+                    {delayData.items.map(t => {
+                      const daysLate = Math.floor((new Date() - new Date(t.due)) / 86_400_000);
+                      return (
+                        <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"5px 0", borderBottom:`1px solid ${B.border}` }}>
+                          <div style={{ width:6, height:6, borderRadius:"50%", background:B.red, flexShrink:0 }} />
+                          <div style={{ flex:1, fontSize:11, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</div>
+                          <span style={{ fontSize:10, fontWeight:700, color:B.red, flexShrink:0 }}>+{daysLate}d</span>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </SectionCard>
+          )}
+          {activeWidgets.includes("productivity") && (
+            <SectionCard title="Productivity Tracker">
+              <div style={{ padding:14 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:"0.6px", marginBottom:10 }}>Tasks completed per week (last 6)</div>
+                <div style={{ display:"flex", gap:6, alignItems:"flex-end", height:72 }}>
+                  {productivityData.weeks.map((w,i) => {
+                    const max = Math.max(...productivityData.weeks.map(x => x.done), 1);
+                    const pct = (w.done / max) * 100;
+                    const isLast = i === productivityData.weeks.length - 1;
+                    return (
+                      <div key={w.label} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3, height:"100%", justifyContent:"flex-end" }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:isLast?B.blue:B.text }}>{w.done}</div>
+                        <div style={{ width:"100%", borderRadius:"4px 4px 0 0", height:`${Math.max(pct,4)}%`, background:isLast?`linear-gradient(180deg,${B.blue},${B.accent})`:B.border, transition:"height 0.5s cubic-bezier(0.4,0,0.2,1)" }} />
+                        <div style={{ fontSize:9, color:B.muted }}>{w.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const last2 = productivityData.weeks.slice(-2);
+                  if (last2.length < 2 || last2[0].done === 0) return null;
+                  const change = last2[1].done - last2[0].done;
+                  if (change === 0) return <div style={{ marginTop:12, fontSize:11, color:B.muted }}>No change vs last week</div>;
+                  const pct = Math.round(Math.abs(change / last2[0].done) * 100);
+                  return (
+                    <div style={{ marginTop:12, fontSize:11 }}>
+                      {change > 0
+                        ? <span style={{ color:B.green, fontWeight:700 }}>▲ {pct}% vs last week</span>
+                        : <span style={{ color:B.red, fontWeight:700 }}>▼ {pct}% vs last week</span>}
+                    </div>
+                  );
+                })()}
               </div>
             </SectionCard>
           )}
@@ -403,6 +510,12 @@ function QuickActionsBar({ data, setData }) {
     <>
       {/* Floating trigger */}
       <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 500, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
+        <style>{`
+          @keyframes fab-pulse {
+            0%, 100% { box-shadow: 0 4px 14px rgba(59,130,246,0.45); }
+            50%       { box-shadow: 0 4px 24px rgba(59,130,246,0.75); }
+          }
+        `}</style>
         {open && (
           <div style={{ display: "flex", gap: 8, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 12, padding: "8px 12px", boxShadow: "0 4px 20px rgba(0,0,0,0.12)" }}>
             {actionBtns.map(btn => (
@@ -414,7 +527,7 @@ function QuickActionsBar({ data, setData }) {
           </div>
         )}
         <button onClick={() => setOpen(o => !o)}
-          style={{ width: 48, height: 48, borderRadius: "50%", background: B.blue, color: "#fff", border: "none", fontSize: 22, cursor: "pointer", boxShadow: "0 4px 14px rgba(59,130,246,0.45)", display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.18s", transform: open ? "rotate(45deg)" : "none" }}>
+          style={{ width: 48, height: 48, borderRadius: "50%", background: B.blue, color: "#fff", border: "none", fontSize: 22, cursor: "pointer", boxShadow: "0 4px 14px rgba(59,130,246,0.45)", display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.18s", transform: open ? "rotate(45deg)" : "none", animation: open ? "none" : "fab-pulse 2.5s ease-in-out infinite" }}>
           +
         </button>
       </div>
@@ -443,31 +556,66 @@ function QuickActionsBar({ data, setData }) {
   );
 }
 
-// ─── Collapsible KPI card (new) ────────────────────────────────────────────────
+// ─── Collapsible KPI card (upgraded) ─────────────────────────────────────────
 
-function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle }) {
+function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, sparkData, trend }) {
+  const [hovered, setHovered] = useState(false);
+
+  const SparkInline = ({ data, c }) => {
+    if (!data?.length) return null;
+    const w = 56, h = 22;
+    const max = Math.max(...data, 1);
+    const min = Math.min(...data, 0);
+    const range = max - min || 1;
+    const pts = data.map((v, i) => {
+      const x = (i / (data.length - 1)) * w;
+      const y = h - ((v - min) / range) * (h - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+    return (
+      <svg width={w} height={h} style={{ opacity:0.6, overflow:"visible" }}>
+        <polyline points={pts} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    );
+  };
+
   return (
-    <div style={{
-      background: "#fff", border: `1px solid ${B.border}`, borderRadius: 10,
-      padding: small ? "10px 14px" : "14px 18px", borderTop: `3px solid ${color}`,
-      transition: "box-shadow 0.18s, transform 0.18s", cursor: "default",
-      userSelect: "none",
-    }}
-      onMouseEnter={e => { e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,0.08)"; e.currentTarget.style.transform="translateY(-1px)"; }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow="none"; e.currentTarget.style.transform="translateY(0)"; }}
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background:"#fff", border:`1px solid #E2E8F0`, borderRadius:10,
+        padding: small ? "10px 14px" : "14px 18px", borderTop:`3px solid ${color}`,
+        boxShadow: hovered ? "0 6px 20px rgba(0,0,0,0.09)" : "0 1px 3px rgba(0,0,0,0.04)",
+        transform: hovered ? "translateY(-2px)" : "translateY(0)",
+        transition:"box-shadow 0.18s, transform 0.18s",
+        cursor:"default", userSelect:"none", position:"relative", overflow:"hidden",
+      }}
     >
+      {sparkData && !collapsed && (
+        <div style={{ position:"absolute", right:8, bottom:8, pointerEvents:"none" }}>
+          <SparkInline data={sparkData} c={color} />
+        </div>
+      )}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: collapsed ? 0 : 4 }}>
-        <div style={{ fontSize:10, color:B.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</div>
-        <button onClick={e => { e.stopPropagation(); onToggle(); }}
-          style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:B.muted, padding:"0 2px", lineHeight:1 }}
-          title={collapsed ? "Expand" : "Collapse"}>
-          {collapsed ? "▸" : "▾"}
-        </button>
+        <div style={{ fontSize:10, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</div>
+        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+          {trend !== undefined && trend !== null && !collapsed && (
+            <span style={{ fontSize:9, fontWeight:700, color:trend>=0?"#16A34A":"#E63946", background:(trend>=0?"#16A34A":"#E63946")+"15", borderRadius:20, padding:"1px 5px" }}>
+              {trend >= 0 ? "▲" : "▼"} {Math.abs(trend)}%
+            </span>
+          )}
+          <button onClick={e => { e.stopPropagation(); onToggle(); }}
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:"#64748B", padding:"0 2px", lineHeight:1 }}
+            title={collapsed ? "Expand" : "Collapse"}>
+            {collapsed ? "▸" : "▾"}
+          </button>
+        </div>
       </div>
       {!collapsed && (
         <>
-          <div style={{ fontSize: small ? 18 : 22, fontWeight:800, color:B.text, lineHeight:1 }}>{value}</div>
-          {sub && <div style={{ fontSize:11, color:B.muted, marginTop:5 }}>{sub}</div>}
+          <div style={{ fontSize: small ? 18 : 22, fontWeight:800, color:"#1E293B", lineHeight:1, letterSpacing:"-0.5px" }}>{value}</div>
+          {sub && <div style={{ fontSize:11, color:"#64748B", marginTop:5 }}>{sub}</div>}
         </>
       )}
     </div>

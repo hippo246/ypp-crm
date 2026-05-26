@@ -64,8 +64,12 @@ function CommandPalette({ navItems, onNavigate, onClose, dark }) {
   const ALL_CMDS = [
     ...NAV_CMDS,
     { label: "Toggle dark mode", icon: "🌙", action: () => { onClose(); }, group: "Settings" },
+    { label: "Toggle compact mode", icon: "⚡", action: () => { onClose(); }, group: "Settings" },
+    { label: "Toggle focus mode", icon: "◎", action: () => { onClose(); }, group: "Settings" },
     { label: "Add Task", icon: "✚", action: () => { onNavigate("tasks"); onClose(); }, group: "Quick Add" },
     { label: "Add Lead", icon: "✚", action: () => { onNavigate("leads"); onClose(); }, group: "Quick Add" },
+    { label: "Add Client", icon: "✚", action: () => { onNavigate("clients"); onClose(); }, group: "Quick Add" },
+    { label: "Add Invoice", icon: "✚", action: () => { onNavigate("accounting"); onClose(); }, group: "Quick Add" },
   ];
   const filtered = q ? ALL_CMDS.filter(c => c.label.toLowerCase().includes(q.toLowerCase())) : ALL_CMDS;
   const groups = [...new Set(filtered.map(c => c.group))];
@@ -75,9 +79,9 @@ function CommandPalette({ navItems, onNavigate, onClose, dark }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh" }}
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px) saturate(150%)", WebkitBackdropFilter: "blur(8px) saturate(150%)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh" }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ width: 560, background: T.surface, borderRadius: 14, boxShadow: "0 24px 64px rgba(0,0,0,0.35)", overflow: "hidden", border: `1px solid ${T.border}`, animation: "slideDown 0.15s ease" }}>
+      <div style={{ width: 560, background: dark ? "rgba(26,29,39,0.95)" : "rgba(255,255,255,0.96)", borderRadius: 16, boxShadow: "0 32px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.08)", overflow: "hidden", border: `1px solid ${dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}`, animation: "slideDown 0.15s ease" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${T.border}` }}>
           <span style={{ fontSize: 16, color: T.muted }}>⌕</span>
           <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={handleKey}
@@ -162,6 +166,11 @@ function NotifPanel({ notifications, onClose, onMarkRead, onMarkAll, dark }) {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 2 }}>{n.title}</div>
               <div style={{ fontSize: 11, color: T.muted }}>{n.body}</div>
+              {n.timestamp && (
+                <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>
+                  {new Date(n.timestamp).toLocaleString()}
+                </div>
+              )}
             </div>
             {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: B.accent, flexShrink: 0, marginTop: 4 }} />}
           </div>
@@ -189,7 +198,8 @@ function useSidebarBadges(data) {
 }
 
 // ── Sidebar nav item ──────────────────────────────────────────────────────────
-function SideNavItem({ n, active, collapsed, badge, onClick, onContextMenu }) {
+function SideNavItem({ n, active, collapsed, badge, onClick, onContextMenu, dark = false }) {
+  const T = getTheme(dark);
   const [hovered, setHovered] = useState(false);
   return (
     <div onClick={onClick} onContextMenu={onContextMenu}
@@ -219,7 +229,7 @@ function SideNavItem({ n, active, collapsed, badge, onClick, onContextMenu }) {
         <span style={{ position: "absolute", top: 5, right: 6, width: 7, height: 7, borderRadius: "50%", background: n.id === "accounting" ? "#ef4444" : B.yellow }} />
       )}
       {/* Hover preview card — only in collapsed mode */}
-      {collapsed && hovered && <NavHoverCard n={n} badges={{ [n.id]: badge }} T={getTheme(false)} />}
+      {collapsed && hovered && <NavHoverCard n={n} badges={{ [n.id]: badge }} T={T} />}
     </div>
   );
 }
@@ -242,6 +252,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   const [showPalette, setShowPalette] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
   const [searchFocused, setSearchFocused] = useState(false);
+  const [splitView, setSplitView] = useState(false);
 
   const T = getTheme(dark);
   const badges = useSidebarBadges(data);
@@ -259,6 +270,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
       if ((e.metaKey || e.ctrlKey) && e.key === "\\") { e.preventDefault(); setSidebarCollapsed(c => !c); }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "F") { e.preventDefault(); setFocusMode(f => !f); }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "D") { e.preventDefault(); setDark(d => !d); }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "S") { e.preventDefault(); setSplitView(s => !s); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -290,9 +302,11 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   const handleNavContextMenu = (e, n) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, items: [
-      { label: `Open ${n.label}`, action: () => setTab(n.id) },
-      { label: "Open in focus mode", action: () => { setTab(n.id); setFocusMode(true); } },
-      { label: badges[n.id] ? `${badges[n.id]} pending items` : "No pending items", disabled: true },
+      { label: `▸  Open ${n.label}`, action: () => setTab(n.id), kbd: "↵" },
+      { label: "◎  Open in focus mode", action: () => { setTab(n.id); setFocusMode(true); }, kbd: "⌘⇧F" },
+      { label: "⧉  Open in split view", action: () => { setTab(n.id); setSplitView(true); }, kbd: "⌘⇧S" },
+      { label: "─", disabled: true },
+      { label: badges[n.id] ? `⚠  ${badges[n.id]} pending items` : "✓  No pending items", disabled: true },
     ]});
   };
 
@@ -337,10 +351,11 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           onClick={e => e.stopPropagation()}>
           {contextMenu.items.map((item, i) => (
             <div key={i} onClick={() => { if (!item.disabled) { item.action(); setContextMenu(null); } }}
-              style={{ padding: "8px 14px", fontSize: 12, cursor: item.disabled ? "default" : "pointer", color: item.disabled ? T.muted : T.text, fontWeight: item.disabled ? 400 : 500, transition: "background 0.1s" }}
+              style={{ padding: "8px 14px", fontSize: 12, cursor: item.disabled ? "default" : "pointer", color: item.disabled ? T.muted : T.text, fontWeight: item.disabled ? 400 : 500, transition: "background 0.1s", display: "flex", justifyContent: "space-between", alignItems: "center" }}
               onMouseEnter={e => { if (!item.disabled) e.currentTarget.style.background = T.hover; }}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              {item.label}
+              <span>{item.label}</span>
+              {item.kbd && <kbd style={{ fontSize: 9, color: T.muted, background: T.input, borderRadius: 3, padding: "1px 5px", border: `1px solid ${T.border}` }}>{item.kbd}</kbd>}
             </div>
           ))}
         </div>
@@ -389,7 +404,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           {/* Nav items */}
           <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "6px 0 4px", scrollbarWidth: "none" }}>
             {navItems.filter(n => n.group === null).map(n => (
-              <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]}
+              <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]} dark={dark}
                 onClick={() => { setTab(n.id); setDrawerOpen(false); }}
                 onContextMenu={(e) => handleNavContextMenu(e, n)} />
             ))}
@@ -403,7 +418,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
                   )}
                   {sidebarCollapsed && <div style={{ height: 8, borderTop: "1px solid rgba(255,255,255,0.06)", margin: "3px 8px" }} />}
                   {items.map(n => (
-                    <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]}
+                    <SideNavItem key={n.id} n={n} active={activeTab === n.id} collapsed={sidebarCollapsed} badge={badges[n.id]} dark={dark}
                       onClick={() => { setTab(n.id); setDrawerOpen(false); }}
                       onContextMenu={(e) => handleNavContextMenu(e, n)} />
                   ))}
@@ -432,7 +447,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
                 {/* Mode toggles row */}
                 <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                  {[["🌙", dark, () => setDark(d => !d), "Dark"], ["⚡", compact, () => setCompact(c => !c), "Compact"], ["◎", focusMode, () => setFocusMode(f => !f), "Focus"], ["⊞", viewMode === "excel", () => setViewMode(v => v === "excel" ? "normal" : "excel"), "Excel"]].map(([icon, on, fn, tip]) => (
+                  {[["🌙", dark, () => setDark(d => !d), "Dark"], ["⚡", compact, () => setCompact(c => !c), "Compact"], ["◎", focusMode, () => setFocusMode(f => !f), "Focus"], ["⊞", viewMode === "excel", () => setViewMode(v => v === "excel" ? "normal" : "excel"), "Excel"], ["⧉", splitView, () => setSplitView(s => !s), "Split"]].map(([icon, on, fn, tip]) => (
                     <button key={tip} onClick={fn} title={tip}
                       style={{ flex: 1, padding: "5px 0", fontSize: 12, background: on ? "rgba(255,200,0,0.18)" : "rgba(255,255,255,0.06)", border: `1px solid ${on ? "rgba(255,200,0,0.35)" : "rgba(255,255,255,0.09)"}`, borderRadius: 6, color: on ? B.yellow : "rgba(255,255,255,0.4)", cursor: "pointer", transition: "all 0.15s" }}>
                       {icon}
@@ -465,7 +480,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
         <OfflineBanner />
 
         {/* Topbar */}
-        <div style={{ height: compact ? 40 : 46, background: T.topbar, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 14px", gap: 8, flexShrink: 0, position: "relative", boxShadow: dark ? "none" : "0 1px 3px rgba(0,0,0,0.04)", transition: "background 0.2s" }}>
+        <div style={{ height: compact ? 38 : 46, background: T.topbar, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 14px", gap: 8, flexShrink: 0, position: "relative", boxShadow: dark ? "none" : "0 1px 3px rgba(0,0,0,0.04)", transition: "background 0.2s, height 0.15s" }}>
 
           {/* Hamburger (mobile) */}
           <button className="hamburger-btn" onClick={() => setDrawerOpen(true)}
@@ -490,7 +505,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           <div style={{ flex: 1 }} />
 
           {/* Search bar */}
-          <div className="topbar-search"
+          <div className="topbar-search" title="Search (⌘K) · Dark mode (⌘⇧D) · Focus (⌘⇧F) · Split (⌘⇧S)"
             style={{ display: "flex", alignItems: "center", gap: 6, background: T.input, border: `1px solid ${searchFocused ? B.accent : T.border}`, borderRadius: 7, padding: "5px 10px", transition: "border-color 0.15s, box-shadow 0.15s", boxShadow: searchFocused ? `0 0 0 3px ${B.accent}20` : "none", cursor: "text" }}
             onClick={() => { if (!searchFocused) document.querySelector(".topbar-search input")?.focus(); }}>
             <span style={{ fontSize: 12, color: T.muted }}>⌕</span>
@@ -506,21 +521,49 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
           {/* Auto-save dot */}
           <div title={autoSaveStatus} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.muted }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.border, transition: "background 0.3s" }} />
+            <style id="autosave-kf">{`@keyframes saving-spin { to { transform: rotate(360deg); } }`}</style>
+            {autoSaveStatus === "saving"
+              ? <div style={{ width: 8, height: 8, border: "1.5px solid transparent", borderTopColor: B.orange, borderRadius: "50%", animation: "saving-spin 0.7s linear infinite" }} />
+              : <div style={{ width: 6, height: 6, borderRadius: "50%", background: autoSaveStatus === "saved" ? B.green : T.border, transition: "background 0.3s" }} />
+            }
             {!compact && <span>{autoSaveStatus === "saved" ? "Saved" : autoSaveStatus === "saving" ? "Saving…" : "Unsaved"}</span>}
           </div>
 
           {/* Presence avatars */}
           {presence.length > 0 && (
-            <div style={{ display: "flex" }}>
-              {presence.slice(0, 4).map((p, i) => (
-                <div key={p.userId} title={`${p.name} · ${p.activeTab || "browsing"}`}
-                  style={{ width: 24, height: 24, borderRadius: "50%", background: p.color || B.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: i === 0 ? 0 : -7, zIndex: 10 - i, position: "relative" }}>
-                  {p.avatar || p.name?.[0]}
+            <>
+              <style id="presence-kf">{`
+                @keyframes presence-pop {
+                  0%   { opacity: 0; transform: scale(0.6) translateY(4px); }
+                  60%  { transform: scale(1.08) translateY(-1px); }
+                  100% { opacity: 1; transform: scale(1) translateY(0); }
+                }
+                @keyframes presence-online {
+                  0%, 100% { box-shadow: 0 0 0 0px rgba(74,222,128,0.5); }
+                  50%       { box-shadow: 0 0 0 3px rgba(74,222,128,0); }
+                }
+              `}</style>
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                {presence.slice(0, 5).map((p, i) => (
+                  <div key={p.userId} title={`${p.name} · ${p.activeTab || "browsing"}`}
+                    style={{ position: "relative", width: 26, height: 26, borderRadius: "50%", background: p.color || "#457B9D", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: i === 0 ? 0 : -8, zIndex: 10 - i, cursor: "default", animation: `presence-pop 0.3s ease ${i * 0.06}s both`, transition: "transform 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2) translateY(-2px)"}
+                    onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
+                    {p.avatar || p.name?.[0]}
+                    <span style={{ position: "absolute", bottom: -1, right: -1, width: 7, height: 7, borderRadius: "50%", background: "#4ade80", border: `1.5px solid ${T.topbar}`, animation: "presence-online 2s ease-in-out infinite" }} />
+                  </div>
+                ))}
+                {presence.length > 5 && (
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: T.muted, fontWeight: 700, marginLeft: -8, cursor: "default" }}>
+                    +{presence.length - 5}
+                  </div>
+                )}
+                <div style={{ marginLeft: 4, display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#4ade80", fontWeight: 700, background: "#4ade8015", borderRadius: 10, padding: "1px 6px", border: "1px solid #4ade8030" }}>
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#4ade80", display: "inline-block" }} />
+                  LIVE
                 </div>
-              ))}
-              {presence.length > 4 && <div style={{ width: 24, height: 24, borderRadius: "50%", background: T.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: -7 }}>+{presence.length - 4}</div>}
-            </div>
+              </div>
+            </>
           )}
 
           {/* Role picker */}
@@ -542,6 +585,14 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
               </div>
             )}
           </div>
+
+          {/* Split view toggle */}
+          <button onClick={() => setSplitView(s => !s)} title="Split view (⌘⇧S)"
+            style={{ width: 30, height: 30, borderRadius: 7, background: splitView ? `${B.accent}22` : T.input, border: `1px solid ${splitView ? B.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: splitView ? B.accent : T.muted, transition: "all 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.background = T.hover}
+            onMouseLeave={e => e.currentTarget.style.background = splitView ? `${B.accent}22` : T.input}>
+            ⧉
+          </button>
 
           {/* Bell */}
           <div style={{ position: "relative" }}>
@@ -566,8 +617,41 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
         </div>
 
         {/* Content */}
-        <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: viewMode === "excel" ? "hidden" : "auto", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
-          {renderTab()}
+        <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+          <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: viewMode === "excel" ? "hidden" : "auto", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
+            {renderTab()}
+          </div>
+          {splitView && (
+            <div style={{ width: 320, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", textTransform: "uppercase" }}>Quick Panel</span>
+                <button onClick={() => setSplitView(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+                {/* Pending tasks summary */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 8 }}>Pending Tasks</div>
+                  {(data.tasks || []).filter(t => t.status !== "Done").slice(0, 8).map(t => (
+                    <div key={t.id} onClick={() => setTab("tasks")} style={{ padding: "7px 10px", marginBottom: 4, background: T.hover, borderRadius: 7, cursor: "pointer", borderLeft: `3px solid ${t.priority === "High" ? B.red : t.priority === "Medium" ? B.orange : B.border}` }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.text, marginBottom: 2 }}>{t.title}</div>
+                      <div style={{ fontSize: 10, color: T.muted }}>{t.assigned || "Unassigned"} · {t.due || "No due date"}</div>
+                    </div>
+                  ))}
+                  {(data.tasks || []).filter(t => t.status !== "Done").length === 0 && <div style={{ fontSize: 11, color: T.muted }}>All caught up! 🎉</div>}
+                </div>
+                {/* Recent leads */}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 8 }}>Recent Leads</div>
+                  {(data.leads || []).slice(-5).reverse().map(l => (
+                    <div key={l.id} onClick={() => setTab("leads")} style={{ padding: "7px 10px", marginBottom: 4, background: T.hover, borderRadius: 7, cursor: "pointer" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: T.text }}>{l.name}</div>
+                      <div style={{ fontSize: 10, color: T.muted }}>{l.status} · {l.value ? `AED ${l.value.toLocaleString()}` : ""}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {!focusMode && <MobileBottomNav navItems={navItems} activeTab={activeTab} onTabChange={(id) => setTab(id)} />}
@@ -582,12 +666,21 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
       {/* CSS animations */}
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes tabIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .main-content-area > * { animation: tabIn 0.14s ease; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        .sidebar-nav-item:hover { background: rgba(255,255,255,0.07) !important; }
+        button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+          outline: 2px solid #457B9D;
+          outline-offset: 2px;
+        }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.35); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.6); }
         .main-content-area { scrollbar-width: thin; }
+        .mobile-bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
         @media (max-width: 768px) {
           .sidebar { display: none !important; }
           .sidebar-drawer.open { display: flex !important; position: fixed; top: 0; left: 0; bottom: 0; z-index: 900; }
@@ -605,6 +698,10 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
         }
         @media (min-width: 769px) and (max-width: 1024px) {
           .topbar-search input { width: 110px !important; }
+          .sidebar { width: 54px !important; }
+        }
+        @media (max-width: 768px) {
+          .split-panel { display: none !important; }
         }
       `}</style>
     </div>
