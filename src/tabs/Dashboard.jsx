@@ -132,9 +132,9 @@ export default function Dashboard() {
         return (
           <div style={{ background: "linear-gradient(135deg, #1E40AF08, #7C3AED08)", border: `1px solid ${B.blue}20`, borderRadius: 10, padding: "10px 16px" }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: B.blue, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📅 Today — {new Date().toLocaleDateString("en-AE", { weekday: "long", month: "short", day: "numeric" })}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <div className="today-items" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {items.slice(0, 6).map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: item.color + "10", border: `1px solid ${item.color}25`, borderRadius: 20, padding: "4px 10px", fontSize: 11 }}>
+                <div key={i} className="today-item" style={{ display: "flex", alignItems: "center", gap: 6, background: item.color + "10", border: `1px solid ${item.color}25`, borderRadius: 20, padding: "4px 10px", fontSize: 11 }}>
                   <span>{item.icon}</span>
                   <span style={{ fontWeight: 600, color: item.color, fontSize: 10 }}>{item.label}</span>
                   <span style={{ color: B.text, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</span>
@@ -168,7 +168,8 @@ export default function Dashboard() {
       {/* KPI cards — collapsible + reorderable */}
       <style>{`
         @media (max-width: 1100px) { .kpi-grid-5 { grid-template-columns: repeat(3,1fr) !important; } }
-        @media (max-width: 700px)  { .kpi-grid-5 { grid-template-columns: repeat(2,1fr) !important; } .kpi-grid-3 { grid-template-columns: 1fr !important; } .dash-mid-row { grid-template-columns: 1fr !important; } .dash-bottom-row { grid-template-columns: 1fr !important; } }
+        @media (max-width: 700px)  { .kpi-grid-5 { grid-template-columns: repeat(2,1fr) !important; } .kpi-grid-3 { grid-template-columns: repeat(2,1fr) !important; } .dash-mid-row { grid-template-columns: 1fr !important; } .dash-bottom-row { grid-template-columns: 1fr !important; } .dash-widgets { grid-template-columns: 1fr !important; } }
+        @media (max-width: 480px)  { .kpi-grid-5 { grid-template-columns: repeat(2,1fr) !important; } .kpi-grid-3 { grid-template-columns: repeat(2,1fr) !important; } .kpi-drag-card { min-height: 64px; } .fab-actions { flex-direction: column !important; align-items: flex-end !important; } .today-items { flex-direction: column !important; } .today-item { width: 100% !important; box-sizing: border-box; } }
         .kpi-drag-card { cursor: grab; transition: opacity 0.15s, box-shadow 0.15s; }
         .kpi-drag-card:active { cursor: grabbing; }
       `}</style>
@@ -239,7 +240,7 @@ export default function Dashboard() {
       {/* Widget picker modal */}
       {widgetPickerOpen && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setWidgetPickerOpen(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:12, padding:24, width:420, boxShadow:"0 16px 40px rgba(0,0,0,0.18)" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:12, padding:24, width:"min(420px, 92vw)", boxShadow:"0 16px 40px rgba(0,0,0,0.18)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
               <div style={{ fontWeight:700, fontSize:15 }}>Add Widget</div>
               <button onClick={() => setWidgetPickerOpen(false)} style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", color:B.muted }}>×</button>
@@ -270,7 +271,7 @@ export default function Dashboard() {
 
       {/* ── Optional Widgets row ── */}
       {activeWidgets.length > 0 && (
-        <div style={{ display:"grid", gridTemplateColumns: activeWidgets.length >= 2 ? "1fr 1fr" : "1fr", gap:14 }}>
+        <div className="dash-widgets" style={{ display:"grid", gridTemplateColumns: activeWidgets.length >= 2 ? "1fr 1fr" : "1fr", gap:14 }}>
           {activeWidgets.includes("progress") && (
             <SectionCard title="Task Progress Analytics">
               <div style={{ padding:"14px", display:"flex", gap:20, alignItems:"flex-start", flexWrap:"wrap" }}>
@@ -425,27 +426,29 @@ export default function Dashboard() {
       {/* Mid row */}
       <div className="dash-mid-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <SectionCard title="Recent Leads">
-          <NTable
-            cols={[
-              { key: "name", label: "Name", render: (v) => <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Avatar name={v} size={24} />{v}</div> },
-              { key: "service", label: "Service" },
-              { key: "status", label: "Status", render: (v) => <Badge label={v} /> },
-              { key: "value", label: "Value", render: (v) => aed(v) },
-            ]}
-            rows={recentLeads}
-          />
+          <RecentLeadsList leads={recentLeads} />
         </SectionCard>
 
         <SectionCard title="Pending Tasks">
           <div style={{ padding: "4px 0" }}>
-            {pendingTaskList.map((t) => (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderBottom: `1px solid ${B.border}` }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.priority === "High" ? B.red : t.priority === "Medium" ? B.yellow : B.green, flexShrink: 0 }} />
-                <div style={{ flex: 1, fontSize: 12 }}>{t.title}</div>
-                <Badge label={t.priority} />
-                <span style={{ fontSize: 11, color: B.muted }}>{t.due}</span>
-              </div>
-            ))}
+            {pendingTaskList.map((t) => {
+              const statusCycle = { "Pending": "In Progress", "In Progress": "Done", "Done": "Pending" };
+              const statusColor = { "Pending": B.muted, "In Progress": B.blue, "Done": B.green };
+              return (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${B.border}`, minHeight: 44 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.priority === "High" ? B.red : t.priority === "Medium" ? B.yellow : B.green, flexShrink: 0 }} />
+                  <div style={{ flex: 1, fontSize: 12 }}>{t.title}</div>
+                  <button
+                    onClick={() => {
+                      const next = statusCycle[t.status] || "Pending";
+                      setData(d => ({ ...d, tasks: d.tasks.map(x => x.id === t.id ? { ...x, status: next } : x) }));
+                    }}
+                    style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 12, border: `1px solid ${statusColor[t.status] || B.muted}40`, background: (statusColor[t.status] || B.muted) + "15", color: statusColor[t.status] || B.muted, cursor: "pointer", whiteSpace: "nowrap", minHeight: 28 }}
+                  >{t.status || "Pending"}</button>
+                  <span style={{ fontSize: 11, color: B.muted }}>{t.due}</span>
+                </div>
+              );
+            })}
             {pendingTaskList.length === 0 && <div style={{ padding: "12px 14px", fontSize: 12, color: B.muted }}>All tasks complete 🎉</div>}
           </div>
         </SectionCard>
@@ -546,7 +549,7 @@ function QuickActionsBar({ data, setData }) {
           }
         `}</style>
         {open && (
-          <div style={{ display: "flex", gap: 8, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 12, padding: "8px 12px", boxShadow: "0 4px 20px rgba(0,0,0,0.12)" }}>
+          <div className="fab-actions" style={{ display: "flex", gap: 8, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 12, padding: "8px 12px", boxShadow: "0 4px 20px rgba(0,0,0,0.12)" }}>
             {actionBtns.map(btn => (
               <button key={btn.id} onClick={() => { setForm(btn.id); setVals({}); setOpen(false); }}
                 style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, background: btn.color, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -564,7 +567,7 @@ function QuickActionsBar({ data, setData }) {
       {/* Quick-add form modal */}
       {form && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setForm(null)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 24, width: 360, boxShadow: "0 16px 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 24, width: "min(360px, 92vw)", boxShadow: "0 16px 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontWeight: 700, fontSize: 15 }}>Quick Add {form.charAt(0).toUpperCase() + form.slice(1)}</div>
               <button onClick={() => setForm(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: B.muted }}>×</button>
@@ -615,6 +618,7 @@ function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, 
       style={{
         background:"#fff", border:`1px solid #E2E8F0`, borderRadius:10,
         padding: small ? "10px 14px" : "14px 18px", borderTop:`3px solid ${color}`,
+        minHeight: small ? 64 : 80,
         boxShadow: hovered ? "0 6px 20px rgba(0,0,0,0.09)" : "0 1px 3px rgba(0,0,0,0.04)",
         transform: hovered ? "translateY(-2px)" : "translateY(0)",
         transition:"box-shadow 0.18s, transform 0.18s",
@@ -647,6 +651,44 @@ function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, 
           {sub && <div style={{ fontSize:11, color:"#64748B", marginTop:5 }}>{sub}</div>}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Recent Leads — tap-to-expand list ───────────────────────────────────────
+
+function RecentLeadsList({ leads }) {
+  const [expanded, setExpanded] = useState(null);
+  if (!leads.length) return <div style={{ padding: "12px 14px", fontSize: 12, color: B.muted }}>No leads yet</div>;
+  return (
+    <div>
+      {leads.map(l => {
+        const isOpen = expanded === l.id;
+        return (
+          <div key={l.id} style={{ borderBottom: `1px solid ${B.border}` }}>
+            <div
+              onClick={() => setExpanded(isOpen ? null : l.id)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", minHeight: 44, userSelect: "none" }}
+            >
+              <Avatar name={l.name} size={26} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</div>
+                <div style={{ fontSize: 10, color: B.muted }}>{l.service || "—"}</div>
+              </div>
+              <Badge label={l.status} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: B.text, marginLeft: 4 }}>{aed(l.value)}</span>
+              <span style={{ fontSize: 11, color: B.muted, marginLeft: 2 }}>{isOpen ? "▴" : "▾"}</span>
+            </div>
+            {isOpen && (
+              <div style={{ padding: "8px 14px 12px 50px", display: "flex", gap: 16, flexWrap: "wrap", background: B.blue + "06" }}>
+                {l.source && <div style={{ fontSize: 11 }}><span style={{ color: B.muted }}>Source </span><span style={{ fontWeight: 600 }}>{l.source}</span></div>}
+                {l.date   && <div style={{ fontSize: 11 }}><span style={{ color: B.muted }}>Date </span><span style={{ fontWeight: 600 }}>{l.date}</span></div>}
+                {l.assignee && <div style={{ fontSize: 11 }}><span style={{ color: B.muted }}>Owner </span><span style={{ fontWeight: 600 }}>{l.assignee}</span></div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

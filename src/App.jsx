@@ -21,7 +21,7 @@
  * and de-duplicated from useTabSync — it now imports from hooks/useTabSync.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { B, INIT } from "./constants";
 import { AppProvider, useAppData } from "./context/AppContext";
 import { can, getVisibleModules } from "./services/permissions";
@@ -268,7 +268,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   // ← now uses the extracted hook (no inline duplicate)
   const { activeTab: tab, setActiveTab: setTab } = useTabSync("dashboard");
 
-  const touchStartX = useRef(null);
   const [viewMode, setViewMode] = useState("normal");
   const [search, setSearch] = useState("");
   const [showNotifs, setShowNotifs] = useState(false);
@@ -317,22 +316,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
     document.body.style.background = T.bg;
     document.body.style.colorScheme = dark ? "dark" : "light";
   }, [dark, T.bg]);
-
-  // Touch swipe for mobile tab switching
-  const handleTouchStart = useCallback((e) => {
-    touchStartX.current = e.touches[0].clientX;
-  }, []);
-
-  const handleTouchEnd = useCallback((e) => {
-    if (touchStartX.current === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    touchStartX.current = null;
-    if (Math.abs(dx) < 60) return;
-    const allIds = navItems.map(n => n.id);
-    const cur = allIds.indexOf(activeTab);
-    if (dx < 0 && cur < allIds.length - 1) setTab(allIds[cur + 1]);
-    if (dx > 0 && cur > 0) setTab(allIds[cur - 1]);
-  }, [activeTab, navItems, setTab]);
 
   const titles = {
     dashboard: "Dashboard", leads: "Leads", clients: "Ongoing Clients",
@@ -385,8 +368,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
   return (
     <div
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
       style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: compact ? 12 : 13, color: T.text, background: T.bg, transition: "background 0.2s, color 0.2s" }}>
 
       {/* Command palette */}
