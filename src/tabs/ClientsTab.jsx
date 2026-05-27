@@ -36,6 +36,7 @@ export default function ClientsTab({ viewMode, search }) {
   const { data, setData } = useAppData();
   const [filter, setFilter] = useState("All");
   const [modal, setModal] = useState(false);
+  const [editModal, setEditModal] = useState(null); // client object to edit
   const [profileId, setProfileId] = useState(null); // client id for profile view
   const statuses = ["All", "Active", "Pending", "Expired"];
 
@@ -89,6 +90,15 @@ export default function ClientsTab({ viewMode, search }) {
     },
     { key: "email", label: "Email", width: 180 },
     { key: "phone", label: "Phone", width: 150 },
+    {
+      key: "_edit", label: "", width: 70,
+      render: (_, r) => (
+        <button onClick={() => setEditModal(r)}
+          style={{ padding: "3px 10px", fontSize: 10, fontWeight: 700, background: B.blue + "12", color: B.blue, border: `1px solid ${B.blue}30`, borderRadius: 4, cursor: "pointer" }}>
+          ✏ Edit
+        </button>
+      ),
+    },
   ];
 
   const handleChange = (ri, key, val) => {
@@ -114,6 +124,16 @@ export default function ClientsTab({ viewMode, search }) {
         started: new Date().toISOString().slice(0, 10),
       }],
     });
+  };
+
+  const handleEdit = (vals) => {
+    const updated = data.clients.map(c =>
+      c.id === editModal.id
+        ? { ...c, ...vals, value: Number(vals.value) || 0, progress: Number(vals.progress) || 0 }
+        : c
+    );
+    setData({ ...data, clients: updated });
+    setEditModal(null);
   };
 
   const profileClient = profileId ? data.clients.find((c) => c.id === profileId) : null;
@@ -163,6 +183,15 @@ export default function ClientsTab({ viewMode, search }) {
       )}
 
       {modal && <FormModal title="Add Client" fields={FIELDS} onSave={handleAdd} onClose={() => setModal(false)} />}
+      {editModal && (
+        <FormModal
+          title={`Edit Client — ${editModal.name}`}
+          fields={FIELDS}
+          initialValues={editModal}
+          onSave={handleEdit}
+          onClose={() => setEditModal(null)}
+        />
+      )}
     </div>
   );
 }

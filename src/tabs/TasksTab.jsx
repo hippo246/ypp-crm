@@ -649,6 +649,15 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
     { key: "recurring", label: "Recurring", width: 80, render: v => v ? <span style={{ fontSize: 10, color: B.accent }}>🔁 {v}</span> : null },
     { key: "approvalStatus", label: "Approval", width: 90, render: v => v ? <span style={{ fontSize: 10, fontWeight: 700, color: APPROVAL_COLORS[v] || B.muted }}>{v}</span> : null },
     { key: "ref", label: "Reference", width: 90 },
+    {
+      key: "_edit", label: "", width: 70,
+      render: (_, r) => (
+        <button onClick={(e) => { e.stopPropagation(); const index = data.tasks.findIndex(t => t.id === r.id); setDetailTask({ task: r, index }); }}
+          style={{ padding: "3px 8px", fontSize: 10, fontWeight: 700, background: B.blue + "12", color: B.blue, border: `1px solid ${B.blue}30`, borderRadius: 4, cursor: "pointer" }}>
+          ✏ Edit
+        </button>
+      ),
+    },
   ];
 
   const handleChange = (ri, key, val) => {

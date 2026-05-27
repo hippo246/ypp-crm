@@ -20,6 +20,7 @@ const FIELDS = [
 
 const SuppliersTab = ({ data, setData, viewMode, search }) => {
   const [modal, setModal] = useState(false);
+  const [editModal, setEditModal] = useState(null); // supplier to edit
   const [payModal, setPayModal] = useState(null); // supplier row index
   const [linkedModal, setLinkedModal] = useState(null); // supplier id
   let rows = filterSearch(data.suppliers, search, ["id", "name", "contact", "email", "category", "status"]);
@@ -43,9 +44,13 @@ const SuppliersTab = ({ data, setData, viewMode, search }) => {
     { key: "email", label: "Email", width: 180 },
     { key: "phone", label: "Phone", width: 150 },
     {
-      key: "_actions", label: "Actions", width: 150,
+      key: "_actions", label: "Actions", width: 200,
       render: (_, r, ri) => (
         <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setEditModal(r)}
+            style={{ padding: "3px 8px", fontSize: 10, fontWeight: 700, background: B.blue + "12", color: B.blue, border: `1px solid ${B.blue}30`, borderRadius: 4, cursor: "pointer" }}>
+            ✏ Edit
+          </button>
           {r.balance > 0 && (
             <button onClick={() => setPayModal(ri)}
               style={{ padding: "3px 8px", fontSize: 10, fontWeight: 700, background: B.green + "15", color: B.green, border: `1px solid ${B.green}40`, borderRadius: 4, cursor: "pointer" }}>
@@ -77,6 +82,16 @@ const SuppliersTab = ({ data, setData, viewMode, search }) => {
     setData({ ...data, suppliers: [...data.suppliers, { id: nextId("S"), ...vals, balance: Number(vals.balance) || 0 }] });
   };
 
+  const handleEdit = (vals) => {
+    const updated = data.suppliers.map(s =>
+      s.id === editModal.id
+        ? { ...s, ...vals, balance: Number(vals.balance) || 0 }
+        : s
+    );
+    setData({ ...data, suppliers: updated });
+    setEditModal(null);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -88,6 +103,15 @@ const SuppliersTab = ({ data, setData, viewMode, search }) => {
           : <NTable cols={cols} rows={rows} />}
       </SectionCard>
       {modal && <FormModal title="Add Supplier" fields={FIELDS} onSave={handleAdd} onClose={() => setModal(false)} />}
+      {editModal && (
+        <FormModal
+          title={`Edit Supplier — ${editModal.name}`}
+          fields={FIELDS}
+          initialValues={editModal}
+          onSave={handleEdit}
+          onClose={() => setEditModal(null)}
+        />
+      )}
 
       {/* Pay balance modal */}
       {payModal !== null && (() => {

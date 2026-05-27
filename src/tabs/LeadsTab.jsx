@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { B } from "../constants";
 import { aed, filterSearch, nextId } from "../helpers";
 import { useAppData } from "../context/AppContext";
@@ -17,6 +17,15 @@ import SectionCard from "../components/SectionCard";
 import NTable from "../components/NTable";
 import ExcelTable from "../components/ExcelTable";
 import FormModal from "../components/FormModal";
+
+// ─── Tab view cache (persists display mode across tab switches) ────────────────
+const VIEW_CACHE_KEY = "leadsTab_displayMode";
+function getCachedView() {
+  try { return sessionStorage.getItem(VIEW_CACHE_KEY) || "table"; } catch { return "table"; }
+}
+function setCachedView(v) {
+  try { sessionStorage.setItem(VIEW_CACHE_KEY, v); } catch {}
+}
 
 // ─── Field definitions ─────────────────────────────────────────────────────────
 const SERVICE_OPTIONS = ["UAE Visa", "Business License", "Employment Visa", "Business Setup", "Freezone License"];
@@ -76,14 +85,18 @@ export default function LeadsTab({ viewMode, search }) {
   const { data, setData } = useAppData();
 
   const [filter,       setFilter]       = useState("All");
-  const [displayMode,  setDisplayMode]  = useState("table");
+  const [displayMode,  setDisplayModeRaw]  = useState(() => getCachedView());
+  const setDisplayMode = useCallback((v) => { setCachedView(v); setDisplayModeRaw(v); }, []);
   const [addModal,     setAddModal]     = useState(false);
-  const [editLead,     setEditLead]     = useState(null);   // lead being edited in modal
-  const [detailLead,   setDetailLead]   = useState(null);   // lead detail drawer
+  const [editLead,     setEditLead]     = useState(null);
+  const [detailLead,   setDetailLead]   = useState(null);
   const [showDupesOnly, setShowDupesOnly] = useState(false);
   const [showStaleOnly, setShowStaleOnly] = useState(false);
   const [bulkSelected, setBulkSelected] = useState(new Set());
   const [bulkTarget,   setBulkTarget]   = useState("");
+  // Hover card state
+  const [hoverLead,    setHoverLead]    = useState(null);
+  const [hoverPos,     setHoverPos]     = useState({ x: 0, y: 0 });
 
   const leads        = data.leads;
   const statuses     = ["All", ...PIPELINE_STAGES];
@@ -221,13 +234,18 @@ export default function LeadsTab({ viewMode, search }) {
     {
       key: "name", label: "Name", width: 155,
       render: (v, r) => (
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 5, position: "relative" }}
+          onMouseEnter={e => { setHoverLead(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
+          onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
+          onMouseLeave={() => setHoverLead(null)}
+        >
           {dupeIds.has(r.id) && (
             <span title="Potential duplicate" style={{ color: B.orange, fontWeight: 700, fontSize: 10 }}>⚠</span>
           )}
           <span
             style={{ color: B.blue, cursor: "pointer", fontWeight: 600, fontSize: 12, textDecoration: "underline dotted" }}
-            onClick={e => { e.stopPropagation(); setDetailLead(r); }}
+            onClick={e => { e.stopPropagation(); setDetailLead(r); setHoverLead(null); }}
           >{v}</span>
         </div>
       ),
@@ -387,6 +405,9 @@ export default function LeadsTab({ viewMode, search }) {
           staleLeads={staleLeads}
           onConvert={handleConvertToClient}
           onEdit={setEditLead}
+          onDetail={(lead) => { setDetailLead(lead); setHoverLead(null); }}
+          onHover={(lead, pos) => { setHoverLead(lead); setHoverPos(pos); }}
+          onHoverEnd={() => setHoverLead(null)}
           onSetFollowUp={(lead, date) => {
             const updated = data.leads.map(l => l.id === lead.id ? { ...l, followUpDate: date, updatedAt: new Date().toISOString().slice(0,10) } : l);
             setData({ ...data, leads: updated });
@@ -420,6 +441,23 @@ export default function LeadsTab({ viewMode, search }) {
             ))}
           </div>
         </SectionCard>
+      )}
+
+      {/* ── Hover Detail Card (follows cursor — table & kanban) ── */}
+      {hoverLead && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 9998, pointerEvents: "none" }}
+        >
+          <LeadHoverCard
+            lead={hoverLead}
+            pos={hoverPos}
+            staleLeads={staleLeads}
+            dupeIds={dupeIds}
+            onClose={() => setHoverLead(null)}
+            onEdit={() => { setEditLead(hoverLead); setHoverLead(null); }}
+            onDetail={() => { setDetailLead(hoverLead); setHoverLead(null); }}
+          />
+        </div>
       )}
 
       {/* ── Add Modal ── */}
@@ -669,8 +707,66 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
   );
 }
 
+// ─── Lead Hover Card (follows cursor — table + kanban) ──────────────────────────
+function LeadHoverCard({ lead, pos, staleLeads, dupeIds, onClose, onEdit, onDetail }) {
+  const ref = useRef(null);
+  const score  = scoreLead(lead);
+  const sLabel = scoreLabel(score);
+  const isStale = staleLeads.some(s => s.id === lead.id);
+  const isDupe  = dupeIds.has(lead.id);
+
+  // Position the card so it never overflows viewport
+  const [style, setStyle] = useState({ top: 0, left: 0, opacity: 0 });
+  useEffect(() => {
+    if (!ref.current) return;
+    const { innerWidth: W, innerHeight: H } = window;
+    const { offsetWidth: w, offsetHeight: h } = ref.current;
+    const MARGIN = 12, OFFSET = 16;
+    let x = pos.x + OFFSET;
+    let y = pos.y + OFFSET;
+    if (x + w > W - MARGIN) x = pos.x - w - OFFSET;
+    if (y + h > H - MARGIN) y = pos.y - h - OFFSET;
+    setStyle({ position: "fixed", top: y, left: x, zIndex: 9999, opacity: 1, transition: "opacity 0.12s" });
+  }, [pos]);
+
+  return (
+    <div ref={ref} style={{
+      ...style,
+      background: "#fff",
+      borderRadius: 12,
+      padding: "14px 16px",
+      width: 260,
+      boxShadow: "0 8px 32px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.08)",
+      border: "1.5px solid #e2e8f0",
+      pointerEvents: "none",
+    }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color: "#0f172a", marginBottom: 6 }}>{lead.name}</div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={pill(STAGE_COLORS[lead.status] || "#64748b", (STAGE_COLORS[lead.status] || "#64748b") + "18")}>{lead.status}</span>
+        <span style={pill(SCORE_COLORS[sLabel], SCORE_COLORS[sLabel] + "18")}>{score} {sLabel}</span>
+        {isStale && <span style={pill("#f59e0b", "#fef3c7")}>⏰ Stale</span>}
+        {isDupe  && <span style={pill("#f59e0b", "#fef3c7")}>⚠ Dupe</span>}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12 }}>
+        {lead.service && <div style={{ display: "flex", gap: 6 }}><span style={{ color: "#94a3b8", width: 70 }}>💼 Service</span><span style={{ fontWeight: 500, color: "#334155" }}>{lead.service}</span></div>}
+        {lead.value   && <div style={{ display: "flex", gap: 6 }}><span style={{ color: "#94a3b8", width: 70 }}>💰 Value</span><span style={{ fontWeight: 600, color: "#10b981" }}>{aed(lead.value)}</span></div>}
+        {lead.email   && <div style={{ display: "flex", gap: 6 }}><span style={{ color: "#94a3b8", width: 70 }}>✉️ Email</span><span style={{ color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lead.email}</span></div>}
+        {lead.phone   && <div style={{ display: "flex", gap: 6 }}><span style={{ color: "#94a3b8", width: 70 }}>📱 Phone</span><span style={{ color: "#334155" }}>{lead.phone}</span></div>}
+        {lead.source  && <div style={{ display: "flex", gap: 6 }}><span style={{ color: "#94a3b8", width: 70 }}>📣 Source</span><span style={{ color: "#334155" }}>{lead.source}</span></div>}
+        {lead.followUpDate && <div style={{ display: "flex", gap: 6 }}><span style={{ color: "#94a3b8", width: 70 }}>🗓 Follow-up</span><span style={{ color: "#3b82f6", fontWeight: 600 }}>{lead.followUpDate}</span></div>}
+      </div>
+      {lead.notes && (
+        <div style={{ marginTop: 8, padding: "7px 9px", background: "#f8fafc", borderRadius: 7, fontSize: 11, color: "#64748b", lineHeight: 1.5, borderLeft: "3px solid #e2e8f0" }}>
+          {lead.notes.length > 90 ? lead.notes.slice(0, 90) + "…" : lead.notes}
+        </div>
+      )}
+      <div style={{ marginTop: 10, fontSize: 10, color: "#cbd5e1", textAlign: "center", fontStyle: "italic" }}>Click to open full details</div>
+    </div>
+  );
+}
+
 // ─── Kanban Board ────────────────────────────────────────────────────────────────
-function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, onSetFollowUp }) {
+function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, onSetFollowUp, onHover, onHoverEnd, onDetail }) {
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [editFollowUp, setEditFollowUp] = useState(null);
@@ -734,16 +830,22 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                   <div
                     key={lead.id}
                     draggable
-                    onDragStart={() => { setDragId(lead.id); }}
+                    onDragStart={() => { setDragId(lead.id); onHoverEnd && onHoverEnd(); }}
+                    onClick={(e) => { e.stopPropagation(); onDetail && onDetail(lead); }}
+                    onMouseEnter={e => { onHover && onHover(lead, { x: e.clientX, y: e.clientY }); }}
+                    onMouseMove={e => { onHover && onHover(lead, { x: e.clientX, y: e.clientY }); }}
+                    onMouseLeave={() => { onHoverEnd && onHoverEnd(); }}
                     style={{
                       background: "#fff",
                       borderRadius: 9,
                       padding: "10px 11px",
-                      cursor: "grab",
+                      cursor: "pointer",
                       border: `1.5px solid ${isDupe ? "#f59e0b40" : "#e2e8f0"}`,
                       boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                      transition: "box-shadow 0.15s",
+                      transition: "box-shadow 0.15s, transform 0.1s",
                     }}
+                    onMouseOver={e => { e.currentTarget.style.boxShadow = "0 4px 14px rgba(0,0,0,0.12)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                    onMouseOut={e => { e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"; e.currentTarget.style.transform = ""; }}
                   >
                     <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 3, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 4 }}>
                       <span style={{ lineHeight: 1.3 }}>{lead.name}</span>

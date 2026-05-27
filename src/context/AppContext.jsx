@@ -4,8 +4,17 @@ import { buildNotifications } from "../services/notificationEngine";
 
 const AppContext = createContext(null);
 
+// ─── Auth persistence ──────────────────────────────────────────────────────────
+const AUTH_KEY = "crm_currentUser";
+function loadUser() {
+  try { const s = localStorage.getItem(AUTH_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
+}
+function saveUser(user) {
+  try { user ? localStorage.setItem(AUTH_KEY, JSON.stringify(user)) : localStorage.removeItem(AUTH_KEY); } catch {}
+}
+
 const INITIAL_META = {
-  currentUser: null,   // { id, name, role, avatar, email }
+  currentUser: loadUser(),  // rehydrated from localStorage on every page load
   auditLog: [],
   notifReadIds: [],    // ids of notifications the user has dismissed/read
   presence: [],        // [{ userId, name, avatar, color, activeTab, lastSeen }]
@@ -20,8 +29,10 @@ function reducer(state, action) {
 
     // ── Auth ────────────────────────────────────────────────────────────────
     case "LOGIN":
+      saveUser(action.payload);
       return { ...state, currentUser: action.payload };
     case "LOGOUT":
+      saveUser(null);
       return { ...state, currentUser: null };
 
     // ── Generic ─────────────────────────────────────────────────────────────

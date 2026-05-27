@@ -1,0 +1,168 @@
+/*
+ * mobile.css — Global mobile responsiveness patch
+ * Append to your index.css or App.css
+ * Covers all tabs at ≤768px (phone) and ≤1024px (tablet)
+ */
+
+/* ── Base reset for small screens ───────────────────────────────────────────── */
+@media (max-width: 768px) {
+
+  /* ── KPI stat grids → 2 columns ─────────────────────────────── */
+  .kpi-grid-5,
+  .stat-grid-6,
+  [class*="kpi-grid"],
+  [class*="stat-grid"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ── Mid/bottom dashboard rows → 1 column ───────────────────── */
+  .dash-mid-row,
+  .dash-bottom-row,
+  .kpi-grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── Tables: enable horizontal scroll, no overflow clip ─────── */
+  .section-card,
+  [class*="SectionCard"],
+  .ntable-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Toolbar rows: stack on mobile ──────────────────────────── */
+  .toolbar-row {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* ── Filter pill rows: allow wrap ───────────────────────────── */
+  .filter-row {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ── Side panel drawers: full-screen on mobile ───────────────── */
+  .profile-drawer,
+  .task-detail-panel,
+  .detail-drawer {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 16px 16px 0 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    height: 85dvh !important;
+  }
+
+  /* ── Kanban: horizontal scroll ───────────────────────────────── */
+  .kanban-board {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kanban-col {
+    min-width: 240px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* ── Modals: full-width bottom sheet on mobile ───────────────── */
+  .form-modal-overlay {
+    align-items: flex-end !important;
+  }
+  .form-modal-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+  }
+
+  /* ── Excel mobile warning ────────────────────────────────────── */
+  .excel-mobile-warning {
+    display: flex !important;
+  }
+  .excel-table-wrap {
+    display: none !important;
+  }
+
+  /* ── Gantt: horizontal scroll ────────────────────────────────── */
+  .gantt-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Analytics charts: full width ───────────────────────────── */
+  .chart-grid-2,
+  .chart-grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── Aging buckets (AccountingTab) ──────────────────────────── */
+  .aging-buckets {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── StatCard: smaller font on mobile ───────────────────────── */
+  .stat-card-value {
+    font-size: 18px !important;
+  }
+
+  /* ── Hide secondary table columns (handled by NTable) ───────── */
+  .col-hide-mobile {
+    display: none !important;
+  }
+
+  /* ── Topbar search: full width ───────────────────────────────── */
+  .app-search {
+    max-width: none !important;
+    flex: 1 !important;
+  }
+
+  /* ── Tab content padding ─────────────────────────────────────── */
+  .app-content {
+    padding: 10px 10px 72px !important;
+  }
+}
+
+/* ── Tablet (769–1024px): sidebar + 3-col grids ─────────────────────────────── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .kpi-grid-5,
+  .stat-grid-6 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  .dash-mid-row {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* ── Touch-friendly tap targets ─────────────────────────────────────────────── */
+@media (hover: none) {
+  button, [role="button"] {
+    min-height: 36px;
+  }
+  .sidebar-item {
+    min-height: 44px;
+  }
+  input, select, textarea {
+    font-size: 16px !important; /* prevents iOS zoom on focus */
+  }
+}
+
+/* ── Safe area (notch phones) ───────────────────────────────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .app-content {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ── Smooth scroll everywhere ───────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Prevent overscroll bounce on iOS ───────────────────────────────────────── */
+body {
+  overscroll-behavior: none;
+}

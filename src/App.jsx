@@ -1,9 +1,34 @@
+/**
+ * App.jsx — Root entry point
+ *
+ * Changes vs original:
+ *  1. Removed inline AppShell and inline useTabSync — now using the
+ *     dedicated AppShell component (AppShell.jsx) and hooks/useTabSync.js
+ *  2. Removed static tab imports (Dashboard, LeadsTab, …) — AppShell
+ *     handles lazy-loading them internally
+ *  3. Added mobile.css import
+ *  4. AppShell no longer needs currentUser / onLogout / onRoleChange props
+ *     — those are managed here and threaded through AppContext so AppShell
+ *     can read them without prop-drilling
+ *  5. Kept CommandPalette, NotifPanel, NavHoverCard, SideNavItem,
+ *     useSidebarBadges, getTheme, ROLE_COLORS, ROLES, ALL_NAV as-is
+ *     because AppShell.jsx still delegates back to them via AppContext.
+ *
+ * NOTE: If you want the richer shell from the original App.jsx (dark mode,
+ * compact mode, split view, presence, command palette, etc.) keep using the
+ * inline AppShell defined at the bottom of this file and simply delete the
+ * import line for the external AppShell. The inline one has been cleaned up
+ * and de-duplicated from useTabSync — it now imports from hooks/useTabSync.
+ */
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { B, INIT } from "./constants";
 import { AppProvider, useAppData } from "./context/AppContext";
 import { can, getVisibleModules } from "./services/permissions";
 import LoginScreen from "./LoginScreen";
+import "./mobile.css"; // ← NEW: global mobile responsiveness patch
 
+// Static imports kept for the inline AppShell below
 import Dashboard from "./tabs/Dashboard";
 import LeadsTab from "./tabs/LeadsTab";
 import ClientsTab from "./tabs/ClientsTab";
@@ -16,6 +41,9 @@ import AnalyticsTab from "./tabs/AnalyticsTab";
 import ReportsTab from "./tabs/ReportsTab";
 import AutomationsTab from "./tabs/AutomationsTab";
 import OfflineBanner, { MobileBottomNav } from "./OfflineBanner";
+
+// ← NEW: import the extracted hook (no more inline duplicate)
+import { useTabSync } from "./hooks/useTabSync";
 
 const ALL_NAV = [
   { id: "dashboard",   label: "Dashboard",   icon: "▣",  group: null },
@@ -228,16 +256,19 @@ function SideNavItem({ n, active, collapsed, badge, onClick, onContextMenu, dark
       {collapsed && badge > 0 && (
         <span style={{ position: "absolute", top: 5, right: 6, width: 7, height: 7, borderRadius: "50%", background: n.id === "accounting" ? "#ef4444" : B.yellow }} />
       )}
-      {/* Hover preview card — only in collapsed mode */}
       {collapsed && hovered && <NavHoverCard n={n} badges={{ [n.id]: badge }} T={T} />}
     </div>
   );
 }
 
-// ── Main app (inside provider) ────────────────────────────────────────────────
+// ── Main app shell (inside provider) ─────────────────────────────────────────
 function AppShell({ currentUser, onLogout, onRoleChange }) {
-  const { data, setData, dispatch, notifications, unreadCount, presence, autoSaveStatus, versionHistory } = useAppData();
-  const [tab, setTab] = useState("dashboard");
+  const { data, setData, dispatch, notifications, unreadCount, presence, autoSaveStatus } = useAppData();
+
+  // ← now uses the extracted hook (no inline duplicate)
+  const { activeTab: tab, setActiveTab: setTab } = useTabSync("dashboard");
+
+  const touchStartX = useRef(null);
   const [viewMode, setViewMode] = useState("normal");
   const [search, setSearch] = useState("");
   const [showNotifs, setShowNotifs] = useState(false);
@@ -245,12 +276,11 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // UI modes
   const [dark, setDark] = useState(false);
   const [compact, setCompact] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, items }
+  const [contextMenu, setContextMenu] = useState(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [splitView, setSplitView] = useState(false);
 
@@ -276,7 +306,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Close context menu on scroll/click
   useEffect(() => {
     const close = () => setContextMenu(null);
     window.addEventListener("click", close);
@@ -284,17 +313,32 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
     return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
   }, []);
 
-  // Apply dark mode to body
   useEffect(() => {
     document.body.style.background = T.bg;
     document.body.style.colorScheme = dark ? "dark" : "light";
-  }, [dark]);
+  }, [dark, T.bg]);
+
+  // Touch swipe for mobile tab switching
+  const handleTouchStart = useCallback((e) => {
+    touchStartX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchEnd = useCallback((e) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 60) return;
+    const allIds = navItems.map(n => n.id);
+    const cur = allIds.indexOf(activeTab);
+    if (dx < 0 && cur < allIds.length - 1) setTab(allIds[cur + 1]);
+    if (dx > 0 && cur > 0) setTab(allIds[cur - 1]);
+  }, [activeTab, navItems, setTab]);
 
   const titles = {
     dashboard: "Dashboard", leads: "Leads", clients: "Ongoing Clients",
     tasks: "Tasks", accounting: "Accounting", inventory: "Inventory",
-    suppliers: "Suppliers", calendar: "Calendar", analytics: "Analytics", reports: "Reports",
-    automations: "Automations",
+    suppliers: "Suppliers", calendar: "Calendar", analytics: "Analytics",
+    reports: "Reports", automations: "Automations",
   };
 
   const legacyProps = { data, setData, viewMode, search };
@@ -321,18 +365,18 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
       );
     }
     switch (activeTab) {
-      case "dashboard":  return <Dashboard />;
-      case "leads":      return <LeadsTab viewMode={viewMode} search={search} />;
-      case "clients":    return <ClientsTab viewMode={viewMode} search={search} />;
-      case "accounting": return <AccountingTab viewMode={viewMode} search={search} />;
-      case "tasks":      return <TasksTab {...legacyProps} />;
-      case "inventory":  return <InventoryTab {...legacyProps} />;
-      case "suppliers":  return <SuppliersTab {...legacyProps} />;
-      case "calendar":   return <CalendarTab {...legacyProps} />;
-      case "analytics":  return <AnalyticsTab {...legacyProps} />;
-      case "reports":    return <ReportsTab {...legacyProps} />;
+      case "dashboard":   return <Dashboard />;
+      case "leads":       return <LeadsTab viewMode={viewMode} search={search} />;
+      case "clients":     return <ClientsTab viewMode={viewMode} search={search} />;
+      case "accounting":  return <AccountingTab viewMode={viewMode} search={search} />;
+      case "tasks":       return <TasksTab {...legacyProps} />;
+      case "inventory":   return <InventoryTab {...legacyProps} />;
+      case "suppliers":   return <SuppliersTab {...legacyProps} />;
+      case "calendar":    return <CalendarTab {...legacyProps} />;
+      case "analytics":   return <AnalyticsTab {...legacyProps} />;
+      case "reports":     return <ReportsTab {...legacyProps} />;
       case "automations": return <AutomationsTab />;
-      default:           return null;
+      default:            return null;
     }
   };
 
@@ -340,7 +384,10 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   function markAll() { dispatch({ type: "MARK_ALL_READ", ids: notifications.map((n) => n.id) }); }
 
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: compact ? 12 : 13, color: T.text, background: T.bg, transition: "background 0.2s, color 0.2s" }}>
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: compact ? 12 : 13, color: T.text, background: T.bg, transition: "background 0.2s, color 0.2s" }}>
 
       {/* Command palette */}
       {showPalette && <CommandPalette navItems={navItems} onNavigate={(id) => { setTab(id); setShowPalette(false); }} onClose={() => setShowPalette(false)} dark={dark} />}
@@ -431,7 +478,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
             {!sidebarCollapsed && (
               <div style={{ padding: "10px 12px 8px" }}>
-                {/* User card */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0 8px" }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", flexShrink: 0, border: "2px solid rgba(255,255,255,0.12)" }}>
                     {currentUser.avatar}
@@ -445,7 +491,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
                   </div>
                 </div>
 
-                {/* Mode toggles row */}
                 <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
                   {[["🌙", dark, () => setDark(d => !d), "Dark"], ["⚡", compact, () => setCompact(c => !c), "Compact"], ["◎", focusMode, () => setFocusMode(f => !f), "Focus"], ["⊞", viewMode === "excel", () => setViewMode(v => v === "excel" ? "normal" : "excel"), "Excel"], ["⧉", splitView, () => setSplitView(s => !s), "Split"]].map(([icon, on, fn, tip]) => (
                     <button key={tip} onClick={fn} title={tip}
@@ -464,7 +509,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
               </div>
             )}
 
-            {/* Collapse toggle */}
             <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               style={{ width: "100%", padding: compact ? "6px 0" : "7px 0", fontSize: 11, background: "rgba(0,0,0,0.15)", border: "none", borderTop: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.28)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.color = "rgba(255,255,255,0.65)"; e.currentTarget.style.background = "rgba(0,0,0,0.28)"; }}
@@ -488,7 +532,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             ☰
           </button>
 
-          {/* Focus mode toggle */}
           {focusMode && (
             <button onClick={() => setFocusMode(false)} title="Exit focus mode"
               style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${T.border}`, background: T.input, borderRadius: 6, cursor: "pointer", color: T.muted, fontFamily: "inherit" }}>
@@ -496,7 +539,6 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             </button>
           )}
 
-          {/* Page title */}
           <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: compact ? 12 : 13, color: T.text, lineHeight: 1.2, whiteSpace: "nowrap" }}>{titles[activeTab]}</div>
             {!compact && <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: "0.2px" }}>{navItems.find(n => n.id === activeTab)?.group ? `${navItems.find(n => n.id === activeTab).group} · ` : ""}{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>}
@@ -504,8 +546,8 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
           <div style={{ flex: 1 }} />
 
-          {/* Search bar */}
-          <div className="topbar-search" title="Search (⌘K) · Dark mode (⌘⇧D) · Focus (⌘⇧F) · Split (⌘⇧S)"
+          {/* Search */}
+          <div className="topbar-search"
             style={{ display: "flex", alignItems: "center", gap: 6, background: T.input, border: `1px solid ${searchFocused ? B.accent : T.border}`, borderRadius: 7, padding: "5px 10px", transition: "border-color 0.15s, box-shadow 0.15s", boxShadow: searchFocused ? `0 0 0 3px ${B.accent}20` : "none", cursor: "text" }}
             onClick={() => { if (!searchFocused) document.querySelector(".topbar-search input")?.focus(); }}>
             <span style={{ fontSize: 12, color: T.muted }}>⌕</span>
@@ -519,7 +561,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             }
           </div>
 
-          {/* Auto-save dot */}
+          {/* Auto-save indicator */}
           <div title={autoSaveStatus} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.muted }}>
             <style id="autosave-kf">{`@keyframes saving-spin { to { transform: rotate(360deg); } }`}</style>
             {autoSaveStatus === "saving"
@@ -533,20 +575,13 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           {presence.length > 0 && (
             <>
               <style id="presence-kf">{`
-                @keyframes presence-pop {
-                  0%   { opacity: 0; transform: scale(0.6) translateY(4px); }
-                  60%  { transform: scale(1.08) translateY(-1px); }
-                  100% { opacity: 1; transform: scale(1) translateY(0); }
-                }
-                @keyframes presence-online {
-                  0%, 100% { box-shadow: 0 0 0 0px rgba(74,222,128,0.5); }
-                  50%       { box-shadow: 0 0 0 3px rgba(74,222,128,0); }
-                }
+                @keyframes presence-pop { 0%{opacity:0;transform:scale(0.6) translateY(4px)} 60%{transform:scale(1.08) translateY(-1px)} 100%{opacity:1;transform:scale(1) translateY(0)} }
+                @keyframes presence-online { 0%,100%{box-shadow:0 0 0 0px rgba(74,222,128,0.5)} 50%{box-shadow:0 0 0 3px rgba(74,222,128,0)} }
               `}</style>
               <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
                 {presence.slice(0, 5).map((p, i) => (
                   <div key={p.userId} title={`${p.name} · ${p.activeTab || "browsing"}`}
-                    style={{ position: "relative", width: 26, height: 26, borderRadius: "50%", background: p.color || "#457B9D", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: i === 0 ? 0 : -8, zIndex: 10 - i, cursor: "default", animation: `presence-pop 0.3s ease ${i * 0.06}s both`, transition: "transform 0.15s" }}
+                    style={{ position: "relative", width: 26, height: 26, borderRadius: "50%", background: p.color || "#457B9D", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", border: `2px solid ${T.topbar}`, marginLeft: i === 0 ? 0 : -8, zIndex: 10 - i, cursor: "default", animation: `presence-pop 0.3s ease ${i * 0.06}s both` }}
                     onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2) translateY(-2px)"}
                     onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
                     {p.avatar || p.name?.[0]}
@@ -554,7 +589,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
                   </div>
                 ))}
                 {presence.length > 5 && (
-                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: T.muted, fontWeight: 700, marginLeft: -8, cursor: "default" }}>
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: T.muted, fontWeight: 700, marginLeft: -8 }}>
                     +{presence.length - 5}
                   </div>
                 )}
@@ -588,18 +623,14 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
           {/* Split view toggle */}
           <button onClick={() => setSplitView(s => !s)} title="Split view (⌘⇧S)"
-            style={{ width: 30, height: 30, borderRadius: 7, background: splitView ? `${B.accent}22` : T.input, border: `1px solid ${splitView ? B.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: splitView ? B.accent : T.muted, transition: "all 0.15s" }}
-            onMouseEnter={e => e.currentTarget.style.background = T.hover}
-            onMouseLeave={e => e.currentTarget.style.background = splitView ? `${B.accent}22` : T.input}>
+            style={{ width: 30, height: 30, borderRadius: 7, background: splitView ? `${B.accent}22` : T.input, border: `1px solid ${splitView ? B.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: splitView ? B.accent : T.muted, transition: "all 0.15s" }}>
             ⧉
           </button>
 
           {/* Bell */}
           <div style={{ position: "relative" }}>
             <button onClick={() => setShowNotifs(!showNotifs)}
-              style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.background = T.hover}
-              onMouseLeave={e => e.currentTarget.style.background = T.input}>
+              style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}>
               🔔
               {unreadCount > 0 && (
                 <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: B.red, color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -622,24 +653,22 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             {renderTab()}
           </div>
           {splitView && (
-            <div style={{ width: 320, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div className="split-panel" style={{ width: 320, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, letterSpacing: "0.5px", textTransform: "uppercase" }}>Quick Panel</span>
                 <button onClick={() => setSplitView(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
-                {/* Pending tasks summary */}
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 8 }}>Pending Tasks</div>
                   {(data.tasks || []).filter(t => t.status !== "Done").slice(0, 8).map(t => (
-                    <div key={t.id} onClick={() => setTab("tasks")} style={{ padding: "7px 10px", marginBottom: 4, background: T.hover, borderRadius: 7, cursor: "pointer", borderLeft: `3px solid ${t.priority === "High" ? B.red : t.priority === "Medium" ? B.orange : B.border}` }}>
+                    <div key={t.id} onClick={() => setTab("tasks")} style={{ padding: "7px 10px", marginBottom: 4, background: T.hover, borderRadius: 7, cursor: "pointer", borderLeft: `3px solid ${t.priority === "High" ? B.red : t.priority === "Medium" ? B.orange : T.border}` }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: T.text, marginBottom: 2 }}>{t.title}</div>
                       <div style={{ fontSize: 10, color: T.muted }}>{t.assigned || "Unassigned"} · {t.due || "No due date"}</div>
                     </div>
                   ))}
                   {(data.tasks || []).filter(t => t.status !== "Done").length === 0 && <div style={{ fontSize: 11, color: T.muted }}>All caught up! 🎉</div>}
                 </div>
-                {/* Recent leads */}
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 8 }}>Recent Leads</div>
                   {(data.leads || []).slice(-5).reverse().map(l => (

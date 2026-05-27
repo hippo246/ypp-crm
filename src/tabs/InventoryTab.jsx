@@ -20,6 +20,7 @@ const FIELDS = [
 
 const InventoryTab = ({ data, setData, viewMode, search }) => {
   const [modal, setModal] = useState(false);
+  const [editModal, setEditModal] = useState(null); // item to edit
   let rows = filterSearch(data.inventory, search, ["id", "name", "category", "supplier", "status"]);
 
   const handleReorder = (item) => {
@@ -40,12 +41,19 @@ const InventoryTab = ({ data, setData, viewMode, search }) => {
     { key: "supplier", label: "Supplier", width: 90 },
     { key: "status", label: "Status", width: 110, render: (v) => <Badge label={v} /> },
     {
-      key: "reorderBtn", label: "Action", width: 100,
-      render: (_, r) => r.status !== "In Stock" ? (
-        <button onClick={() => handleReorder(r)} style={{ padding: "3px 9px", fontSize: 10, fontWeight: 700, background: B.orange + "18", color: B.orange, border: `1px solid ${B.orange}40`, borderRadius: 4, cursor: "pointer" }}>
-          ↺ Reorder
-        </button>
-      ) : <span style={{ fontSize: 11, color: B.muted }}>—</span>,
+      key: "reorderBtn", label: "Action", width: 160,
+      render: (_, r) => (
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setEditModal(r)} style={{ padding: "3px 8px", fontSize: 10, fontWeight: 700, background: B.blue + "12", color: B.blue, border: `1px solid ${B.blue}30`, borderRadius: 4, cursor: "pointer" }}>
+            ✏ Edit
+          </button>
+          {r.status !== "In Stock" ? (
+            <button onClick={() => handleReorder(r)} style={{ padding: "3px 9px", fontSize: 10, fontWeight: 700, background: B.orange + "18", color: B.orange, border: `1px solid ${B.orange}40`, borderRadius: 4, cursor: "pointer" }}>
+              ↺ Reorder
+            </button>
+          ) : <span style={{ fontSize: 11, color: B.muted }}>—</span>}
+        </div>
+      ),
     },
   ];
 
@@ -65,6 +73,16 @@ const InventoryTab = ({ data, setData, viewMode, search }) => {
     setData({ ...data, inventory: [...data.inventory, { id: nextId("I"), ...vals, qty: Number(vals.qty) || 0, reorder: Number(vals.reorder) || 0, cost: Number(vals.cost) || 0 }] });
   };
 
+  const handleEdit = (vals) => {
+    const updated = data.inventory.map(item =>
+      item.id === editModal.id
+        ? { ...item, ...vals, qty: Number(vals.qty) || 0, reorder: Number(vals.reorder) || 0, cost: Number(vals.cost) || 0 }
+        : item
+    );
+    setData({ ...data, inventory: updated });
+    setEditModal(null);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -76,6 +94,15 @@ const InventoryTab = ({ data, setData, viewMode, search }) => {
           : <NTable cols={cols} rows={rows} />}
       </SectionCard>
       {modal && <FormModal title="Add Inventory Item" fields={FIELDS} onSave={handleAdd} onClose={() => setModal(false)} />}
+      {editModal && (
+        <FormModal
+          title={`Edit Item — ${editModal.name}`}
+          fields={FIELDS}
+          initialValues={editModal}
+          onSave={handleEdit}
+          onClose={() => setEditModal(null)}
+        />
+      )}
     </div>
   );
 };

@@ -8,6 +8,7 @@ const CalendarTab = ({ data, setData }) => {
   const [activeTypes, setActiveTypes] = useState(new Set(["Task", "Invoice", "Renewal"]));
   const [quickAdd, setQuickAdd] = useState(null); // { date: "YYYY-MM-DD" }
   const [quickLabel, setQuickLabel] = useState("");
+  const [selectedDay, setSelectedDay] = useState(null); // date string for day detail popup
   const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
@@ -34,8 +35,13 @@ const CalendarTab = ({ data, setData }) => {
 
   const handleDayClick = (d) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    setQuickAdd({ date: dateStr });
-    setQuickLabel("");
+    const dayEvents = allEvents.filter(e => e.date === dateStr);
+    if (dayEvents.length > 0) {
+      setSelectedDay(dateStr);
+    } else {
+      setQuickAdd({ date: dateStr });
+      setQuickLabel("");
+    }
   };
 
   const handleQuickSave = () => {
@@ -113,6 +119,51 @@ const CalendarTab = ({ data, setData }) => {
           );
         })}
       </div>
+
+      {/* Day detail popup */}
+      {selectedDay && (() => {
+        const dayEvents = allEvents.filter(e => e.date === selectedDay);
+        const dayTasks = (data.tasks || []).filter(t => t.due === selectedDay);
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setSelectedDay(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 24, minWidth: 340, maxWidth: 440, boxShadow: "0 16px 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>📅 {selectedDay}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setQuickAdd({ date: selectedDay }); setQuickLabel(""); setSelectedDay(null); }}
+                    style={{ padding: "4px 10px", fontSize: 11, fontWeight: 700, background: B.blue, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
+                    + Add Task
+                  </button>
+                  <button onClick={() => setSelectedDay(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#94a3b8" }}>×</button>
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {dayEvents.length === 0 && <div style={{ fontSize: 12, color: "#94a3b8" }}>No events this day</div>}
+                {dayEvents.map((e, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: e.color + "12", border: `1px solid ${e.color}30`, borderRadius: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: 12 }}>{e.milestone ? "🏁 " : ""}{e.label}</div>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: e.color, background: e.color + "18", borderRadius: 10, padding: "2px 7px" }}>{e.type}</span>
+                    {e.type === "Task" && (() => {
+                      const task = dayTasks.find(t => e.label.includes(t.title));
+                      if (!task) return null;
+                      return (
+                        <button onClick={() => {
+                          const updated = data.tasks.map(t => t.id === task.id ? { ...t, status: "Done", progress: 100 } : t);
+                          setData({ ...data, tasks: updated });
+                        }} style={{ fontSize: 9, padding: "2px 6px", background: "#10b981", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700 }}>
+                          ✓ Done
+                        </button>
+                      );
+                    })()}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -116,6 +116,35 @@ export default function Dashboard() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <QuickActionsBar data={data} setData={setData} />
+
+      {/* Today's Summary Bar */}
+      {(() => {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const dueTodayTasks = tasks.filter(t => t.due === todayStr && t.status !== "Done");
+        const dueTodayInvoices = accounting.filter(i => i.due === todayStr && i.status !== "Paid");
+        const renewingToday = clients.filter(c => c.renewal === todayStr);
+        const items = [
+          ...dueTodayTasks.map(t => ({ icon: "📋", text: t.title, color: B.orange, label: "Task due" })),
+          ...dueTodayInvoices.map(i => ({ icon: "💸", text: `${i.client} — ${aed(i.amount)}`, color: B.red, label: "Invoice due" })),
+          ...renewingToday.map(c => ({ icon: "🔄", text: c.name, color: B.accent, label: "Renewal" })),
+        ];
+        if (items.length === 0) return null;
+        return (
+          <div style={{ background: "linear-gradient(135deg, #1E40AF08, #7C3AED08)", border: `1px solid ${B.blue}20`, borderRadius: 10, padding: "10px 16px" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: B.blue, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📅 Today — {new Date().toLocaleDateString("en-AE", { weekday: "long", month: "short", day: "numeric" })}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {items.slice(0, 6).map((item, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: item.color + "10", border: `1px solid ${item.color}25`, borderRadius: 20, padding: "4px 10px", fontSize: 11 }}>
+                  <span>{item.icon}</span>
+                  <span style={{ fontWeight: 600, color: item.color, fontSize: 10 }}>{item.label}</span>
+                  <span style={{ color: B.text, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</span>
+                </div>
+              ))}
+              {items.length > 6 && <div style={{ fontSize: 11, color: B.muted, padding: "4px 0" }}>+{items.length - 6} more</div>}
+            </div>
+          </div>
+        );
+      })()}
       {/* Overdue alert */}
       {overdueList.length > 0 && (
         <div style={{

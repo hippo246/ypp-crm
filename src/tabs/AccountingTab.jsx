@@ -53,6 +53,7 @@ const NOTE_FIELDS = [
 export default function AccountingTab({ viewMode, search }) {
   const { data, setData } = useAppData();
   const [modal, setModal] = useState(false);
+  const [editModal, setEditModal] = useState(null); // invoice object to edit
   const [paymentModal, setPaymentModal] = useState(null); // invoice index
   const [noteModal, setNoteModal] = useState(null); // { index, type: "credit"|"debit" }
   const [showOverdueOnly, setShowOverdueOnly] = useState(false);
@@ -115,9 +116,10 @@ export default function AccountingTab({ viewMode, search }) {
     { key: "date", label: "Invoice Date", width: 110 },
     { key: "due", label: "Due Date", width: 100 },
     {
-      key: "actions", label: "Actions", width: 180,
+      key: "actions", label: "Actions", width: 220,
       render: (_, r, ri) => (
         <div style={{ display: "flex", gap: 4 }}>
+          <ActionBtn label="✏ Edit" color={B.blue} onClick={() => setEditModal(r)} title="Edit invoice" />
           <ActionBtn label="Pay" color={B.green} onClick={() => setPaymentModal(ri)} />
           <ActionBtn label="CR" color={B.blue} onClick={() => setNoteModal({ index: ri, type: "credit" })} title="Credit Note" />
           <ActionBtn label="DR" color={B.orange} onClick={() => setNoteModal({ index: ri, type: "debit" })} title="Debit Note" />
@@ -161,6 +163,19 @@ export default function AccountingTab({ viewMode, search }) {
         },
       ],
     });
+  };
+
+  const handleEdit = (vals) => {
+    const amt = Number(vals.amount) || 0;
+    const paid = Number(vals.paid) || 0;
+    const vatRate = Number(vals.vatRate) || 5;
+    const updated = data.accounting.map(inv =>
+      inv.id === editModal.id
+        ? { ...inv, ...vals, amount: amt, paid, vatRate, status: paid === 0 ? "Unpaid" : paid >= amountWithVAT(amt, vatRate) ? "Paid" : "Partial" }
+        : inv
+    );
+    setData({ ...data, accounting: updated });
+    setEditModal(null);
   };
 
   const handlePartialPayment = (vals) => {
@@ -220,7 +235,7 @@ export default function AccountingTab({ viewMode, search }) {
         });
         const b0 = bucket("0-30"), b1 = bucket("31-60"), b2 = bucket("60+");
         return (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <div className="aging-buckets" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
             {[["0–30 days", b0, B.yellow], ["31–60 days", b1, B.orange], ["60+ days", b2, B.red]].map(([label, items, color]) => (
               <div key={label} style={{ background: color + "0e", border: `1px solid ${color}30`, borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
@@ -281,6 +296,15 @@ export default function AccountingTab({ viewMode, search }) {
 
       {/* Modals */}
       {modal && <FormModal title="Add Invoice" fields={FIELDS} onSave={handleAdd} onClose={() => setModal(false)} />}
+      {editModal && (
+        <FormModal
+          title={`Edit Invoice — ${editModal.id}`}
+          fields={FIELDS}
+          initialValues={editModal}
+          onSave={handleEdit}
+          onClose={() => setEditModal(null)}
+        />
+      )}
       {paymentModal !== null && (
         <FormModal
           title={`Record Payment — ${data.accounting[paymentModal]?.client}`}
