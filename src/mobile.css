@@ -142,7 +142,9 @@
   .sidebar-item {
     min-height: 44px;
   }
-  input, select, textarea {
+  input:not(td input):not(th input),
+  select:not(td select):not(th select),
+  textarea {
     font-size: 16px !important; /* prevents iOS zoom on focus */
   }
 }

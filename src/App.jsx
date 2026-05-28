@@ -630,7 +630,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
         {/* Content */}
         <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: activeTab === "leads" || activeTab === "clients" ? "hidden" : "auto", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
+          <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "auto", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
             {renderTab()}
           </div>
           {splitView && (
