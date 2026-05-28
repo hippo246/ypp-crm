@@ -43,7 +43,15 @@ export default function ClientsTab({ viewMode, search }) {
   const [sortDir, setSortDir] = useState("asc");
   const [selected, setSelected] = useState(new Set());
   const [dragKanban, setDragKanban] = useState(null);
+  const [serviceFilter, setServiceFilter] = useState("All");
+  const [valueMin, setValueMin] = useState("");
+  const [valueMax, setValueMax] = useState("");
+  const [visibleCols, setVisibleCols] = useState(new Set(["name","service","status","value","progress","renewal","health"]));
+  const [showColPicker, setShowColPicker] = useState(false);
+  const [showValueFilter, setShowValueFilter] = useState(false);
+  const [showForecast, setShowForecast] = useState(true);
   const statuses = ["All", "Active", "Pending", "Expired"];
+  const allServices = useMemo(() => ["All", ...new Set(data.clients.map(c => c.service).filter(Boolean))], [data.clients]);
 
   let rows = filter === "All" ? data.clients : data.clients.filter((c) => c.status === filter);
   rows = filterSearch(rows, search, ["name", "contact", "email", "phone", "service", "licenseNumber"]);
@@ -54,6 +62,35 @@ export default function ClientsTab({ viewMode, search }) {
       return sortDir === "asc" ? cmp : -cmp;
     });
   }
+
+  // Feature 1: service + value range + stale filters applied to rows
+  if (serviceFilter !== "All") rows = rows.filter(c => c.service === serviceFilter);
+  if (valueMin !== "") rows = rows.filter(c => (c.value||0) >= Number(valueMin));
+  if (valueMax !== "") rows = rows.filter(c => (c.value||0) <= Number(valueMax));
+  // Feature 2: pinned clients float to top
+  rows = [...rows].sort((a,b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || 0);
+
+  // Feature 3: stale clients (no invoice in 60 days)
+  const today = new Date().toISOString().slice(0,10);
+  const staleIds = useMemo(() => new Set(data.clients.filter(c => {
+    const invs = data.accounting.filter(i => i.client === c.name);
+    if (!invs.length) return false;
+    const last = invs.map(i => i.date||"").sort().slice(-1)[0];
+    return last && (new Date() - new Date(last)) / 86400000 > 60;
+  }).map(c => c.id)), [data]);
+
+  // Feature 4: renewal forecast (this month)
+  const forecastVal = useMemo(() => {
+    const m = new Date().toISOString().slice(0,7);
+    return data.clients.filter(c => (c.renewal||"").startsWith(m)).reduce((s,c)=>s+(c.value||0),0);
+  }, [data.clients]);
+
+  // Feature 5: duplicate name detector
+  const duplicateNames = useMemo(() => {
+    const seen = {}; const dups = new Set();
+    data.clients.forEach(c => { const k=(c.name||"").toLowerCase(); if(seen[k]) dups.add(k); seen[k]=true; });
+    return dups;
+  }, [data.clients]);
 
   const toggleSort = (key) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -98,6 +135,17 @@ export default function ClientsTab({ viewMode, search }) {
   };
 
   // Kanban drag handlers
+  // Feature 6: pin toggle
+  const togglePin = (id) => setData(d => ({ ...d, clients: d.clients.map(c => c.id===id ? {...c, pinned:!c.pinned} : c) }));
+  // Feature 7: tag toggle (VIP / Follow-up / Escalated)
+  const toggleTag = (id, tag) => setData(d => ({ ...d, clients: d.clients.map(c => {
+    if (c.id !== id) return c;
+    const tags = new Set(c.tags||[]); tags.has(tag) ? tags.delete(tag) : tags.add(tag);
+    return { ...c, tags: [...tags] };
+  })}));
+  // Feature 8: bulk assign tag
+  const bulkTag = (tag) => { selected.forEach(id => toggleTag(id, tag)); setSelected(new Set()); };
+
   const onKanbanDrop = (status) => {
     if (!dragKanban) return;
     setData({ ...data, clients: data.clients.map(c => c.id === dragKanban ? { ...c, status } : c) });
@@ -232,12 +280,71 @@ export default function ClientsTab({ viewMode, search }) {
               {icon}
             </button>
           ))}
+          <div style={{ position:"relative" }}>
+            <button onClick={()=>setShowColPicker(v=>!v)} style={{ padding:"5px 10px", fontSize:11, fontWeight:600, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", color:B.muted }}>
+              ⚙ Cols
+            </button>
+            {showColPicker && (
+              <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", right:0, top:34, zIndex:300, background:"#fff", border:`1px solid ${B.border}`, borderRadius:8, padding:"10px 14px", boxShadow:"0 4px 20px rgba(0,0,0,0.12)", minWidth:160 }}>
+                {[["name","Company"],["service","Service"],["status","Status"],["value","Value"],["progress","Progress"],["renewal","Renewal"],["health","Health"],["tags","Tags"],["pin","Pin"]].map(([k,l]) => (
+                  <label key={k} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", fontSize:12, cursor:"pointer" }}>
+                    <input type="checkbox" checked={visibleCols.has(k)} onChange={()=>setVisibleCols(s=>{const n=new Set(s);n.has(k)?n.delete(k):n.add(k);return n;})} />
+                    {l}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button onClick={exportCSV} style={{ padding:"5px 12px", fontSize:11, fontWeight:600, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", color:B.muted, display:"flex", alignItems:"center", gap:4 }}>
             ↓ CSV
           </button>
           <button onClick={() => setModal(true)} style={{ padding:"6px 14px", background:B.blue, color:"#fff", border:"none", borderRadius:6, fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Client</button>
         </div>
       </div>
+
+      {/* Feature 9: Revenue forecast bar */}
+      {showForecast && forecastVal > 0 && (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", background:B.blue+"0a", border:`1px solid ${B.blue}20`, borderRadius:8 }}>
+          <span style={{ fontSize:12, fontWeight:700, color:B.blue }}>📅 Renewals this month</span>
+          <span style={{ fontSize:13, fontWeight:800, color:B.blue }}>{aed(forecastVal)}</span>
+          <span style={{ fontSize:11, color:B.muted }}>in contract value up for renewal</span>
+          <button onClick={()=>setShowForecast(false)} style={{ marginLeft:"auto", background:"none", border:"none", fontSize:12, cursor:"pointer", color:B.muted }}>✕</button>
+        </div>
+      )}
+
+      {/* Feature 10: service filter pills */}
+      {allServices.length > 2 && (
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+          <span style={{ fontSize:11, color:B.muted, fontWeight:600 }}>Service:</span>
+          {allServices.map(s => (
+            <button key={s} onClick={()=>setServiceFilter(sv=>sv===s?"All":s)}
+              style={{ padding:"3px 10px", borderRadius:20, fontSize:11, border:`1px solid ${serviceFilter===s?B.accent:B.border}`, background:serviceFilter===s?B.accent+"18":"#fff", color:serviceFilter===s?B.accent:B.muted, cursor:"pointer" }}>
+              {s}
+            </button>
+          ))}
+          {/* Feature 11: value range filter toggle */}
+          <button onClick={()=>setShowValueFilter(v=>!v)} style={{ padding:"3px 10px", borderRadius:20, fontSize:11, border:`1px solid ${(valueMin||valueMax)?B.blue:B.border}`, background:(valueMin||valueMax)?B.blue+"15":"#fff", color:(valueMin||valueMax)?B.blue:B.muted, cursor:"pointer" }}>
+            💰 Value range
+          </button>
+          {showValueFilter && (
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              <input type="number" placeholder="Min AED" value={valueMin} onChange={e=>setValueMin(e.target.value)}
+                style={{ width:90, padding:"3px 8px", fontSize:11, border:`1px solid ${B.border}`, borderRadius:6 }} />
+              <span style={{ fontSize:11, color:B.muted }}>—</span>
+              <input type="number" placeholder="Max AED" value={valueMax} onChange={e=>setValueMax(e.target.value)}
+                style={{ width:90, padding:"3px 8px", fontSize:11, border:`1px solid ${B.border}`, borderRadius:6 }} />
+              {(valueMin||valueMax) && <button onClick={()=>{setValueMin("");setValueMax("");}} style={{ fontSize:11, color:B.red, background:"none", border:"none", cursor:"pointer" }}>Clear</button>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Feature 12: duplicate warning */}
+      {duplicateNames.size > 0 && (
+        <div style={{ background:B.yellow+"18", border:`1px solid ${B.yellow}40`, borderRadius:8, padding:"6px 14px", fontSize:11, color:B.orange }}>
+          ⚠ Duplicate client names detected: {[...duplicateNames].join(", ")}
+        </div>
+      )}
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
@@ -247,6 +354,9 @@ export default function ClientsTab({ viewMode, search }) {
             <button key={s} onClick={() => bulkApplyStatus(s)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, border:`1px solid ${B.border}`, borderRadius:5, background:"#fff", cursor:"pointer" }}>→ {s}</button>
           ))}
           <button onClick={bulkDelete} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, border:`1px solid ${B.red}40`, borderRadius:5, background:B.red+"10", color:B.red, cursor:"pointer" }}>🗑 Delete</button>
+          {["VIP","Follow-up","Escalated"].map(tag => (
+            <button key={tag} onClick={()=>bulkTag(tag)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, border:`1px solid ${B.border}`, borderRadius:5, background:"#fff", cursor:"pointer" }}>🏷 {tag}</button>
+          ))}
           <button onClick={() => setSelected(new Set())} style={{ marginLeft:"auto", fontSize:11, background:"none", border:"none", cursor:"pointer", color:B.muted }}>✕ Clear</button>
         </div>
       )}
@@ -282,28 +392,38 @@ export default function ClientsTab({ viewMode, search }) {
                         onMouseLeave={e=>e.currentTarget.style.background=selected.has(r.id)?B.blue+"08":"transparent"}>
                         <td style={{ padding:"8px 10px" }}><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSelect(r.id)} style={{ cursor:"pointer" }} /></td>
                         <td style={{ padding:"8px 10px" }}>
-                          <button onClick={() => setProfileId(r.id)} style={{ background:"none", border:"none", color:B.blue, fontWeight:700, cursor:"pointer", fontSize:12, padding:0 }}>{r.name}</button>
-                          <div style={{ fontSize:10, color:B.muted }}>{r.contact}</div>
+                          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                            <button onClick={e=>{e.stopPropagation();togglePin(r.id);}} title={r.pinned?"Unpin":"Pin to top"} style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, opacity:r.pinned?1:0.25, padding:0 }}>📌</button>
+                            <div>
+                              <button onClick={() => setProfileId(r.id)} style={{ background:"none", border:"none", color:B.blue, fontWeight:700, cursor:"pointer", fontSize:12, padding:0 }}>{r.name}</button>
+                              <div style={{ display:"flex", gap:4, marginTop:2, flexWrap:"wrap" }}>
+                                {staleIds.has(r.id) && <span style={{ fontSize:9, background:B.orange+"20", color:B.orange, borderRadius:4, padding:"1px 4px", fontWeight:700 }}>STALE</span>}
+                                {(r.tags||[]).map(tag => <span key={tag} style={{ fontSize:9, background:B.accent+"20", color:B.accent, borderRadius:4, padding:"1px 4px", fontWeight:700 }}>{tag}</span>)}
+                              </div>
+                              <div style={{ fontSize:10, color:B.muted }}>{r.contact}</div>
+                            </div>
+                          </div>
                         </td>
-                        <td style={{ padding:"8px 10px", fontSize:12, color:B.muted }}>{r.service}</td>
-                        <td style={{ padding:"8px 10px" }}><Badge label={r.status} /></td>
-                        <td style={{ padding:"8px 10px", fontWeight:700, color:B.blue }}>{aed(r.value)}</td>
-                        <td style={{ padding:"8px 10px", minWidth:100 }}>
+                        {visibleCols.has("service") && <td style={{ padding:"8px 10px", fontSize:12, color:B.muted }}>{r.service}</td>}
+                        {visibleCols.has("status") && <td style={{ padding:"8px 10px" }}><Badge label={r.status} /></td>}
+                        {visibleCols.has("value") && <td style={{ padding:"8px 10px", fontWeight:700, color:B.blue }}>{aed(r.value)}</td>}
+                        {visibleCols.has("progress") && <td style={{ padding:"8px 10px", minWidth:100 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                             <div style={{ flex:1, height:5, background:B.light, borderRadius:3 }}>
                               <div style={{ height:"100%", width:`${r.progress||0}%`, background:(r.progress||0)===100?B.green:B.blue, borderRadius:3 }} />
                             </div>
                             <span style={{ fontSize:10, color:B.muted }}>{r.progress||0}%</span>
                           </div>
-                        </td>
-                        <td style={{ padding:"8px 10px" }}>
+                        </td>}
+                        {visibleCols.has("renewal") && <td style={{ padding:"8px 10px" }}>
                           <div style={{ fontSize:11 }}>{r.renewal||"—"}</div>
                           {rs && rs.label !== "Active" && <div style={{ fontSize:10, color:rs.color, fontWeight:600 }}>{rs.label}</div>}
-                        </td>
-                        <td style={{ padding:"8px 10px" }}>
+                          {r.renewal && <div style={{ fontSize:10, color:B.muted }}>{Math.ceil((new Date(r.renewal)-new Date())/86400000)}d left</div>}
+                        </td>}
+                        {visibleCols.has("health") && <td style={{ padding:"8px 10px" }}>
                           <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:10, background:health.color+"18", color:health.color }}>{health.label} {health.score}</span>
-                        </td>
-                        <td style={{ padding:"8px 10px" }}>
+                        </td>}
+                        <td style={{ padding:"8px 10px", whiteSpace:"nowrap" }}>
                           <button onClick={() => setEditModal(r)} style={{ padding:"3px 8px", fontSize:10, fontWeight:700, background:B.blue+"12", color:B.blue, border:`1px solid ${B.blue}30`, borderRadius:4, cursor:"pointer" }}>Edit</button>
                         </td>
                       </tr>
@@ -344,9 +464,13 @@ export default function ClientsTab({ viewMode, search }) {
                       onClick={()=>setProfileId(c.id)}
                       style={{ background:"#fff", border:`1px solid ${B.border}`, borderRadius:8, padding:"10px 12px", marginBottom:8, cursor:"grab", userSelect:"none" }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                        <span style={{ fontSize:12, fontWeight:700, color:B.text }}>{c.name}</span>
+                        <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                          {c.pinned && <span style={{ fontSize:11 }}>📌</span>}
+                          <span style={{ fontSize:12, fontWeight:700, color:B.text }}>{c.name}</span>
+                        </div>
                         <span style={{ fontSize:10, fontWeight:700, padding:"1px 6px", borderRadius:8, background:health.color+"18", color:health.color }}>{health.score}</span>
                       </div>
+                      {(c.tags||[]).length > 0 && <div style={{ display:"flex", gap:3, marginBottom:4, flexWrap:"wrap" }}>{(c.tags||[]).map(tag=><span key={tag} style={{ fontSize:9, background:B.accent+"20", color:B.accent, borderRadius:4, padding:"1px 4px", fontWeight:700 }}>{tag}</span>)}</div>}
                       <div style={{ fontSize:11, color:B.muted, marginBottom:6 }}>{c.service}</div>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                         <span style={{ fontSize:11, fontWeight:700, color:B.blue }}>{aed(c.value)}</span>
@@ -375,9 +499,14 @@ export default function ClientsTab({ viewMode, search }) {
                 onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,0.08)"}
                 onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-                  <div style={{ fontSize:13, fontWeight:800, color:B.text }}>{c.name}</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                    {c.pinned && <span style={{ fontSize:12 }}>📌</span>}
+                    <div style={{ fontSize:13, fontWeight:800, color:B.text }}>{c.name}</div>
+                  </div>
                   <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:10, background:health.color+"18", color:health.color }}>{health.label}</span>
                 </div>
+                {(c.tags||[]).length > 0 && <div style={{ display:"flex", gap:4, marginBottom:6, flexWrap:"wrap" }}>{(c.tags||[]).map(tag=><span key={tag} style={{ fontSize:10, background:B.accent+"20", color:B.accent, borderRadius:4, padding:"2px 6px", fontWeight:700 }}>{tag}</span>)}</div>}
+                {staleIds.has(c.id) && <div style={{ fontSize:10, color:B.orange, fontWeight:700, marginBottom:4 }}>⚠ Stale — no invoice in 60+ days</div>}
                 <div style={{ fontSize:11, color:B.muted, marginBottom:10 }}>{c.contact} · {c.service}</div>
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
                   <span style={{ fontSize:13, fontWeight:800, color:B.blue }}>{aed(c.value)}</span>
@@ -424,8 +553,6 @@ export default function ClientsTab({ viewMode, search }) {
   );
 }
 
-// ─── Profile Drawer ────────────────────────────────────────────────────────────
-
 function ProfileDrawer({ client, invoices, tasks, onClose, onUpdate }) {
   const renewalStatus = getRenewalStatus(client.renewal);
   const totalBilled = invoices.reduce((s, i) => s + (i.amount ?? 0), 0);
@@ -433,195 +560,241 @@ function ProfileDrawer({ client, invoices, tasks, onClose, onUpdate }) {
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressVal, setProgressVal] = useState(client.progress ?? 0);
   const [noteVal, setNoteVal] = useState("");
-  const [notes, setNotes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`client-notes-${client.id}`) || "[]"); } catch { return []; }
-  });
+  const [drawerTab, setDrawerTab] = useState("overview"); // overview | financials | tasks | notes | docs
+  const [notes, setNotes] = useState(() => { try { return JSON.parse(localStorage.getItem(`client-notes-${client.id}`) || "[]"); } catch { return []; } });
+  const [stars, setStars] = useState(() => { try { return Number(localStorage.getItem(`client-stars-${client.id}`)||0); } catch { return 0; } });
+  const [reminder, setReminder] = useState(() => { try { return localStorage.getItem(`client-reminder-${client.id}`)||""; } catch { return ""; } });
+  const [reminderSaved, setReminderSaved] = useState(false);
+  const [docs, setDocs] = useState(() => { try { return JSON.parse(localStorage.getItem(`client-docs-${client.id}`)||JSON.stringify([{label:"Trade License",done:false},{label:"Visa Copy",done:false},{label:"Emirates ID",done:false},{label:"MOA",done:false},{label:"NOC Letter",done:false}])); } catch { return []; } });
 
-  const saveProgress = () => {
-    onUpdate({ ...client, progress: Number(progressVal) });
-    setEditingProgress(false);
-  };
-
-  const cycleStatus = () => {
-    const cycle = { Active: "Pending", Pending: "Expired", Expired: "Active" };
-    onUpdate({ ...client, status: cycle[client.status] || "Active" });
-  };
-
+  const saveProgress = () => { onUpdate({ ...client, progress: Number(progressVal) }); setEditingProgress(false); };
   const addNote = () => {
     if (!noteVal.trim()) return;
     const updated = [{ text: noteVal.trim(), date: new Date().toLocaleString() }, ...notes];
-    setNotes(updated);
-    try { localStorage.setItem(`client-notes-${client.id}`, JSON.stringify(updated)); } catch {}
-    setNoteVal("");
+    setNotes(updated); try { localStorage.setItem(`client-notes-${client.id}`, JSON.stringify(updated)); } catch {} setNoteVal("");
   };
+  const saveReminder = () => { try { localStorage.setItem(`client-reminder-${client.id}`, reminder); } catch {} setReminderSaved(true); setTimeout(()=>setReminderSaved(false),1500); };
+  const toggleDoc = (i) => { const updated = docs.map((d,idx)=>idx===i?{...d,done:!d.done}:d); setDocs(updated); try { localStorage.setItem(`client-docs-${client.id}`,JSON.stringify(updated)); } catch {} };
+  const setStarRating = (n) => { setStars(n); try { localStorage.setItem(`client-stars-${client.id}`,String(n)); } catch {} };
+  const copyToClipboard = (val) => { try { navigator.clipboard.writeText(val); } catch {} };
 
-  // Fake but structured timeline from real data
+  const clientSinceMonths = client.started ? Math.max(0, Math.round((new Date()-new Date(client.started))/2592000000)) : null;
+
+  // Payment sparkline data
+  const sparkInvoices = [...invoices].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).slice(-6);
+
   const timeline = [
-    ...invoices.map(i => ({ type: "invoice", label: `Invoice ${i.id} — ${aed(i.amount)}`, sub: i.status, date: i.date || "", color: i.status === "Paid" ? B.green : B.red })),
-    ...tasks.map(t => ({ type: "task", label: t.title, sub: t.status, date: t.due || "", color: t.status === "Done" ? B.green : B.orange })),
-    { type: "client", label: "Client added", sub: "", date: client.started || "", color: B.blue },
-  ].filter(e => e.date).sort((a,b) => b.date.localeCompare(a.date)).slice(0, 10);
+    ...invoices.map(i => ({ label: `Invoice ${i.id} — ${aed(i.amount)}`, sub: i.status, date: i.date||"", color: i.status==="Paid"?B.green:B.red })),
+    ...tasks.map(t => ({ label: t.title, sub: t.status, date: t.due||"", color: t.status==="Done"?B.green:B.orange })),
+    { label: "Client added", sub: "", date: client.started||"", color: B.blue },
+  ].filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10);
+
+  const tabStyle = (t) => ({ padding:"6px 14px", fontSize:11, fontWeight:700, border:"none", borderBottom:`2px solid ${drawerTab===t?B.blue:"transparent"}`, background:"none", color:drawerTab===t?B.blue:B.muted, cursor:"pointer" });
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end",
-      background: "rgba(0,0,0,0.35)",
-    }} onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "min(520px, 96vw)", background: "#fff", height: "100%", overflow: "auto",
-          boxShadow: "-4px 0 24px rgba(0,0,0,0.12)", padding: 28, display: "flex", flexDirection: "column", gap: 20,
-        }}
-      >
+    <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", justifyContent:"flex-end", background:"rgba(0,0,0,0.35)" }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:"min(540px,96vw)", background:"#fff", height:"100%", overflow:"auto", boxShadow:"-4px 0 24px rgba(0,0,0,0.12)", display:"flex", flexDirection:"column" }}>
+
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>{client.name}</div>
-            <div style={{ fontSize: 12, color: B.muted }}>{client.contact} · {client.service}</div>
+        <div style={{ padding:"24px 28px 0", borderBottom:`1px solid ${B.border}` }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                {client.pinned && <span style={{ fontSize:14 }}>📌</span>}
+                {client.escalated && <span style={{ fontSize:14, color:B.red }}>🚨</span>}
+                <div style={{ fontWeight:800, fontSize:18 }}>{client.name}</div>
+              </div>
+              <div style={{ fontSize:12, color:B.muted }}>{client.contact} · {client.service}{clientSinceMonths !== null ? ` · Client for ${clientSinceMonths}mo` : ""}</div>
+              {/* Feature 17: star rating */}
+              <div style={{ display:"flex", gap:2, marginTop:6 }}>
+                {[1,2,3,4,5].map(n=>(
+                  <button key={n} onClick={()=>setStarRating(n)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:n<=stars?"#F59E0B":"#D1D5DB", padding:0 }}>★</button>
+                ))}
+                {stars > 0 && <span style={{ fontSize:11, color:B.muted, marginLeft:4, alignSelf:"center" }}>{stars}/5</span>}
+              </div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"flex-end" }}>
+              {/* Feature 18: status dropdown */}
+              <select value={client.status} onChange={e=>onUpdate({...client,status:e.target.value})}
+                style={{ padding:"4px 8px", fontSize:12, fontWeight:700, border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", background:"#fff" }}>
+                {["Active","Pending","Expired"].map(s=><option key={s}>{s}</option>)}
+              </select>
+              {/* Feature 19: escalate + close */}
+              <div style={{ display:"flex", gap:6 }}>
+                <button onClick={()=>onUpdate({...client,escalated:!client.escalated})}
+                  style={{ padding:"4px 10px", fontSize:11, fontWeight:700, border:`1px solid ${client.escalated?B.red:B.border}`, borderRadius:6, cursor:"pointer", background:client.escalated?B.red+"15":"#fff", color:client.escalated?B.red:B.muted }}>
+                  {client.escalated?"🚨 Escalated":"Escalate"}
+                </button>
+                <button onClick={onClose} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:B.muted }}>×</button>
+              </div>
+            </div>
           </div>
-          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            <button onClick={cycleStatus} style={{ padding:"4px 10px", fontSize:11, fontWeight:700, border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", background:"#fff" }}>
-              Cycle Status →
-            </button>
-            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: B.muted }}>×</button>
+          {/* Feature 20: WhatsApp + email quick launch */}
+          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+            {client.phone && <a href={`https://wa.me/${(client.phone||"").replace(/\D/g,"")}`} target="_blank" rel="noreferrer" style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 10px", fontSize:11, fontWeight:600, background:"#25D36615", color:"#25D366", borderRadius:6, border:"1px solid #25D36630", textDecoration:"none" }}>💬 WhatsApp</a>}
+            {client.email && <a href={`mailto:${client.email}`} style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 10px", fontSize:11, fontWeight:600, background:B.blue+"15", color:B.blue, borderRadius:6, border:`1px solid ${B.blue}30`, textDecoration:"none" }}>✉ Email</a>}
+            {client.phone && <button onClick={()=>copyToClipboard(client.phone)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", color:B.muted }}>📋 {client.phone}</button>}
+            {client.email && <button onClick={()=>copyToClipboard(client.email)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", color:B.muted }}>📋 Copy email</button>}
+          </div>
+          {/* Drawer tabs */}
+          <div style={{ display:"flex", gap:0, borderTop:`1px solid ${B.border}`, marginLeft:-28, marginRight:-28, paddingLeft:28 }}>
+            {[["overview","Overview"],["financials","Financials"],["tasks","Tasks"],["notes","Notes"],["docs","Docs"]].map(([t,l])=>(
+              <button key={t} onClick={()=>setDrawerTab(t)} style={tabStyle(t)}>{l}</button>
+            ))}
           </div>
         </div>
 
-        {/* Status & renewal */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <InfoBlock label="Status"><Badge label={client.status} /></InfoBlock>
-          <InfoBlock label="Renewal Date">
-            <span style={{ fontWeight: 600, color: renewalStatus?.color ?? B.text }}>{client.renewal || "—"}</span>
-            {renewalStatus && renewalStatus.label !== "Active" && (
-              <span style={{ marginLeft: 8, fontSize: 11, color: renewalStatus.color, fontWeight: 600 }}>({renewalStatus.label})</span>
+        {/* Tab content */}
+        <div style={{ padding:"20px 28px", display:"flex", flexDirection:"column", gap:18, flex:1, overflow:"auto" }}>
+
+          {drawerTab === "overview" && <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <InfoBlock label="Status"><Badge label={client.status} /></InfoBlock>
+              <InfoBlock label="Renewal">
+                <span style={{ fontWeight:600, color:renewalStatus?.color??B.text }}>{client.renewal||"—"}</span>
+                {renewalStatus && renewalStatus.label!=="Active" && <span style={{ marginLeft:6, fontSize:11, color:renewalStatus.color, fontWeight:600 }}>({renewalStatus.label})</span>}
+              </InfoBlock>
+              <InfoBlock label="License / Visa #"><span style={{ fontWeight:600 }}>{client.licenseNumber||"—"}</span></InfoBlock>
+              <InfoBlock label="Contract Value"><span style={{ fontWeight:700, color:B.blue }}>{aed(client.value)}</span></InfoBlock>
+            </div>
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                <div style={{ fontSize:11, color:B.muted, fontWeight:600 }}>PROGRESS</div>
+                {editingProgress
+                  ? <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <input type="number" min={0} max={100} value={progressVal} onChange={e=>setProgressVal(e.target.value)} style={{ width:52, padding:"2px 6px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:4 }} />
+                      <button onClick={saveProgress} style={{ padding:"2px 8px", fontSize:11, background:B.blue, color:"#fff", border:"none", borderRadius:4, cursor:"pointer" }}>✓</button>
+                      <button onClick={()=>setEditingProgress(false)} style={{ padding:"2px 8px", fontSize:11, background:"#fff", border:`1px solid ${B.border}`, borderRadius:4, cursor:"pointer" }}>✕</button>
+                    </div>
+                  : <button onClick={()=>{setProgressVal(client.progress??0);setEditingProgress(true);}} style={{ fontSize:11, padding:"2px 8px", border:`1px solid ${B.border}`, borderRadius:4, background:"#fff", cursor:"pointer", color:B.muted }}>Edit</button>}
+              </div>
+              <div style={{ height:8, background:B.light, borderRadius:4 }}>
+                <div style={{ height:"100%", width:`${client.progress||0}%`, background:(client.progress||0)===100?B.green:B.blue, borderRadius:4, transition:"width 0.4s" }} />
+              </div>
+              <div style={{ fontSize:11, color:B.muted, marginTop:4 }}>{client.progress||0}% complete</div>
+            </div>
+            {/* Feature: reminder setter */}
+            <div>
+              <div style={{ fontSize:11, color:B.muted, fontWeight:600, marginBottom:6 }}>FOLLOW-UP REMINDER</div>
+              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                <input type="date" value={reminder} onChange={e=>setReminder(e.target.value)} style={{ flex:1, padding:"6px 10px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:6 }} />
+                <button onClick={saveReminder} style={{ padding:"6px 12px", background:reminderSaved?B.green:B.blue, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontSize:12 }}>{reminderSaved?"✓ Saved":"Save"}</button>
+              </div>
+              {reminder && <div style={{ fontSize:11, color:B.muted, marginTop:4 }}>Reminder set for {reminder}</div>}
+            </div>
+            {/* Activity timeline */}
+            {timeline.length > 0 && (
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:B.muted, marginBottom:10, textTransform:"uppercase", letterSpacing:0.5 }}>Activity</div>
+                <div style={{ position:"relative", paddingLeft:16 }}>
+                  <div style={{ position:"absolute", left:4, top:0, bottom:0, width:1, background:B.border }} />
+                  {timeline.map((e,i)=>(
+                    <div key={i} style={{ marginBottom:10, position:"relative" }}>
+                      <div style={{ position:"absolute", left:-16, top:3, width:8, height:8, borderRadius:"50%", background:e.color, border:"2px solid #fff" }} />
+                      <div style={{ fontSize:12, fontWeight:600 }}>{e.label}</div>
+                      <div style={{ fontSize:10, color:B.muted }}>{e.sub} · {e.date}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </InfoBlock>
-          <InfoBlock label="License / Visa #"><span style={{ fontWeight: 600 }}>{client.licenseNumber || "—"}</span></InfoBlock>
-          <InfoBlock label="Contract Value"><span style={{ fontWeight: 700, color: B.blue }}>{aed(client.value)}</span></InfoBlock>
-          <InfoBlock label="Email"><a href={`mailto:${client.email}`} style={{ color: B.blue, fontSize: 12 }}>{client.email}</a></InfoBlock>
-          <InfoBlock label="Phone">{client.phone}</InfoBlock>
-        </div>
+          </>}
 
-        {/* Progress — inline editable */}
-        <div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-            <div style={{ fontSize: 11, color: B.muted, fontWeight: 600 }}>PROGRESS</div>
-            {editingProgress
-              ? <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                  <input type="number" min={0} max={100} value={progressVal} onChange={e=>setProgressVal(e.target.value)}
-                    style={{ width:52, padding:"2px 6px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:4 }} />
-                  <button onClick={saveProgress} style={{ padding:"2px 8px", fontSize:11, background:B.blue, color:"#fff", border:"none", borderRadius:4, cursor:"pointer" }}>✓</button>
-                  <button onClick={()=>setEditingProgress(false)} style={{ padding:"2px 8px", fontSize:11, background:"#fff", border:`1px solid ${B.border}`, borderRadius:4, cursor:"pointer" }}>✕</button>
+          {drawerTab === "financials" && <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+              <MiniStat label="Billed" value={aed(totalBilled)} color={B.blue} />
+              <MiniStat label="Paid" value={aed(totalPaid)} color={B.green} />
+              <MiniStat label="Outstanding" value={aed(totalBilled-totalPaid)} color={totalBilled-totalPaid>0?B.red:B.green} />
+            </div>
+            {/* Feature: payment sparkline */}
+            {sparkInvoices.length > 1 && (
+              <div>
+                <div style={{ fontSize:11, color:B.muted, fontWeight:600, marginBottom:8 }}>INVOICE HISTORY</div>
+                <svg width="100%" height={50} viewBox={`0 0 ${sparkInvoices.length*60} 50`} preserveAspectRatio="none">
+                  {sparkInvoices.map((inv,i)=>{
+                    const maxAmt = Math.max(...sparkInvoices.map(x=>x.amount||0),1);
+                    const h = ((inv.amount||0)/maxAmt)*40;
+                    return <g key={i}>
+                      <rect x={i*60+4} y={50-h} width={48} height={h} rx={3} fill={inv.status==="Paid"?B.green:B.red} opacity={0.7} />
+                      <text x={i*60+28} y={48} textAnchor="middle" fontSize={9} fill={B.muted}>{(inv.amount/1000).toFixed(0)}K</text>
+                    </g>;
+                  })}
+                </svg>
+              </div>
+            )}
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:B.muted, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Invoices ({invoices.length})</div>
+              {invoices.length===0 ? <div style={{ fontSize:12, color:B.muted }}>No invoices linked</div> : (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {invoices.map(inv=>(
+                    <div key={inv.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 12px", background:B.light, borderRadius:8 }}>
+                      <div><div style={{ fontSize:12, fontWeight:600 }}>{inv.id}</div><div style={{ fontSize:11, color:B.muted }}>{inv.desc}</div></div>
+                      <div style={{ textAlign:"right" }}><div style={{ fontSize:12, fontWeight:600 }}>{aed(inv.amount)}</div><Badge label={inv.status} /></div>
+                    </div>
+                  ))}
                 </div>
-              : <button onClick={()=>{setProgressVal(client.progress??0);setEditingProgress(true);}} style={{ fontSize:11, padding:"2px 8px", border:`1px solid ${B.border}`, borderRadius:4, background:"#fff", cursor:"pointer", color:B.muted }}>Edit</button>
-            }
-          </div>
-          <div style={{ height: 8, background: B.light, borderRadius: 4 }}>
-            <div style={{ height: "100%", width: `${client.progress}%`, background: client.progress === 100 ? B.green : B.blue, borderRadius: 4, transition: "width 0.4s" }} />
-          </div>
-          <div style={{ fontSize: 11, color: B.muted, marginTop: 4 }}>{client.progress}% complete</div>
-        </div>
+              )}
+            </div>
+          </>}
 
-        {/* Financial summary */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <MiniStat label="Billed" value={aed(totalBilled)} color={B.blue} />
-          <MiniStat label="Paid" value={aed(totalPaid)} color={B.green} />
-          <MiniStat label="Outstanding" value={aed(totalBilled - totalPaid)} color={totalBilled - totalPaid > 0 ? B.red : B.green} />
-        </div>
-
-        {/* Quick note input */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: B.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Quick Note</div>
-          <div style={{ display:"flex", gap:6 }}>
-            <input value={noteVal} onChange={e=>setNoteVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addNote()}
-              placeholder="Add a note and press Enter…"
-              style={{ flex:1, padding:"7px 10px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:6, fontFamily:"inherit", outline:"none" }} />
-            <button onClick={addNote} style={{ padding:"7px 12px", background:B.blue, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontSize:12 }}>Add</button>
-          </div>
-          {notes.length > 0 && (
-            <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
-              {notes.slice(0,5).map((n,i) => (
-                <div key={i} style={{ fontSize:11, padding:"6px 10px", background:B.light, borderRadius:6, display:"flex", justifyContent:"space-between", gap:8 }}>
-                  <span>{n.text}</span>
-                  <span style={{ color:B.muted, flexShrink:0 }}>{n.date}</span>
+          {drawerTab === "tasks" && (
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:B.muted, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Tasks ({tasks.length})</div>
+              {tasks.length===0 ? <div style={{ fontSize:12, color:B.muted }}>No tasks linked</div> : (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {tasks.map(task=>(
+                    <div key={task.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 12px", background:B.light, borderRadius:8 }}>
+                      <span style={{ fontSize:12 }}>{task.title}</span>
+                      <div style={{ display:"flex", gap:6 }}><Badge label={task.priority} /><Badge label={task.status} /></div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           )}
-        </div>
 
-        {/* Activity timeline */}
-        {timeline.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: B.muted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Activity Timeline</div>
-            <div style={{ position:"relative", paddingLeft:16 }}>
-              <div style={{ position:"absolute", left:4, top:0, bottom:0, width:1, background:B.border }} />
-              {timeline.map((e,i) => (
-                <div key={i} style={{ marginBottom:10, position:"relative" }}>
-                  <div style={{ position:"absolute", left:-16, top:3, width:8, height:8, borderRadius:"50%", background:e.color, border:"2px solid #fff" }} />
-                  <div style={{ fontSize:12, fontWeight:600 }}>{e.label}</div>
-                  <div style={{ fontSize:10, color:B.muted }}>{e.sub} · {e.date}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Linked invoices */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: B.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Invoices ({invoices.length})</div>
-          {invoices.length === 0 ? (
-            <div style={{ fontSize: 12, color: B.muted }}>No invoices linked</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {invoices.map((inv) => (
-                <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: B.light, borderRadius: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{inv.id}</div>
-                    <div style={{ fontSize: 11, color: B.muted }}>{inv.desc}</div>
+          {drawerTab === "notes" && (
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:B.muted, marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Notes</div>
+              <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+                <input value={noteVal} onChange={e=>setNoteVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addNote()} placeholder="Add a note and press Enter…"
+                  style={{ flex:1, padding:"7px 10px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:6, fontFamily:"inherit", outline:"none" }} />
+                <button onClick={addNote} style={{ padding:"7px 12px", background:B.blue, color:"#fff", border:"none", borderRadius:6, cursor:"pointer", fontSize:12 }}>Add</button>
+              </div>
+              {client.notes && <div style={{ fontSize:12, color:B.text, lineHeight:1.6, background:B.light, borderRadius:8, padding:"10px 12px", marginBottom:8 }}>{client.notes}</div>}
+              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                {notes.map((n,i)=>(
+                  <div key={i} style={{ fontSize:11, padding:"6px 10px", background:B.light, borderRadius:6, display:"flex", justifyContent:"space-between", gap:8 }}>
+                    <span>{n.text}</span><span style={{ color:B.muted, flexShrink:0 }}>{n.date}</span>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{aed(inv.amount)}</div>
-                    <Badge label={inv.status} />
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Linked tasks */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: B.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Tasks ({tasks.length})</div>
-          {tasks.length === 0 ? (
-            <div style={{ fontSize: 12, color: B.muted }}>No tasks linked</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {tasks.map((task) => (
-                <div key={task.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: B.light, borderRadius: 8 }}>
-                  <span style={{ fontSize: 12 }}>{task.title}</span>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <Badge label={task.priority} />
-                    <Badge label={task.status} />
+          {drawerTab === "docs" && (
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:B.muted, marginBottom:10, textTransform:"uppercase", letterSpacing:0.5 }}>Document Checklist</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {docs.map((doc,i)=>(
+                  <div key={i} onClick={()=>toggleDoc(i)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:doc.done?B.green+"0a":B.light, border:`1px solid ${doc.done?B.green+"30":B.border}`, borderRadius:8, cursor:"pointer" }}>
+                    <div style={{ width:18, height:18, borderRadius:4, border:`2px solid ${doc.done?B.green:B.border}`, background:doc.done?B.green:"#fff", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      {doc.done && <span style={{ color:"#fff", fontSize:11, fontWeight:800 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize:13, fontWeight:500, color:doc.done?B.green:B.text, textDecoration:doc.done?"line-through":"none" }}>{doc.label}</span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div style={{ marginTop:10, fontSize:11, color:B.muted }}>{docs.filter(d=>d.done).length}/{docs.length} documents collected</div>
             </div>
           )}
-        </div>
 
-        {/* Notes */}
-        {client.notes && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: B.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Notes</div>
-            <div style={{ fontSize: 12, color: B.text, lineHeight: 1.6, background: B.light, borderRadius: 8, padding: "10px 12px" }}>{client.notes}</div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
 }
+
 
 function InfoBlock({ label, children }) {
   return (
