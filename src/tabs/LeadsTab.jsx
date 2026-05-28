@@ -1441,6 +1441,7 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
         )}
 
 
+        {activeTab === "history" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {[...(lead.timeline||[{ date: lead.date, text: "Lead created" }])].reverse().map((t, i, arr) => (
               <div key={i} style={{ display: "flex", gap: 10, position: "relative", paddingBottom: i < arr.length - 1 ? 14 : 0 }}>
