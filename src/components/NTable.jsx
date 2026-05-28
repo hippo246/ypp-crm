@@ -30,7 +30,7 @@ const NTable = ({
   onSelection,
   emptyText   = "No records found",
   dense       = false,
-  maxHeight   = "calc(100vh - 200px)",
+  maxHeight   = "none",
   zebra       = false,
 }) => {
   const [editModal, setEditModal] = useState(null);
@@ -126,11 +126,7 @@ const NTable = ({
   return (
     <>
       <style id="ntable-styles">{`
-        @keyframes ntable-row-in {
-          from { opacity: 0; transform: translateY(4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .ntable-row { animation: ntable-row-in 0.15s ease both; }
+        .ntable-row { }
         .ntable-row:hover td { background: linear-gradient(90deg, #EFF6FF 0%, #F8FAFC 100%) !important; }
         .ntable-row-sel td  { background: #EFF6FF !important; }
       `}</style>
@@ -212,7 +208,7 @@ const NTable = ({
                   <td style={{ ...tdBase, fontSize: 10, verticalAlign: "middle" }}>
                     <span style={{
                       display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      width: 20, height: 20, borderRadius: 6,
+                      width: 18, height: 18, borderRadius: 4,
                       background: isSel ? "#DBEAFE" : "#F1F5F9",
                       color: isSel ? "#2563EB" : "#94A3B8",
                       fontWeight: 700, fontSize: 9,
