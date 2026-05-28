@@ -721,7 +721,7 @@ export default function LeadsTab({ viewMode, search }) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0, overflow: "hidden" }}>
       <style>{`
         .leads-table-wrap td { padding: 5px 8px !important; line-height: 1.3 !important; }
         .leads-table-wrap tr { height: auto !important; min-height: unset !important; }
@@ -895,7 +895,7 @@ export default function LeadsTab({ viewMode, search }) {
           }}
         />
       ) : (
-        <SectionCard title={`Leads — ${rows.length} record${rows.length !== 1 ? "s" : ""}`} style={{ flex: 1, minHeight: 0 }}>
+        <SectionCard title={`Leads — ${rows.length} record${rows.length !== 1 ? "s" : ""}`} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           {viewMode === "excel" ? (
             <>
               <div className="excel-mobile-warning"><span style={{fontSize:24}}>🖥️</span><span>Excel view is only available on desktop</span></div>

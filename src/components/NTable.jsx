@@ -130,7 +130,7 @@ const NTable = ({
         .ntable-row:hover td { background: linear-gradient(90deg, #EFF6FF 0%, #F8FAFC 100%) !important; }
         .ntable-row-sel td  { background: #EFF6FF !important; }
       `}</style>
-      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight, borderRadius: 10 }}>
+      <div style={{ overflowX: "auto", overflowY: "auto", flex: 1, minHeight: 0, height: "100%", borderRadius: 10 }}>
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: fs }}>
           <thead>
             <tr>
