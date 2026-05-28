@@ -87,8 +87,8 @@ const NTable = ({
 
   const handleRowClick = onRow || onRowClick;
 
-  const pad  = dense ? "6px 10px" : "10px 14px";
-  const hPad = dense ? "6px 10px" : "9px 14px";
+  const pad  = dense ? "4px 8px" : "6px 10px";
+  const hPad = dense ? "4px 8px" : "6px 10px";
   const fs   = dense ? 11 : 12;
   const hFs  = 10;
 
@@ -227,9 +227,9 @@ const NTable = ({
                       ...tdBase,
                       maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     }}>
-                      {c.key === "name" && r.name ? (
+                      {c.key === "name" && r.name && !c.render ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <Avatar name={r[c.key]} size={26} />
+                          <Avatar name={r[c.key]} size={22} />
                           <span style={{ fontWeight: 600, color: "#0F172A" }}>{r[c.key]}</span>
                         </div>
                       ) : c.render

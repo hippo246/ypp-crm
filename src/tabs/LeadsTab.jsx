@@ -906,7 +906,7 @@ export default function LeadsTab({ viewMode, search }) {
           ) : (
             /* NTable — pass onChange + onDelete so inline selects work */
             <div className="leads-table-wrap">
-            <NTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} />
+            <NTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} dense />
             </div>
           )}
         </SectionCard>
