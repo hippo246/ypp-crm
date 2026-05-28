@@ -722,6 +722,11 @@ export default function LeadsTab({ viewMode, search }) {
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0 }}>
+      <style>{`
+        .leads-table-wrap td { padding: 5px 8px !important; line-height: 1.3 !important; }
+        .leads-table-wrap tr { height: auto !important; min-height: unset !important; }
+        .leads-table-wrap tbody tr { border-bottom: 1px solid #f1f5f9 !important; }
+      `}</style>
 
       {/* ── Stats row ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 10 }} className="stat-grid-6">
@@ -900,7 +905,9 @@ export default function LeadsTab({ viewMode, search }) {
             </>
           ) : (
             /* NTable — pass onChange + onDelete so inline selects work */
+            <div className="leads-table-wrap">
             <NTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} />
+            </div>
           )}
         </SectionCard>
       )}
