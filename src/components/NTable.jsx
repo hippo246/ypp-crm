@@ -30,7 +30,7 @@ const NTable = ({
   onSelection,
   emptyText   = "No records found",
   dense       = false,
-  maxHeight   = "none",
+  maxHeight   = "calc(100vh - 370px)",
   zebra       = false,
 }) => {
   const [editModal, setEditModal] = useState(null);
@@ -130,8 +130,8 @@ const NTable = ({
         .ntable-row:hover td { background: linear-gradient(90deg, #EFF6FF 0%, #F8FAFC 100%) !important; }
         .ntable-row-sel td  { background: #EFF6FF !important; }
       `}</style>
-      <div style={{ overflowX: "auto", overflowY: "auto", flex: 1, minHeight: 0, height: "100%", borderRadius: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: fs }}>
+      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: maxHeight, borderRadius: 10 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: fs }}>
           <thead>
             <tr>
               {selectable && (
@@ -191,8 +191,6 @@ const NTable = ({
                   onMouseLeave={() => setHoveredRow(null)}
                   style={{
                     cursor: handleRowClick ? "pointer" : "default",
-                    borderLeft: isSel ? "3px solid #2563EB" : "3px solid transparent",
-                    transition: "border-left 0.1s",
                   }}
                 >
                   {selectable && (
@@ -205,7 +203,7 @@ const NTable = ({
                   )}
 
                   {/* Row number pill */}
-                  <td style={{ ...tdBase, fontSize: 10, verticalAlign: "middle" }}>
+                  <td style={{ ...tdBase, fontSize: 10, verticalAlign: "middle", borderLeft: isSel ? "3px solid #2563EB" : "3px solid transparent", paddingLeft: isSel ? 5 : undefined }}>
                     <span style={{
                       display: "inline-flex", alignItems: "center", justifyContent: "center",
                       width: 18, height: 18, borderRadius: 4,

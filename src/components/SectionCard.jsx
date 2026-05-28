@@ -134,7 +134,7 @@ const SectionCard = ({
           <div style={{
             flex: 1, minHeight: 0,
             display: "flex", flexDirection: "column",
-            overflow: "auto",
+            overflow: "hidden",
             padding: noPad ? 0 : undefined,
           }}>
             {children}

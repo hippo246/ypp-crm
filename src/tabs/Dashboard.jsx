@@ -114,7 +114,7 @@ export default function Dashboard() {
   const maxServiceVal = Math.max(...revenueByService.map((r) => r.val), 1);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", height: "100%" }}>
       <QuickActionsBar data={data} setData={setData} />
 
       {/* Today's Summary Bar */}

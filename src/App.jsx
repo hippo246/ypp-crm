@@ -630,7 +630,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
         {/* Content */}
         <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
+          <div className="main-content-area page-pad" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: activeTab === "leads" || activeTab === "clients" ? "hidden" : "auto", padding: viewMode === "excel" ? 0 : compact ? 10 : 16, background: T.bg, transition: "background 0.2s" }}>
             {renderTab()}
           </div>
           {splitView && (
@@ -677,7 +677,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes tabIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .main-content-area > * { animation: tabIn 0.14s ease; }
+        .main-content-area > * { }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         * { box-sizing: border-box; }
         .sidebar-nav-item:hover { background: rgba(255,255,255,0.07) !important; }
