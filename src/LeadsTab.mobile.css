@@ -1,0 +1,369 @@
+/*
+ * LeadsTab.mobile.css — Drop-in mobile patch for LeadsTab
+ * Import AFTER all other CSS files.  No JSX changes needed.
+ *
+ * NOTE: React serialises inline styles to the DOM as camelCase property
+ * names but kebab-case values, e.g.
+ *   style={{ borderRadius: 14, zIndex: 1 }}
+ * becomes the DOM attribute:
+ *   style="border-radius: 14px; z-index: 1;"
+ * So [style*="…"] selectors must use kebab-case property names.
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   PHONE  ≤ 640px
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+  /* ── Stats row → 2 cols ── */
+  .stat-grid-6 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  /* ── Main toolbar outer wrapper → column ── */
+  /* matches: display:flex; justify-content:space-between; …flex-wrap:wrap */
+  [style*="justify-content: space-between"][style*="flex-wrap: wrap"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+
+  /* ── Filter pill row (left side of toolbar) → wrap ── */
+  [style*="gap: 6px"][style*="flex-wrap: wrap"][style*="align-items: center"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ── Right-side action button row → wrap ── */
+  [style*="gap: 8px"][style*="align-items: center"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ── Divider bars between filter groups → hide ── */
+  [style*="width: 1px"][style*="height: 20px"] {
+    display: none !important;
+  }
+
+  /* ── Add Lead button → full width ── */
+  /* matches: padding:6px 16px; background: …blue; border-radius:7px */
+  [style*="padding: 6px 16px"][style*="border-radius: 7px"][style*="font-weight: 700"] {
+    width: 100% !important;
+    justify-content: center !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ── Bulk action bar → wrap ── */
+  [style*="border-radius: 8px"][style*="padding: 4px 10px"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ── Kanban board → horizontal scroll ──
+       KanbanBoard renders as display:grid with overflow:auto              */
+  [style*="grid-template-columns"][style*="overflow: auto"] {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 10px !important;
+    gap: 10px !important;
+  }
+
+  /* Kanban columns: fixed width so they don't collapse */
+  [style*="min-width: 150px"][style*="flex-direction: column"] {
+    min-width: 220px !important;
+    flex-shrink: 0 !important;
+    width: 220px !important;
+  }
+
+  /* ── Table section card → horizontal scroll ── */
+  .section-card,
+  [class*="section-card"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* NTable: force minimum width so columns don't squish */
+  table {
+    min-width: 680px !important;
+  }
+
+  /* ── Modals (centered overlay) → bottom sheet ──
+       React: position:fixed; inset:0; display:flex; align-items:center; justify-content:center  */
+  [style*="position: fixed"][style*="inset: 0"][style*="align-items: center"][style*="justify-content: center"] {
+    align-items: flex-end !important;
+  }
+
+  /* Modal inner box (any centered modal):
+     React: position:relative; z-index:1; background:#fff; border-radius:14px  */
+  [style*="z-index: 1"][style*="background: rgb(255, 255, 255)"][style*="border-radius: 14px"],
+  [style*="z-index: 1"][style*="background:#fff"][style*="border-radius:14px"],
+  /* also catches width:560 / 580 / 640 etc. via the shared padding:28px */
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 92dvh !important;
+    overflow-y: auto !important;
+  }
+
+  /* Edit modal form grid → single column
+     React serialises gridTemplateColumns as grid-template-columns in DOM  */
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns: repeat(4"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Funnel summary mini-grid → 2 cols (better than 4 on phone) */
+  [style*="grid-template-columns: repeat(4,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ── Side drawers (Detail drawer, Reminder Center) → full-screen bottom sheet ──
+     Detail drawer:    justify-content:flex-end  width:400px
+     Reminder Center:  justify-content:flex-end  width:420px  */
+  [style*="justify-content: flex-end"] > [style*="width: 400px"],
+  [style*="justify-content: flex-end"] > [style*="width: 420px"] {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 92dvh !important;
+    border-radius: 16px 16px 0 0 !important;
+    box-shadow: 0 -4px 32px rgba(0,0,0,0.18) !important;
+  }
+
+  /* ── Hover cards → hide (cursor-follow is useless on touch) ──
+     zIndex:9998 is unique to LeadHoverCard wrapper                        */
+  [style*="z-index: 9998"] {
+    display: none !important;
+  }
+
+  /* ── iOS: prevent zoom-on-focus (must be ≥16px) ──
+     Scoped away from NTable td inputs which use explicit 11px overrides   */
+  input:not(td input):not(th input),
+  select:not(td select):not(th select),
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* ── NTable tap targets: a little taller ── */
+  .ntable-row td {
+    padding: 8px !important;
+  }
+
+  /* ── NTable action buttons: keep compact ── */
+  .ntable-row td button {
+    min-width: 28px !important;
+    min-height: 28px !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+  }
+
+  /* ── Stat card values: scale down ── */
+  .stat-card-value {
+    font-size: 18px !important;
+  }
+
+  /* ── Page padding: tighter ── */
+  .page-pad {
+    padding: 8px !important;
+  }
+
+  /* ── Snooze row → wrap ── */
+  [style*="align-items: center"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ── Lost reasons footer → wrap ── */
+  [style*="gap: 12px"][style*="padding: 8px 14px"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* ── Detail drawer action buttons (Edit / Convert / Archive row) → row wrap ── */
+  [style*="display: flex"][style*="gap: 8px"][style*="padding-top: 14px"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   TABLET  641px – 1024px
+═══════════════════════════════════════════════════════════════ */
+@media (min-width: 641px) and (max-width: 1024px) {
+
+  /* Stats → 4 cols */
+  .stat-grid-6 {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* Toolbar wraps gracefully */
+  [style*="justify-content: space-between"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* Table scrolls if needed */
+  .section-card {
+    overflow-x: auto !important;
+  }
+  table {
+    min-width: 780px !important;
+  }
+
+  /* Modals: constrained, scrollable */
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"] {
+    max-width: 92vw !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+  }
+
+  /* Funnel summary: 4 cols fine on tablet, keep as-is */
+
+  /* Kanban: horizontal scroll on narrow tablets */
+  @media (max-width: 860px) {
+    [style*="grid-template-columns"][style*="overflow: auto"] {
+      display: flex !important;
+      flex-direction: row !important;
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      gap: 10px !important;
+    }
+    [style*="min-width: 150px"][style*="flex-direction: column"] {
+      min-width: 200px !important;
+      flex-shrink: 0 !important;
+    }
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   TOUCH TARGETS — coarse pointer (phone/tablet)
+═══════════════════════════════════════════════════════════════ */
+@media (hover: none) and (pointer: coarse) {
+
+  /* General buttons — exclude tiny NTable cell buttons */
+  button:not(td button):not(th button) {
+    min-height: 36px;
+  }
+
+  /* Filter pill buttons */
+  button[style*="border-radius: 20px"] {
+    padding: 6px 14px !important;
+    font-size: 12px !important;
+  }
+
+  /* Inline selects in table cells */
+  .ntable-row td select {
+    min-height: 32px !important;
+    padding: 5px 8px !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   SAFE AREA — iPhone notch / home bar
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  /* Bottom sheets need padding so content clears the home bar */
+  [style*="justify-content: flex-end"] > [style*="width: 400px"],
+  [style*="justify-content: flex-end"] > [style*="width: 420px"],
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"] {
+    padding-bottom: max(28px, env(safe-area-inset-bottom)) !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   TABLE ROW COMPACTNESS — kill the excessive row height
+   (applies on ALL screen sizes, not just mobile)
+═══════════════════════════════════════════════════════════════ */
+
+/* Force every td to hug its content */
+.ntable-row td,
+.ntable-row th {
+  padding: 5px 8px !important;
+  height: auto !important;
+  min-height: unset !important;
+  max-height: none !important;
+  line-height: 1.3 !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+
+/* The row itself */
+.ntable-row {
+  height: auto !important;
+  min-height: unset !important;
+  max-height: none !important;
+}
+
+/* Inline selects in cells — shrink to fit */
+.ntable-row td select {
+  padding: 2px 5px !important;
+  font-size: 11px !important;
+  height: auto !important;
+  min-height: unset !important;
+  line-height: 1.3 !important;
+}
+
+/* Inline inputs in cells (date picker etc) */
+.ntable-row td input[type="date"],
+.ntable-row td input[type="text"],
+.ntable-row td input[type="checkbox"] {
+  height: auto !important;
+  min-height: unset !important;
+  padding: 2px 4px !important;
+  font-size: 10px !important;
+  line-height: 1.3 !important;
+}
+
+/* Action button row inside cells — single line, no wrap */
+.ntable-row td > div {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 3px !important;
+  align-items: center !important;
+}
+
+/* Action buttons themselves */
+.ntable-row td button {
+  padding: 3px 7px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  height: auto !important;
+  min-height: unset !important;
+  white-space: nowrap !important;
+}
+
+/* Tags flex wrap is OK — override the nowrap above for that cell only */
+.ntable-row td > div[style*="flex-wrap: wrap"] {
+  flex-wrap: wrap !important;
+}
+
+/* Table header */
+.ntable-row th,
+thead th {
+  padding: 5px 8px !important;
+  font-size: 11px !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOBAL POLISH
+═══════════════════════════════════════════════════════════════ */
+html  { scroll-behavior: smooth; }
+body  { overscroll-behavior: none; }

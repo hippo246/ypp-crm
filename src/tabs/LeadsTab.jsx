@@ -18,6 +18,17 @@ import NTable from "../components/NTable";
 import ExcelTable from "../components/ExcelTable";
 import FormModal from "../components/FormModal";
 
+// ─── Window width hook ─────────────────────────────────────────────────────────
+function useWindowWidth() {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handler = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return width;
+}
+
 // ─── Tab view cache (persists display mode across tab switches) ────────────────
 const VIEW_CACHE_KEY = "leadsTab_displayMode";
 function getCachedView() {
@@ -213,6 +224,10 @@ export default function LeadsTab({ viewMode, search }) {
   const [bulkTag,        setBulkTag]        = useState("");
   const [hoverLead,      setHoverLead]      = useState(null);
   const [hoverPos,       setHoverPos]       = useState({ x: 0, y: 0 });
+
+  const winW         = useWindowWidth();
+  const isPhone      = winW < 640;
+  const isTablet     = winW >= 640 && winW < 1100;
 
   const leads        = data.leads;
   const statuses     = ["All", ...PIPELINE_STAGES];
@@ -524,17 +539,18 @@ export default function LeadsTab({ viewMode, search }) {
   };
 
   // ── Table columns ─────────────────────────────────────────────────────────────
-  const cols = [
+  // priority: 0=always, 1=tablet+desktop, 2=desktop only
+  const allCols = [
     {
-      key: "_sel", label: "", width: 36,
+      key: "_sel", label: "", width: 36, priority: 0,
       render: (_, r) => (
         <input type="checkbox" checked={bulkSelected.has(r.id)} onChange={() => toggleBulkSelect(r.id)}
           style={{ accentColor: B.blue, cursor: "pointer", width: 14, height: 14 }} />
       ),
     },
-    { key: "id", label: "ID", width: 68 },
+    { key: "id", label: "ID", width: 68, priority: 2 },
     {
-      key: "name", label: "Name", width: 155,
+      key: "name", label: "Name", width: 155, priority: 0,
       render: (v, r) => (
         <div
           style={{ display: "flex", alignItems: "center", gap: 5, position: "relative" }}
@@ -553,7 +569,7 @@ export default function LeadsTab({ viewMode, search }) {
       ),
     },
     {
-      key: "service", label: "Service", width: 165,
+      key: "service", label: "Service", width: 165, priority: 0,
       render: (v, r, ri) => (
         <select
           value={v || "UAE Visa"}
@@ -566,7 +582,7 @@ export default function LeadsTab({ viewMode, search }) {
       ),
     },
     {
-      key: "status", label: "Status", width: 130,
+      key: "status", label: "Status", width: 130, priority: 0,
       render: (v, r, ri) => {
         const color = STAGE_COLORS[v] || B.border;
         return (
@@ -582,7 +598,7 @@ export default function LeadsTab({ viewMode, search }) {
       },
     },
     {
-      key: "score", label: "Score", width: 82,
+      key: "score", label: "Score", width: 82, priority: 1,
       render: (_, r) => {
         const s = scoreLead(r);
         const label = scoreLabel(s);
@@ -594,11 +610,11 @@ export default function LeadsTab({ viewMode, search }) {
       },
       xlRender: (_, r) => scoreLead(r),
     },
-    { key: "value",  label: "Value",   width: 105, render: (v) => <span style={{ fontWeight: 600, fontSize: 12 }}>{aed(v)}</span>, xlRender: (v) => aed(v) },
-    { key: "source", label: "Source",  width: 95 },
-    { key: "date",   label: "Date",    width: 95 },
+    { key: "value",  label: "Value",   width: 105, priority: 0, render: (v) => <span style={{ fontWeight: 600, fontSize: 12 }}>{aed(v)}</span>, xlRender: (v) => aed(v) },
+    { key: "source", label: "Source",  width: 95,  priority: 1 },
+    { key: "date",   label: "Date",    width: 95,  priority: 1 },
     {
-      key: "stale", label: "Follow-up", width: 115,
+      key: "stale", label: "Follow-up", width: 115, priority: 0,
       render: (_, r) => {
         const fu = getFollowUpStatus(r.followUpDate);
         if (fu) return (
@@ -611,7 +627,7 @@ export default function LeadsTab({ viewMode, search }) {
       },
     },
     {
-      key: "priority", label: "Priority", width: 85,
+      key: "priority", label: "Priority", width: 85, priority: 1,
       render: (v, r, ri) => {
         const color = PRIORITY_COLORS[v] || B.muted;
         return (
@@ -624,7 +640,7 @@ export default function LeadsTab({ viewMode, search }) {
       },
     },
     {
-      key: "assignedTo", label: "Assigned", width: 105,
+      key: "assignedTo", label: "Assigned", width: 105, priority: 1,
       render: (v, r, ri) => (
         <select value={v || ""} onClick={e => e.stopPropagation()}
           onChange={e => handleChange(ri, "assignedTo", e.target.value)}
@@ -633,23 +649,23 @@ export default function LeadsTab({ viewMode, search }) {
         </select>
       ),
     },
-    { key: "lostReason", label: "Lost Reason", width: 115, render: (v) => v ? <span style={{ fontSize: 11 }}>{v}</span> : <span style={{ color: B.muted, fontSize: 11 }}>—</span> },
+    { key: "lostReason", label: "Lost Reason", width: 115, priority: 2, render: (v) => v ? <span style={{ fontSize: 11 }}>{v}</span> : <span style={{ color: B.muted, fontSize: 11 }}>—</span> },
     {
-      key: "_health", label: "Health", width: 110,
+      key: "_health", label: "Health", width: 110, priority: 1,
       render: (_, r) => {
         const s = getHealthScore(r); const h = getHealthLabel(s);
         return <span style={pill(h.color, h.color + "15")}>{s}% {h.label}</span>;
       },
     },
     {
-      key: "_nextAction", label: "Next Action", width: 160,
+      key: "_nextAction", label: "Next Action", width: 160, priority: 1,
       render: (_, r) => {
         const na = getNextAction(r);
         return na ? <span style={{ fontSize: 11, color: "#334155" }}>{na.icon} {na.text}</span> : <span style={{ color: B.muted, fontSize: 11 }}>—</span>;
       },
     },
     {
-      key: "_stageAge", label: "Stage Age", width: 90,
+      key: "_stageAge", label: "Stage Age", width: 90, priority: 2,
       render: (_, r) => {
         const d = getDaysInStage(r);
         const color = d > 14 ? "#ef4444" : d > 7 ? "#f59e0b" : "#10b981";
@@ -657,14 +673,14 @@ export default function LeadsTab({ viewMode, search }) {
       },
     },
     {
-      key: "_temperature", label: "Temp", width: 90,
+      key: "_temperature", label: "Temp", width: 90, priority: 2,
       render: (_, r) => {
         const t = getTemperature(r); const tl = getTempLabel(t);
         return <span style={pill(tl.color, tl.bg)} title={`Temperature: ${t}/100`}>{tl.label}</span>;
       },
     },
     {
-      key: "_sla", label: "Last Contact", width: 120,
+      key: "_sla", label: "Last Contact", width: 120, priority: 2,
       render: (_, r) => {
         const s = getSLAStatus(r);
         if (!s) return <span style={{ color: "#94a3b8", fontSize: 11 }}>—</span>;
@@ -672,7 +688,7 @@ export default function LeadsTab({ viewMode, search }) {
       },
     },
     {
-      key: "estimatedClose", label: "Est. Close", width: 110,
+      key: "estimatedClose", label: "Est. Close", width: 110, priority: 2,
       render: (v, r, ri) => (
         <input type="date" value={v || ""} onClick={e => e.stopPropagation()}
           onChange={e => handleChange(ri, "estimatedClose", e.target.value)}
@@ -680,7 +696,7 @@ export default function LeadsTab({ viewMode, search }) {
       ),
     },
     {
-      key: "_tags", label: "Tags", width: 160,
+      key: "_tags", label: "Tags", width: 160, priority: 2,
       render: (_, r) => (
         <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
           {(r.tags || []).map(t => (
@@ -689,13 +705,13 @@ export default function LeadsTab({ viewMode, search }) {
         </div>
       ),
     },
-    { key: "email", label: "Email",  width: 175 },
-    { key: "phone", label: "Phone",  width: 140 },
-    { key: "notes", label: "Notes",  width: 195 },
+    { key: "email", label: "Email",  width: 175, priority: 2 },
+    { key: "phone", label: "Phone",  width: 140, priority: 2 },
+    { key: "notes", label: "Notes",  width: 195, priority: 2 },
     {
-      key: "_actions", label: "", width: 160,
+      key: "_actions", label: "", width: 160, priority: 0,
       render: (_, r, ri) => (
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "nowrap" }}>
           <button onClick={e => { e.stopPropagation(); setEditLead(r); }} style={actionBtn(B.blue, B.blue + "12")} title="Edit lead">✏️ Edit</button>
           {r.phone && (
             <button onClick={e => { e.stopPropagation(); window.open(`https://wa.me/${r.phone.replace(/\D/g,"")}`, "_blank"); }}
@@ -706,7 +722,7 @@ export default function LeadsTab({ viewMode, search }) {
           )}
           {r.status === "Lost" && (
             <button onClick={e => { e.stopPropagation(); const reason = window.prompt("Reopen reason?"); if (reason) handleReopenLead(r, reason); }}
-              style={actionBtn("#7c3aed", "#7c3aed12")} title="Reopen lead">↩ Reopen</button>
+              style={actionBtn("#7c3aed", "#7c3aed12")} title="Reopen lead">↩</button>
           )}
           <button onClick={e => { e.stopPropagation(); handleArchiveLead(r); }}
             style={actionBtn(r.archived ? "#10b981" : "#94a3b8", r.archived ? "#f0fdf4" : "#f8fafc")} title={r.archived ? "Restore" : "Archive"}>
@@ -719,13 +735,18 @@ export default function LeadsTab({ viewMode, search }) {
     },
   ];
 
+  // ── Filter cols by screen size ─────────────────────────────────────────────
+  // priority 0 = always | 1 = tablet+ | 2 = desktop only
+  const maxPriority = isPhone ? 0 : isTablet ? 1 : 2;
+  const cols = allCols.filter(c => (c.priority ?? 0) <= maxPriority);
+
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0 }}>
 
 
       {/* ── Stats row ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 10 }} className="stat-grid-6">
+      <div style={{ display: "grid", gridTemplateColumns: isPhone ? "repeat(2,1fr)" : isTablet ? "repeat(4,1fr)" : "repeat(7,1fr)", gap: isPhone ? 8 : 10 }} className="stat-grid-6">
         {pipelineStats.slice(0, 5).map((s) => (
           <StatCard key={s.stage} label={s.stage} value={s.count} sub={aed(s.value)} color={STAGE_COLORS[s.stage]} />
         ))}
@@ -807,7 +828,7 @@ export default function LeadsTab({ viewMode, search }) {
         </div>
 
         {/* Right: actions + view toggles */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", overflowX: isPhone ? "auto" : "visible", WebkitOverflowScrolling: "touch" }}>
 
           {/* Bulk action bar */}
           {bulkSelected.size > 0 && (
@@ -899,8 +920,55 @@ export default function LeadsTab({ viewMode, search }) {
                 <ExcelTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} />
               </div>
             </>
+          ) : isPhone ? (
+            /* ── Mobile card list ── */
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, padding: "8px 4px" }}>
+              {rows.length === 0 && <div style={{ color: B.muted, textAlign: "center", padding: 32, fontSize: 13 }}>No leads found</div>}
+              {rows.map((r, ri) => {
+                const fu = getFollowUpStatus(r.followUpDate);
+                const sc = scoreLead(r); const sl = scoreLabel(sc);
+                const na = getNextAction(r);
+                const stageColor = STAGE_COLORS[r.status] || "#64748b";
+                return (
+                  <div key={r.id} onClick={() => setDetailLead(r)}
+                    style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "12px 14px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", cursor: "pointer", borderLeft: `4px solid ${stageColor}` }}>
+                    {/* Row 1: name + status */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{r.name}</div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                        <span style={pill(stageColor, stageColor + "18")}>{r.status}</span>
+                        <span style={pill(SCORE_COLORS[sl], SCORE_COLORS[sl] + "18")}>{sc} {sl}</span>
+                      </div>
+                    </div>
+                    {/* Row 2: service + value */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>💼 {r.service || "—"}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>{aed(r.value)}</span>
+                    </div>
+                    {/* Row 3: source + follow-up */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: fu || na ? 8 : 0 }}>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>📣 {r.source || "—"} · {r.date || "—"}</span>
+                      {fu && <span style={pill(fu.color, fu.bg)}>{fu.icon} {fu.label}</span>}
+                    </div>
+                    {/* Row 4: next action */}
+                    {na && <div style={{ fontSize: 11, color: "#334155", marginBottom: 8 }}>{na.icon} {na.text}</div>}
+                    {/* Row 5: actions */}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onClick={e => e.stopPropagation()}>
+                      <button onClick={() => setEditLead(r)} style={actionBtn(B.blue, B.blue + "12")}>✏️ Edit</button>
+                      {r.phone && (
+                        <button onClick={() => window.open(`https://wa.me/${r.phone.replace(/\D/g,"")}`, "_blank")} style={actionBtn("#25d366", "#25d36612")}>💬 WA</button>
+                      )}
+                      {r.status === "Won" && (
+                        <button onClick={() => handleConvertToClient(r)} style={actionBtn(B.green, B.green + "12")}>↗ Convert</button>
+                      )}
+                      <button onClick={() => setShowAIAssist(r)} style={actionBtn("#8b5cf6", "#ede9fe")}>✨ AI</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            /* NTable — pass onChange + onDelete so inline selects work */
+            /* NTable — desktop/tablet */
             <NTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} dense maxHeight="calc(100vh - 380px)" />
           )}
         </SectionCard>

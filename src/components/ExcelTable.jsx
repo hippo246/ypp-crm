@@ -1,5 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
 
+// ─── Google Fonts Loader ──────────────────────────────────────────────────────
+const GFONTS = ["Roboto","Open+Sans","Lato","Montserrat","Raleway","Poppins","Inter","Playfair+Display","Merriweather","Source+Code+Pro","Fira+Code","Space+Mono","Nunito","Quicksand","Dancing+Script","Pacifico","Ubuntu+Mono","JetBrains+Mono","Crimson+Text","EB+Garamond"];
+if (typeof document !== "undefined" && !document.getElementById("excel-gfonts")) {
+  const link = document.createElement("link");
+  link.id = "excel-gfonts";
+  link.rel = "stylesheet";
+  link.href = `https://fonts.googleapis.com/css2?${GFONTS.map(f=>`family=${f}:wght@400;600;700`).join("&")}&display=swap`;
+  document.head.appendChild(link);
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SEL_COLOR = "#1a73e8";
 const SEL_BG    = "#e8f0fe";
@@ -302,7 +312,7 @@ const FilterDropdown = ({ col, rows, activeFilter, onFilter, onSort, onClose }) 
 };
 
 // ─── Cond Format ──────────────────────────────────────────────────────────────
-const applyCondFmt = (value, rules, colKey, allColValues) => {
+const applyCondFmt = (value, rules, colKey, allColValues, rowIndex) => {
   if (!rules||!rules.length) return null;
   for (const rule of rules) {
     if (rule.col!==colKey) continue;
@@ -325,6 +335,7 @@ const applyCondFmt = (value, rules, colKey, allColValues) => {
       case "belowavg":{if(allColValues){const nums=[...allColValues].map(Number).filter(n=>!isNaN(n));const avg=nums.reduce((a,b)=>a+b,0)/nums.length;match=!isNaN(num)&&num<avg;}break;}
       case "duplicate":{if(allColValues){const freq={};allColValues.forEach(v=>{freq[String(v)]=(freq[String(v)]||0)+1;});match=(freq[String(value)]||0)>1;}break;}
       case "unique":{if(allColValues){const freq={};allColValues.forEach(v=>{freq[String(v)]=(freq[String(v)]||0)+1;});match=(freq[String(value)]||0)===1;}break;}
+      case "outlier2sd":{match=rowIndex!==undefined&&Array.isArray(rule._outlierIdxs)&&rule._outlierIdxs.includes(rowIndex);break;}
     }
     if (match) {
       // Data bar style
@@ -380,21 +391,67 @@ const SearchableDropdown = ({ options, value, onChange, onBlur }) => {
 
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const ContextMenu = ({ x, y, items, onClose }) => {
-  const ref=useRef(null);
+  const ref = useRef(null);
+  const [openSub, setOpenSub] = useState(null);
+  const [pos, setPos] = useState({ left: x, top: y });
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))onClose();};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
-  return (
-    <div ref={ref} style={{position:"fixed",left:x,top:y,zIndex:9999,background:"#fff",border:"1px solid #ddd",borderRadius:6,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",minWidth:200,padding:"4px 0",fontSize:12}}>
-      {items.map((item,i)=>item==="---"?<div key={i} style={{height:1,background:"#eee",margin:"3px 0"}}/>:(
-        <div key={i} onClick={()=>{item.action?.();onClose();}}
-          style={{padding:"6px 14px",cursor:item.disabled?"default":"pointer",color:item.danger?"#ef4444":item.disabled?"#aaa":"#222",display:"flex",alignItems:"center",gap:8,userSelect:"none"}}
-          onMouseEnter={e=>{if(!item.disabled)e.currentTarget.style.background="#f3f4f6";}}
-          onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
-          <span style={{width:16,textAlign:"center"}}>{item.icon}</span>{item.label}
-          {item.shortcut&&<span style={{marginLeft:"auto",color:"#aaa",fontSize:10}}>{item.shortcut}</span>}
+  useEffect(()=>{
+    if(!ref.current)return;
+    const {width,height}=ref.current.getBoundingClientRect();
+    setPos({left:x+width>window.innerWidth?Math.max(0,x-width):x,top:y+height>window.innerHeight?Math.max(0,y-height):y});
+  },[x,y]);
+
+  const menuStyle={position:"fixed",left:pos.left,top:pos.top,zIndex:9999,background:"#fff",border:"none",borderRadius:10,boxShadow:"0 8px 40px rgba(0,0,0,0.22),0 2px 8px rgba(0,0,0,0.1)",minWidth:230,padding:"6px 0",fontSize:12.5,fontFamily:"'Segoe UI',system-ui,sans-serif",userSelect:"none"};
+  const divider=<div style={{height:1,background:"#f0f0f0",margin:"4px 0"}}/>;
+  const sectionLabel=(lbl)=><div style={{padding:"4px 14px 2px",fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.6px"}}>{lbl}</div>;
+
+  const renderItem=(item,i)=>{
+    if(item==="---")return<div key={i}>{divider}</div>;
+    if(item.__section)return<div key={i}>{sectionLabel(item.__section)}</div>;
+    if(item.children){
+      const isOpen=openSub===i;
+      return(
+        <div key={i} style={{position:"relative"}} onMouseEnter={()=>setOpenSub(i)} onMouseLeave={()=>setOpenSub(null)}>
+          <div style={{padding:"7px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,background:isOpen?"#f5f5ff":"transparent",color:"#111",transition:"background 0.1s"}}>
+            <span style={{width:18,fontSize:15,textAlign:"center",flexShrink:0}}>{item.icon}</span>
+            <span style={{flex:1,fontWeight:500}}>{item.label}</span>
+            <span style={{fontSize:9,color:"#bbb",marginLeft:4}}>▶</span>
+          </div>
+          {isOpen&&(
+            <div style={{position:"absolute",left:"100%",top:-6,background:"#fff",border:"none",borderRadius:10,boxShadow:"0 8px 40px rgba(0,0,0,0.22)",minWidth:220,padding:"6px 0",fontSize:12.5,zIndex:10001}}>
+              {item.children.map((child,ci)=>{
+                if(child==="---")return<div key={ci}>{divider}</div>;
+                if(child.__section)return<div key={ci}>{sectionLabel(child.__section)}</div>;
+                return(
+                  <div key={ci} onClick={()=>{if(!child.disabled){child.action?.();onClose();setOpenSub(null);}}}
+                    style={{padding:"7px 14px",cursor:child.disabled?"default":"pointer",display:"flex",alignItems:"center",gap:10,color:child.danger?"#ef4444":child.disabled?"#ccc":"#111",transition:"background 0.1s"}}
+                    onMouseEnter={e=>{if(!child.disabled)e.currentTarget.style.background="#f5f5ff";}}
+                    onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+                    <span style={{width:18,fontSize:14,textAlign:"center",flexShrink:0}}>{child.icon}</span>
+                    <span style={{flex:1,fontWeight:child.bold?700:400}}>{child.label}</span>
+                    {child.shortcut&&<span style={{fontSize:10,color:"#bbb",background:"#f3f4f6",padding:"1px 5px",borderRadius:3,fontFamily:"monospace"}}>{child.shortcut}</span>}
+                    {child.badge&&<span style={{fontSize:9,background:"#6366f1",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>{child.badge}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      ))}
-    </div>
-  );
+      );
+    }
+    return(
+      <div key={i} onClick={()=>{if(!item.disabled){item.action?.();onClose();}}}
+        style={{padding:"7px 14px",cursor:item.disabled?"default":"pointer",display:"flex",alignItems:"center",gap:10,color:item.danger?"#ef4444":item.disabled?"#ccc":"#111",transition:"background 0.1s"}}
+        onMouseEnter={e=>{if(!item.disabled)e.currentTarget.style.background="#f5f5ff";}}
+        onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+        <span style={{width:18,fontSize:14,textAlign:"center",flexShrink:0}}>{item.icon}</span>
+        <span style={{flex:1,fontWeight:item.bold?700:400}}>{item.label}</span>
+        {item.shortcut&&<span style={{fontSize:10,color:"#bbb",background:"#f3f4f6",padding:"1px 5px",borderRadius:3,fontFamily:"monospace"}}>{item.shortcut}</span>}
+        {item.badge&&<span style={{fontSize:9,background:"#6366f1",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>{item.badge}</span>}
+      </div>
+    );
+  };
+  return<div ref={ref} style={menuStyle}>{items.map(renderItem)}</div>;
 };
 
 // ─── Find/Replace Modal ───────────────────────────────────────────────────────
@@ -531,120 +588,252 @@ const DataValidationModal = ({ cols, validation, onChange, onClose }) => {
   );
 };
 
-// ─── Chart Modal (Phase 5) ────────────────────────────────────────────────────
+// ─── Chart Modal (Enhanced) ───────────────────────────────────────────────────
 const ChartModal = ({ rows, cols, selection, onClose }) => {
   const [chartType, setChartType] = useState("bar");
   const [labelCol, setLabelCol]   = useState(cols[0]?.key||"");
   const [valueCol, setValueCol]   = useState(cols[1]?.key||cols[0]?.key||"");
+  const [value2Col, setValue2Col] = useState(cols[2]?.key||cols[1]?.key||"");
+  const [chartTitle, setChartTitle] = useState("");
+  const [showLegend, setShowLegend] = useState(true);
 
   const numericCols = cols.filter(c=>rows.some(r=>!isNaN(Number(r[c.key]))&&r[c.key]!==""));
 
   const chartData = useMemo(() => {
     const useRows = selection?.start && selection?.end
       ? rows.slice(Math.min(selection.start.ri, selection.end.ri), Math.max(selection.start.ri, selection.end.ri)+1)
-      : rows.slice(0, 12);
-    return useRows.map(r=>({ label: String(r[labelCol]??""), value: Number(r[valueCol])||0 })).filter(d=>d.label);
-  }, [rows, labelCol, valueCol, selection]);
+      : rows.slice(0, 14);
+    return useRows.map(r=>({ label: String(r[labelCol]??""), value: Number(r[valueCol])||0, value2: Number(r[value2Col])||0 })).filter(d=>d.label);
+  }, [rows, labelCol, valueCol, value2Col, selection]);
 
-  const W=480, H=220, PAD=40, chartW=W-PAD*2, chartH=H-PAD*2;
+  const W=520, H=240, PAD=44, chartW=W-PAD*2, chartH=H-PAD*2;
   const maxVal = Math.max(...chartData.map(d=>d.value), 1);
+  const maxVal2 = Math.max(...chartData.map(d=>d.value2), 1);
   const colors = ["#1a73e8","#34a853","#fbbc04","#ea4335","#9c27b0","#00bcd4","#ff5722","#607d8b","#795548","#ff9800","#4caf50","#2196f3"];
 
+  const GridLines = () => (
+    <g>{[0,0.25,0.5,0.75,1].map((t,i)=>{
+      const y=PAD+chartH*(1-t);
+      return <g key={i}><line x1={PAD} y1={y} x2={W-PAD} y2={y} stroke="#e5e7eb" strokeWidth={1} strokeDasharray="3,3"/><text x={PAD-5} y={y+4} textAnchor="end" fontSize={8} fill="#999">{Math.round(maxVal*t)}</text></g>;
+    })}</g>
+  );
+
   const renderBarChart = () => {
-    const bw = Math.min(chartW / Math.max(chartData.length, 1) - 4, 50);
-    return chartData.map((d, i) => {
+    const bw = Math.min(chartW / Math.max(chartData.length, 1) - 6, 48);
+    return <g><GridLines/>{chartData.map((d, i) => {
       const bh = (d.value / maxVal) * chartH;
       const x = PAD + i * (chartW / chartData.length) + (chartW / chartData.length - bw) / 2;
       const y = PAD + chartH - bh;
       return (
         <g key={i}>
-          <rect x={x} y={y} width={bw} height={bh} fill={colors[i % colors.length]} rx={3} opacity={0.85}/>
-          <text x={x + bw/2} y={H - PAD + 14} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{String(d.label).slice(0,8)}</text>
-          <text x={x + bw/2} y={y - 3} textAnchor="middle" fontSize={9} fill="#333" fontFamily="monospace">{d.value}</text>
+          <rect x={x} y={y} width={bw} height={bh} fill={colors[i%colors.length]} rx={3} opacity={0.85}>
+            <title>{d.label}: {d.value}</title>
+          </rect>
+          <text x={x+bw/2} y={H-PAD+13} textAnchor="middle" fontSize={8} fill="#666">{String(d.label).slice(0,9)}</text>
+          {bh>14&&<text x={x+bw/2} y={y-3} textAnchor="middle" fontSize={8} fill="#333">{d.value}</text>}
         </g>
       );
-    });
+    })}</g>;
+  };
+
+  const renderStackedBar = () => {
+    const bw = Math.min(chartW / Math.max(chartData.length, 1) - 6, 48);
+    const combined = chartData.map(d=>d.value+d.value2);
+    const maxC = Math.max(...combined, 1);
+    return <g>{chartData.map((d, i) => {
+      const x = PAD + i * (chartW / chartData.length) + (chartW / chartData.length - bw) / 2;
+      const h1 = (d.value / maxC) * chartH;
+      const h2 = (d.value2 / maxC) * chartH;
+      return (
+        <g key={i}>
+          <rect x={x} y={PAD+chartH-h1-h2} width={bw} height={h1} fill={colors[i%colors.length]} rx={2} opacity={0.85}/>
+          <rect x={x} y={PAD+chartH-h2} width={bw} height={h2} fill={colors[(i+3)%colors.length]} rx={2} opacity={0.7}/>
+          <text x={x+bw/2} y={H-PAD+13} textAnchor="middle" fontSize={8} fill="#666">{String(d.label).slice(0,9)}</text>
+        </g>
+      );
+    })}</g>;
   };
 
   const renderLineChart = () => {
     if (chartData.length < 2) return null;
-    const pts = chartData.map((d, i) => {
-      const x = PAD + (i / (chartData.length - 1)) * chartW;
-      const y = PAD + chartH - (d.value / maxVal) * chartH;
-      return { x, y, d };
-    });
+    const pts = chartData.map((d, i) => ({
+      x: PAD + (i / (chartData.length - 1)) * chartW,
+      y: PAD + chartH - (d.value / maxVal) * chartH, d
+    }));
     const pathD = pts.map((p,i)=>`${i===0?"M":"L"} ${p.x} ${p.y}`).join(" ");
-    return (
-      <g>
-        <path d={pathD} fill="none" stroke="#1a73e8" strokeWidth={2.5} strokeLinejoin="round"/>
-        {pts.map((p,i)=>(
-          <g key={i}>
-            <circle cx={p.x} cy={p.y} r={4} fill="#1a73e8" stroke="#fff" strokeWidth={1.5}/>
-            <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize={9} fill="#333" fontFamily="monospace">{p.d.value}</text>
-            <text x={p.x} y={H - PAD + 14} textAnchor="middle" fontSize={9} fill="#555" fontFamily="monospace">{String(p.d.label).slice(0,8)}</text>
-          </g>
-        ))}
-      </g>
-    );
+    return <g><GridLines/>
+      <path d={pathD} fill="none" stroke="#1a73e8" strokeWidth={2.5} strokeLinejoin="round"/>
+      {pts.map((p,i)=>(
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={4} fill="#1a73e8" stroke="#fff" strokeWidth={1.5}/>
+          <text x={p.x} y={p.y-9} textAnchor="middle" fontSize={8} fill="#333">{p.d.value}</text>
+          <text x={p.x} y={H-PAD+13} textAnchor="middle" fontSize={8} fill="#666">{String(p.d.label).slice(0,9)}</text>
+        </g>
+      ))}
+    </g>;
   };
 
-  const renderPieChart = () => {
+  const renderAreaChart = () => {
+    if (chartData.length < 2) return null;
+    const pts = chartData.map((d, i) => ({
+      x: PAD + (i / (chartData.length - 1)) * chartW,
+      y: PAD + chartH - (d.value / maxVal) * chartH, d
+    }));
+    const pathD = pts.map((p,i)=>`${i===0?"M":"L"} ${p.x} ${p.y}`).join(" ");
+    const areaD = `${pathD} L ${pts[pts.length-1].x} ${PAD+chartH} L ${pts[0].x} ${PAD+chartH} Z`;
+    return <g><GridLines/>
+      <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1a73e8" stopOpacity="0.4"/><stop offset="100%" stopColor="#1a73e8" stopOpacity="0.02"/></linearGradient></defs>
+      <path d={areaD} fill="url(#areaGrad)"/>
+      <path d={pathD} fill="none" stroke="#1a73e8" strokeWidth={2.5} strokeLinejoin="round"/>
+      {pts.map((p,i)=>(
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={3.5} fill="#fff" stroke="#1a73e8" strokeWidth={2}/>
+          <text x={p.x} y={H-PAD+13} textAnchor="middle" fontSize={8} fill="#666">{String(p.d.label).slice(0,9)}</text>
+        </g>
+      ))}
+    </g>;
+  };
+
+  const renderScatter = () => {
+    const xMax = Math.max(...chartData.map(d=>d.value), 1);
+    const yMax = Math.max(...chartData.map(d=>d.value2), 1);
+    return <g>
+      <GridLines/>
+      {[0,0.25,0.5,0.75,1].map((t,i)=>{
+        const x=PAD+chartW*t;
+        return <g key={i}><line x1={x} y1={PAD} x2={x} y2={PAD+chartH} stroke="#e5e7eb" strokeWidth={1} strokeDasharray="3,3"/><text x={x} y={H-PAD+13} textAnchor="middle" fontSize={8} fill="#999">{Math.round(xMax*t)}</text></g>;
+      })}
+      {chartData.map((d,i)=>{
+        const cx2 = PAD + (d.value/xMax)*chartW;
+        const cy2 = PAD + chartH - (d.value2/yMax)*chartH;
+        return <g key={i}><circle cx={cx2} cy={cy2} r={6} fill={colors[i%colors.length]} opacity={0.8} stroke="#fff" strokeWidth={1}><title>{d.label}: ({d.value}, {d.value2})</title></circle><text x={cx2} y={cy2-9} textAnchor="middle" fontSize={7} fill="#555">{String(d.label).slice(0,6)}</text></g>;
+      })}
+    </g>;
+  };
+
+  const renderPieChart = (donut=false) => {
     const total = chartData.reduce((a,b)=>a+b.value, 0) || 1;
-    const cx = W/2, cy = H/2 - 10, r = Math.min(chartW, chartH) / 2 - 10;
+    const cx = W/2, cy = H/2, r = Math.min(chartW, chartH) / 2 - 8;
+    const innerR = donut ? r*0.5 : 0;
     let angle = -Math.PI / 2;
-    return chartData.map((d, i) => {
+    return <g>{chartData.map((d, i) => {
       const slice = (d.value / total) * 2 * Math.PI;
       const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
       angle += slice;
       const x2 = cx + r * Math.cos(angle), y2 = cy + r * Math.sin(angle);
       const mid = angle - slice / 2;
-      const mx = cx + (r * 0.65) * Math.cos(mid), my = cy + (r * 0.65) * Math.sin(mid);
+      const mx = cx + (r*0.7) * Math.cos(mid), my = cy + (r*0.7) * Math.sin(mid);
       const large = slice > Math.PI ? 1 : 0;
+      const pathD = donut
+        ? `M${cx+innerR*Math.cos(angle-slice)},${cy+innerR*Math.sin(angle-slice)} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} L${cx+innerR*Math.cos(angle)},${cy+innerR*Math.sin(angle)} A${innerR},${innerR} 0 ${large},0 ${cx+innerR*Math.cos(angle-slice)},${cy+innerR*Math.sin(angle-slice)} Z`
+        : `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`;
       return (
         <g key={i}>
-          <path d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`} fill={colors[i%colors.length]} opacity={0.85} stroke="#fff" strokeWidth={1}/>
-          {slice > 0.3 && <text x={mx} y={my} textAnchor="middle" fontSize={9} fill="#fff" fontWeight="bold" fontFamily="monospace">{Math.round(d.value/total*100)}%</text>}
+          <path d={pathD} fill={colors[i%colors.length]} opacity={0.88} stroke="#fff" strokeWidth={1.5}>
+            <title>{d.label}: {d.value} ({Math.round(d.value/total*100)}%)</title>
+          </path>
+          {slice > 0.28 && <text x={mx} y={my+1} textAnchor="middle" fontSize={8} fill="#fff" fontWeight="bold">{Math.round(d.value/total*100)}%</text>}
         </g>
       );
-    });
+    })}</g>;
   };
+
+  const renderRadar = () => {
+    const n = Math.min(chartData.length, 8);
+    const data = chartData.slice(0, n);
+    const cx2 = W/2, cy2 = H/2, r = Math.min(chartW,chartH)/2 - 20;
+    const angle = (i) => (i/n)*2*Math.PI - Math.PI/2;
+    const pts = data.map((d,i)=>({ x: cx2+r*(d.value/maxVal)*Math.cos(angle(i)), y: cy2+r*(d.value/maxVal)*Math.sin(angle(i)) }));
+    const polyD = pts.map((p,i)=>`${i===0?"M":"L"} ${p.x} ${p.y}`).join(" ") + " Z";
+    return <g>
+      {[0.25,0.5,0.75,1].map(t=>{
+        const rp = pts.map((_,i)=>({ x: cx2+r*t*Math.cos(angle(i)), y: cy2+r*t*Math.sin(angle(i)) }));
+        return <polygon key={t} points={rp.map(p=>`${p.x},${p.y}`).join(" ")} fill="none" stroke="#e5e7eb" strokeWidth={1}/>;
+      })}
+      {data.map((_,i)=><line key={i} x1={cx2} y1={cy2} x2={cx2+r*Math.cos(angle(i))} y2={cy2+r*Math.sin(angle(i))} stroke="#e5e7eb" strokeWidth={1}/>)}
+      <path d={polyD} fill="#1a73e8" fillOpacity={0.2} stroke="#1a73e8" strokeWidth={2}/>
+      {pts.map((p,i)=><g key={i}><circle cx={p.x} cy={p.y} r={4} fill="#1a73e8"/><text x={cx2+(r+14)*Math.cos(angle(i))} y={cy2+(r+14)*Math.sin(angle(i))+3} textAnchor="middle" fontSize={8} fill="#555">{String(data[i].label).slice(0,8)}</text></g>)}
+    </g>;
+  };
+
+  const CHART_TYPES = [
+    {id:"bar",icon:"📊",label:"Bar"},
+    {id:"stackedbar",icon:"📊",label:"Stacked"},
+    {id:"line",icon:"📈",label:"Line"},
+    {id:"area",icon:"🏔",label:"Area"},
+    {id:"pie",icon:"🥧",label:"Pie"},
+    {id:"donut",icon:"🍩",label:"Donut"},
+    {id:"scatter",icon:"⬡",label:"Scatter"},
+    {id:"radar",icon:"🕸",label:"Radar"},
+  ];
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:10,padding:20,minWidth:560,boxShadow:"0 16px 48px rgba(0,0,0,0.22)"}}>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>📊 Insert Chart</div>
-        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-          {["bar","line","pie"].map(t=><button key={t} onClick={()=>setChartType(t)} style={{...tBtn,background:chartType===t?"#1a73e8":"#e8eaed",color:chartType===t?"#fff":"#333",textTransform:"capitalize"}}>{t==="bar"?"📊 Bar":t==="line"?"📈 Line":"🥧 Pie"}</button>)}
-          <span style={{fontSize:11,color:"#888",marginLeft:8}}>Labels:</span>
-          <select value={labelCol} onChange={e=>setLabelCol(e.target.value)} style={{fontSize:11,padding:"3px 6px",border:"1px solid #ddd",borderRadius:4}}>{cols.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}</select>
-          <span style={{fontSize:11,color:"#888"}}>Values:</span>
-          <select value={valueCol} onChange={e=>setValueCol(e.target.value)} style={{fontSize:11,padding:"3px 6px",border:"1px solid #ddd",borderRadius:4}}>{numericCols.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}</select>
+      <div style={{background:"#fff",borderRadius:12,padding:20,minWidth:600,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>📊 Insert Chart</div>
+
+        {/* Chart type selector */}
+        <div style={{display:"flex",gap:5,marginBottom:12,flexWrap:"wrap"}}>
+          {CHART_TYPES.map(t=>(
+            <button key={t.id} onClick={()=>setChartType(t.id)}
+              style={{...tBtn,background:chartType===t.id?"#1a73e8":"#f1f5f9",color:chartType===t.id?"#fff":"#333",padding:"4px 10px",fontSize:11,borderRadius:6,border:chartType===t.id?"1px solid #1a73e8":"1px solid #e2e8f0"}}>
+              {t.icon} {t.label}
+            </button>
+          ))}
         </div>
-        <div style={{border:"1px solid #e5e7eb",borderRadius:6,overflow:"hidden",background:"#fafafa"}}>
-          <svg width={W} height={H}>
-            {/* Grid lines */}
-            {chartType!=="pie"&&[0,0.25,0.5,0.75,1].map((t,i)=>{
-              const y=PAD+chartH*(1-t);
-              return <g key={i}><line x1={PAD} y1={y} x2={W-PAD} y2={y} stroke="#e5e7eb" strokeWidth={1}/><text x={PAD-4} y={y+4} textAnchor="end" fontSize={9} fill="#999" fontFamily="monospace">{Math.round(maxVal*t)}</text></g>;
-            })}
+
+        {/* Config row */}
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center",background:"#f8faff",padding:"8px 10px",borderRadius:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <span style={{fontSize:11,color:"#888"}}>Title:</span>
+            <input value={chartTitle} onChange={e=>setChartTitle(e.target.value)} placeholder="Chart title…" style={{fontSize:11,padding:"2px 6px",border:"1px solid #ddd",borderRadius:4,width:120}}/>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <span style={{fontSize:11,color:"#888"}}>Labels:</span>
+            <select value={labelCol} onChange={e=>setLabelCol(e.target.value)} style={{fontSize:11,padding:"2px 5px",border:"1px solid #ddd",borderRadius:4}}>{cols.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}</select>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <span style={{fontSize:11,color:"#888"}}>Series 1:</span>
+            <select value={valueCol} onChange={e=>setValueCol(e.target.value)} style={{fontSize:11,padding:"2px 5px",border:"1px solid #ddd",borderRadius:4}}>{numericCols.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}</select>
+          </div>
+          {(chartType==="stackedbar"||chartType==="scatter")&&(
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:11,color:"#888"}}>{chartType==="scatter"?"Y-Axis:":"Series 2:"}</span>
+              <select value={value2Col} onChange={e=>setValue2Col(e.target.value)} style={{fontSize:11,padding:"2px 5px",border:"1px solid #ddd",borderRadius:4}}>{numericCols.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}</select>
+            </div>
+          )}
+          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11,cursor:"pointer"}}>
+            <input type="checkbox" checked={showLegend} onChange={e=>setShowLegend(e.target.checked)}/> Legend
+          </label>
+        </div>
+
+        {/* Chart */}
+        <div style={{border:"1px solid #e5e7eb",borderRadius:8,overflow:"hidden",background:"#fafafa",padding:"8px 4px 4px"}}>
+          {chartTitle&&<div style={{textAlign:"center",fontWeight:700,fontSize:13,color:"#1e293b",marginBottom:4}}>{chartTitle}</div>}
+          <svg width={W} height={H} style={{display:"block",margin:"0 auto"}}>
             {chartType==="bar"&&renderBarChart()}
+            {chartType==="stackedbar"&&renderStackedBar()}
             {chartType==="line"&&renderLineChart()}
-            {chartType==="pie"&&renderPieChart()}
+            {chartType==="area"&&renderAreaChart()}
+            {chartType==="scatter"&&renderScatter()}
+            {(chartType==="pie"||chartType==="donut")&&renderPieChart(chartType==="donut")}
+            {chartType==="radar"&&renderRadar()}
           </svg>
         </div>
-        {/* Legend for pie */}
-        {chartType==="pie"&&(
+
+        {/* Legend */}
+        {showLegend&&(chartType==="pie"||chartType==="donut"||chartType==="stackedbar")&&(
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-            {chartData.map((d,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontFamily:"monospace"}}>
+            {chartData.slice(0,12).map((d,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:4,fontSize:10}}>
                 <div style={{width:10,height:10,borderRadius:2,background:colors[i%colors.length]}}/>
-                {String(d.label).slice(0,12)}
+                {String(d.label).slice(0,14)}
               </div>
             ))}
           </div>
         )}
-        <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
-          <button onClick={onClose} style={{...tBtn,background:"#1a73e8",color:"#fff"}}>Close</button>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}>
+          <button onClick={onClose} style={{...tBtn,background:"#1a73e8",color:"#fff",padding:"5px 18px"}}>Close</button>
         </div>
       </div>
     </div>
@@ -695,7 +884,7 @@ const isMergeOrigin = (merges, ri, ci) => {
 
 // ─── Ribbon Tab Button ────────────────────────────────────────────────────────
 const RibbonTab = ({ label, active, onClick }) => (
-  <button onClick={onClick} style={{padding:"4px 14px",fontSize:12,border:"none",borderBottom:active?"2px solid #1a73e8":"2px solid transparent",background:"transparent",cursor:"pointer",color:active?"#1a73e8":"#444",fontWeight:active?600:400,fontFamily:"'Segoe UI',sans-serif",marginBottom:-1,transition:"color 0.15s"}}>
+  <button onClick={onClick} style={{padding:"4px 14px",fontSize:12,borderTop:"none",borderLeft:"none",borderRight:"none",borderBottom:active?"2px solid #1a73e8":"2px solid transparent",background:"transparent",cursor:"pointer",color:active?"#1a73e8":"#444",fontWeight:active?600:400,fontFamily:"'Segoe UI',sans-serif",marginBottom:-1,transition:"color 0.15s"}}>
     {label}
   </button>
 );
@@ -711,7 +900,7 @@ const RibbonGroup = ({ label, children }) => (
 // ─── Icon Btn ─────────────────────────────────────────────────────────────────
 const IBtn = ({ icon, label, onClick, active, disabled, title }) => (
   <button onClick={onClick} disabled={disabled} title={title||label}
-    style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minWidth:32,padding:"2px 4px",border:"1px solid transparent",borderRadius:4,background:active?"#e8f0fe":"transparent",cursor:disabled?"default":"pointer",opacity:disabled?0.4:1,fontSize:16,lineHeight:1,transition:"background 0.1s"}}
+    style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minWidth:32,padding:"2px 4px",border:"1px solid transparent",borderRadius:4,background:active?"#e8f0fe":"transparent",cursor:disabled?"default":"pointer",opacity:disabled?0.4:1,fontSize:typeof icon==="string"?16:14,lineHeight:1,transition:"background 0.1s"}}
     onMouseEnter={e=>{if(!disabled&&!active)e.currentTarget.style.background="#f3f4f6";}}
     onMouseLeave={e=>{e.currentTarget.style.background=active?"#e8f0fe":"transparent";}}>
     <span>{icon}</span>
@@ -805,6 +994,19 @@ const DT = {
   radius: 8,
   radiusLg: 12,
 };
+
+// ─── Global CSS injection ─────────────────────────────────────────────────────
+if (typeof document !== "undefined" && !document.getElementById("excel-global-css")) {
+  const s = document.createElement("style");
+  s.id = "excel-global-css";
+  s.textContent = `
+    @keyframes bounce { 0%,100%{transform:translateY(0);opacity:0.5} 50%{transform:translateY(-4px);opacity:1} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+    @keyframes slideInRight { from{transform:translateX(40px);opacity:0} to{transform:none;opacity:1} }
+    @keyframes slideUpFade { from{transform:translateY(8px);opacity:0} to{transform:none;opacity:1} }
+  `;
+  document.head.appendChild(s);
+}
 
 // ─── Presence avatars ─────────────────────────────────────────────────────────
 const COLLAB_USERS = [
@@ -1387,8 +1589,45 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   // Formula autocomplete
   const [acSuggestions, setAcSuggestions]   = useState([]);
   const [acIndex, setAcIndex]               = useState(0);
-  // ── Drag-to-fill ──────────────────────────────────────────────────────────
+  // ── Drag-to-fill (Fill Handle) ────────────────────────────────────────────
   const [fillDrag, setFillDrag]             = useState(null); // {startRi,startCi,endRi,endCi}
+  const [fillHandleDragging, setFillHandleDragging] = useState(false);
+  const [fillHandlePreview, setFillHandlePreview]   = useState(null); // {startRi,startCi,endRi,endCi}
+
+  const detectFillPattern = useCallback((vals) => {
+    if (!vals.length) return (i) => vals[0];
+    // Weekdays
+    const days = ["mon","tue","wed","thu","fri","sat","sun"];
+    const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+    const lower0 = String(vals[0]).toLowerCase();
+    const lower1 = vals.length > 1 ? String(vals[1]).toLowerCase() : null;
+    const dayIdx = days.findIndex(d => lower0.startsWith(d));
+    if (dayIdx >= 0) return (i) => { const d = days[(dayIdx + i) % 7]; return d.charAt(0).toUpperCase()+d.slice(1); };
+    const monIdx = months.findIndex(m => lower0.startsWith(m));
+    if (monIdx >= 0) return (i) => { const m = months[(monIdx + i) % 12]; return m.charAt(0).toUpperCase()+m.slice(1); };
+    // Text+number pattern like INV-001
+    const txNumMatch = String(vals[0]).match(/^(.*?)(\d+)(\D*)$/);
+    if (txNumMatch && vals.length >= 1) {
+      const prefix = txNumMatch[1], numStr = txNumMatch[2], suffix = txNumMatch[3];
+      const start = parseInt(numStr);
+      const step = vals.length >= 2 ? (() => { const m2 = String(vals[1]).match(/^(.*?)(\d+)(\D*)$/); return m2 ? parseInt(m2[2]) - start : 1; })() : 1;
+      if (!isNaN(start)) return (i) => prefix + String(start + i * step).padStart(numStr.length, '0') + suffix;
+    }
+    // Numeric sequence
+    const nums = vals.map(v => Number(v));
+    if (nums.every(n => !isNaN(n))) {
+      if (nums.length === 1) return (i) => nums[0] + i;
+      const step = nums.length >= 2 ? nums[1] - nums[0] : 1;
+      return (i) => nums[0] + i * step;
+    }
+    // Formula: adjust row refs
+    if (String(vals[0]).startsWith("=")) {
+      return (i) => String(vals[0]).replace(/([A-Z]+)(\d+)/g, (_, col, row) => col + (parseInt(row) + i));
+    }
+    // Plain text: repeat
+    return (i) => vals[i % vals.length];
+  }, []);
+
   // ── Pinned rows ───────────────────────────────────────────────────────────
   const [pinnedRows, setPinnedRows]         = useState(new Set());
   // ── Row grouping ──────────────────────────────────────────────────────────
@@ -1427,6 +1666,34 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   const [attachments, setAttachments]       = useState({}); // {"origIdx-key": [{name,url}]}
   const [dragOver, setDragOver]             = useState(false);
 
+  // ── UPGRADE 2: Pivot Table ────────────────────────────────────────────────
+  const [pivotConfig, setPivotConfig]       = useState({ rowField:"", colField:"", valueField:"", aggFn:"SUM", filterField:"", filterValue:"" });
+  const [showPivotPanel, setShowPivotPanel] = useState(false);
+
+  // ── UPGRADE 3: AI Formula Assistant ──────────────────────────────────────
+  const [aiQuery, setAiQuery]               = useState("");
+  const [aiResult, setAiResult]             = useState("");
+  const [aiLoading, setAiLoading]           = useState(false);
+  const [showAiPanel, setShowAiPanel]       = useState(false);
+  const [aiHistory, setAiHistory]           = useState([]); // [{role,content}]
+  const [aiMode, setAiMode]                 = useState("chat"); // "chat" | "formula"
+  const aiChatEndRef                        = useRef(null);
+
+  // ── UPGRADE 4: Import/Export extra state ─────────────────────────────────
+  const [importPreview, setImportPreview]   = useState(null);
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [exportAllSheets, setExportAllSheets] = useState(false);
+
+  // ── UPGRADE 7: Command Palette ────────────────────────────────────────────
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [cmdQuery, setCmdQuery]             = useState("");
+  const cmdInputRef                         = useRef(null);
+  const [cmdIndex, setCmdIndex]             = useState(0);
+
+  // ── UPGRADE 8: Heatmap ────────────────────────────────────────────────────
+  const [heatmapOn, setHeatmapOn]           = useState(false);
+  const [zoomLevel, setZoomLevel]           = useState(100);
+
   // ── Undo/Redo ──────────────────────────────────────────────────────────────
   const pushHistory = useCallback(snap=>dispatchHistory({type:"PUSH",snapshot:snap}),[]);
   const undo = useCallback(()=>{if(!history.past.length||!onChange)return;history.past[history.past.length-1].forEach(({ri,key,val})=>onChange(ri,key,val,true));dispatchHistory({type:"UNDO"});},[history,onChange]);
@@ -1439,9 +1706,6 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
     if(rule.type==="number"){const n=Number(value);if(isNaN(n))return "Must be a number";if(rule.op===">"&&!(n>Number(rule.min)))return `Must be > ${rule.min}`;if(rule.op==="<"&&!(n<Number(rule.min)))return `Must be < ${rule.min}`;if(rule.op===">="&&!(n>=Number(rule.min)))return `Must be ≥ ${rule.min}`;if(rule.op==="<="&&!(n<=Number(rule.min)))return `Must be ≤ ${rule.min}`;if(rule.op==="between"&&!(n>=Number(rule.min)&&n<=Number(rule.max)))return `Must be ${rule.min}–${rule.max}`;}
     return null;
   },[validation]);
-  // validErrors keyed by "origIdx-colKey" so they survive sort/filter
-  const validErrKey=(ri,ci)=>`${processedRows[ri]?.__origIdx}-${visibleCols[ci]?.key}`;
-
   // ── Processed rows ─────────────────────────────────────────────────────────
   const processedRows = useMemo(()=>{
     let result=rows.map((r,i)=>({...r,__origIdx:i}));
@@ -1451,6 +1715,44 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   },[rows,filters,sortConfig]);
 
   const visibleCols = useMemo(()=>baseCols.filter((_,i)=>!hiddenCols.has(i)),[baseCols,hiddenCols]);
+  const commitFillHandle = useCallback((startRi, startCi, endRi, endCi) => {
+    if (!onChange) return;
+    const col = visibleCols[startCi]; if (!col) return;
+    const seedVals = [];
+    const r1 = Math.min(startRi, endRi), r2 = Math.max(startRi, endRi);
+    const c1 = Math.min(startCi, endCi), c2 = Math.max(startCi, endCi);
+    const dragDown = endRi !== startRi;
+    if (dragDown) {
+      // seed = selected col cells before drag, at minimum the startRi cell
+      seedVals.push(processedRows[startRi]?.[col.key] ?? "");
+      if (startRi > 0) seedVals.unshift(processedRows[startRi-1]?.[col.key] ?? "");
+    } else {
+      // dragging right
+      for (let c = c1; c <= startCi; c++) {
+        const sc = visibleCols[c]; if (sc) seedVals.push(processedRows[startRi]?.[sc.key] ?? "");
+      }
+    }
+    const pattern = detectFillPattern(seedVals.filter(v => v !== ""));
+    const snapshot = [];
+    if (dragDown) {
+      for (let ri = startRi + 1; ri <= endRi; ri++) {
+        const row = processedRows[ri]; if (!row) continue;
+        snapshot.push({ ri: row.__origIdx, key: col.key, val: row[col.key] });
+        onChange(row.__origIdx, col.key, pattern(ri - startRi));
+      }
+    } else {
+      for (let ci = startCi + 1; ci <= endCi; ci++) {
+        const c = visibleCols[ci]; if (!c) continue;
+        const row = processedRows[startRi]; if (!row) continue;
+        snapshot.push({ ri: row.__origIdx, key: c.key, val: row[c.key] });
+        onChange(row.__origIdx, c.key, pattern(ci - startCi));
+      }
+    }
+    if (snapshot.length) pushHistory(snapshot);
+  }, [processedRows, visibleCols, onChange, pushHistory, detectFillPattern]);
+
+  // validErrors keyed by "origIdx-colKey" so they survive sort/filter
+  const validErrKey=(ri,ci)=>`${processedRows[ri]?.__origIdx}-${visibleCols[ci]?.key}`;
 
   // Apply row group collapsing
   const collapsedRowIdxs = useMemo(()=>{
@@ -1838,45 +2140,16 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   const applyFillDrag = useCallback(() => {
     if (!fillDrag || !onChange) return;
     const { startRi, startCi, endRi, endCi } = fillDrag;
-    if (startRi === endRi && startCi === endCi) return;
-    const snapshot = [];
-    if (endRi !== startRi) {
-      const pat = detectPattern(startRi, startCi);
-      for (let r = Math.min(startRi + 1, endRi); r <= Math.max(endRi, startRi); r++) {
-        if (r >= processedRows.length) break;
-        const row = processedRows[r]; const col = visibleCols[startCi];
-        const steps = r - startRi;
-        let val;
-        if(pat.type === "arithmetic") {
-          val = pat.lastVal + pat.step * steps;
-        } else if(pat.type === "date") {
-          const d = new Date(pat.lastDate.getTime() + pat.stepMs * steps);
-          val = d.toLocaleDateString();
-        } else if(pat.type === "customList") {
-          val = pat.list[(pat.lastIdx + steps) % pat.list.length];
-        } else {
-          val = pat.val;
-        }
-        snapshot.push({ ri: row.__origIdx, key: col.key, val: row[col.key] });
-        onChange(row.__origIdx, col.key, val);
-      }
-    } else {
-      const srcVal = processedRows[startRi]?.[visibleCols[startCi]?.key];
-      for (let c = Math.min(startCi + 1, endCi); c <= Math.max(endCi, startCi); c++) {
-        if (c >= visibleCols.length) break;
-        const row = processedRows[startRi]; const col = visibleCols[c];
-        snapshot.push({ ri: row.__origIdx, key: col.key, val: row[col.key] });
-        onChange(row.__origIdx, col.key, srcVal);
-      }
-    }
-    if (snapshot.length) pushHistory(snapshot);
+    if (startRi === endRi && startCi === endCi) { setFillDrag(null); return; }
+    // Use new smart commitFillHandle
+    commitFillHandle(startRi, startCi, endRi, endCi);
     setFillDrag(null);
-  }, [fillDrag, processedRows, visibleCols, onChange, pushHistory]);
+  }, [fillDrag, commitFillHandle, onChange]);
 
   // ── Fill drag window-level tracking ────────────────────────────────────────
   useEffect(()=>{
     if(!fillDrag)return;
-    const onUp=()=>applyFillDrag();
+    const onUp=()=>{applyFillDrag();setFillHandleDragging(false);};
     window.addEventListener("mouseup",onUp);
     return()=>window.removeEventListener("mouseup",onUp);
   },[fillDrag,applyFillDrag]);
@@ -1944,6 +2217,245 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   const toggleGroup = useCallback((idx) => {
     setRowGroups(gs => gs.map((g, i) => i === idx ? { ...g, collapsed: !g.collapsed } : g));
   }, []);
+
+  // ── UPGRADE 2: Pivot computation ──────────────────────────────────────────
+  const pivotData = useMemo(() => {
+    const { rowField, colField, valueField, aggFn, filterField, filterValue } = pivotConfig;
+    if (!rowField || !valueField) return null;
+    let src = rows;
+    if (filterField && filterValue) src = src.filter(r => String(r[filterField] ?? "") === filterValue);
+    const rowVals = [...new Set(src.map(r => String(r[rowField] ?? "")))].sort();
+    const colVals = colField ? [...new Set(src.map(r => String(r[colField] ?? "")))].sort() : ["Value"];
+    const agg = (vals) => {
+      const nums = vals.map(Number).filter(n => !isNaN(n));
+      if (!nums.length) return "";
+      switch (aggFn) {
+        case "SUM": return nums.reduce((a,b)=>a+b,0);
+        case "COUNT": return vals.length;
+        case "AVERAGE": return nums.length?(nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2):"";
+        case "MAX": return nums.length?Math.max(...nums):"";
+        case "MIN": return nums.length?Math.min(...nums):"";
+        case "MEDIAN": { const s=[...nums].sort((a,b)=>a-b),m=Math.floor(s.length/2); return s.length?s.length%2?s[m]:((s[m-1]+s[m])/2).toFixed(2):""; }
+        case "STDEV": { if(nums.length<2)return 0; const mean=nums.reduce((a,b)=>a+b,0)/nums.length; return Math.sqrt(nums.reduce((a,b)=>a+(b-mean)**2,0)/(nums.length-1)).toFixed(4); }
+        case "FIRST": return vals[0]??"";
+        case "LAST": return vals[vals.length-1]??"";
+        default: return nums.reduce((a,b)=>a+b,0);
+      }
+    };
+    const grid = {};
+    rowVals.forEach(rv => {
+      grid[rv] = {};
+      colVals.forEach(cv => {
+        const subset = colField
+          ? src.filter(r => String(r[rowField]??"")===rv && String(r[colField]??"")===cv)
+          : src.filter(r => String(r[rowField]??"")===rv);
+        grid[rv][cv] = agg(subset.map(r => r[valueField]));
+      });
+    });
+    // Row subtotals
+    rowVals.forEach(rv => {
+      const allVals = src.filter(r=>String(r[rowField]??"")===rv).map(r=>r[valueField]);
+      grid[rv].__subtotal = agg(allVals);
+    });
+    // Grand totals per col
+    const grandTotals = {};
+    colVals.forEach(cv => {
+      const allVals = colField
+        ? src.filter(r=>String(r[colField]??"")===cv).map(r=>r[valueField])
+        : src.map(r=>r[valueField]);
+      grandTotals[cv] = agg(allVals);
+    });
+    grandTotals.__subtotal = agg(src.map(r=>r[valueField]));
+    return { rowVals, colVals, grid, grandTotals };
+  }, [rows, pivotConfig]);
+
+  // ── UPGRADE 3: AI Formula Assistant ──────────────────────────────────────
+  const runAI = useCallback(async (prompt, appendToHistory=true) => {
+    setAiLoading(true);
+    if(appendToHistory) setAiHistory(h=>[...h,{role:"user",content:prompt}]);
+    try {
+      const colNames = visibleCols.map(c=>c.label).join(", ");
+      const sample = rows.slice(0,5).map(r=>visibleCols.map(c=>r[c.key]).join(" | ")).join("\n");
+      const selVal = selection.start ? processedRows[selection.start.ri]?.[visibleCols[selection.start.ci]?.key]??"" : "";
+      const selRef = selection.start ? `${colLetter(selection.start.ci)}${selection.start.ri+1}` : "";
+      const sysPrompt = `You are an expert spreadsheet AI assistant embedded in a powerful spreadsheet app. You help with formulas, data analysis, cleanup, and insights.\n\nAvailable columns: ${colNames}\nSample data (first 5 rows):\n${sample}\nCurrently selected cell: ${selRef} = "${selVal}"\n\nWhen suggesting formulas, always start with =. Be concise. If inserting a formula, output it on the first line alone. For analysis, use bullet points. For multi-step instructions, number them.`;
+      const messages = appendToHistory
+        ? [...aiHistory,{role:"user",content:prompt}]
+        : [{role:"user",content:prompt}];
+      // Note: x-api-key is intentionally omitted — claude.ai proxies the request and injects the key automatically.
+      // anthropic-version is included for completeness; the proxy may override it.
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","x-api-key":""},
+        body: JSON.stringify({ model:"claude-sonnet-4-5", max_tokens:1000, system:sysPrompt, messages })
+      });
+      const data = await res.json();
+      if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
+      const text = data.content?.map(b=>b.text||"").join("") || "No response";
+      setAiResult(text);
+      if(appendToHistory) setAiHistory(h=>[...h,{role:"assistant",content:text}]);
+      setTimeout(()=>aiChatEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
+    } catch(e) {
+      const errMsg = "Error: "+e.message;
+      setAiResult(errMsg);
+      if(appendToHistory) setAiHistory(h=>[...h,{role:"assistant",content:errMsg}]);
+    }
+    setAiLoading(false);
+  }, [visibleCols, rows, processedRows, selection, aiHistory]);
+
+  // ── UPGRADE 4: Export XLSX / JSON / PDF ──────────────────────────────────
+  const exportXLSX = useCallback(() => {
+    try {
+      const XLSX = window.XLSX;
+      if (!XLSX) { alert("SheetJS not available"); return; }
+      const wb = XLSX.utils.book_new();
+      const sheetsToExport = exportAllSheets ? sheets : [sheet];
+      sheetsToExport.forEach(s => {
+        const data = [s.cols.map(c=>c.label), ...s.rows.map(r=>s.cols.map(c=>r[c.key]??"")),];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, s.name);
+      });
+      XLSX.writeFile(wb, "export.xlsx");
+    } catch(e) { alert("XLSX export failed: "+e.message); }
+  }, [sheets, sheet, exportAllSheets]);
+
+  const exportJSON = useCallback(() => {
+    const sheetsToExport = exportAllSheets ? sheets : [sheet];
+    const data = exportAllSheets
+      ? Object.fromEntries(sheetsToExport.map(s=>[s.name, s.rows]))
+      : sheet.rows;
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="export.json"; a.click();
+  }, [sheets, sheet, exportAllSheets]);
+
+  const exportPDF = useCallback(() => {
+    const win = window.open("","_blank");
+    const colsH = visibleCols.map(c=>`<th style="border:1px solid #999;padding:4px 8px;background:#e8eaed">${c.label}</th>`).join("");
+    const rowsH = visibleProcessedRows.map(r=>`<tr>${visibleCols.map(c=>`<td style="border:1px solid #ddd;padding:4px 8px">${r[c.key]??""}</td>`).join("")}</tr>`).join("");
+    win.document.write(`<html><head><title>Export</title><style>@media print{body{margin:0}}</style></head><body><table style="border-collapse:collapse;font-family:sans-serif;font-size:12px"><thead><tr>${colsH}</tr></thead><tbody>${rowsH}</tbody></table></body></html>`);
+    win.document.close(); win.focus(); win.print(); win.close();
+  }, [visibleCols, visibleProcessedRows]);
+
+  // ── UPGRADE 4: Import CSV / JSON ─────────────────────────────────────────
+  const handleImportFile = useCallback((file) => {
+    const ext = file.name.split(".").pop().toLowerCase();
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      if (ext === "csv") {
+        const Papa = window.Papa;
+        if (!Papa) { alert("PapaParse not loaded"); return; }
+        const result = Papa.parse(text, { header:true, skipEmptyLines:true });
+        const cols = result.meta.fields.map(f=>({key:f,label:f,width:120}));
+        setImportPreview({ rows:result.data, cols, mode:"append", source:file.name });
+        setShowImportPanel(true);
+      } else if (ext === "json") {
+        try {
+          const data = JSON.parse(text);
+          const arr = Array.isArray(data) ? data : Object.values(data)[0] || [];
+          const cols = arr.length ? Object.keys(arr[0]).map(k=>({key:k,label:k,width:120})) : [];
+          setImportPreview({ rows:arr, cols, mode:"append", source:file.name });
+          setShowImportPanel(true);
+        } catch { alert("Invalid JSON"); }
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
+  const commitImport = useCallback(() => {
+    if (!importPreview) return;
+    const { rows: newRows, cols: newCols, mode } = importPreview;
+    // Add any missing columns
+    const existingKeys = new Set(baseCols.map(c=>c.key));
+    const addCols = newCols.filter(c=>!existingKeys.has(c.key));
+    if (addCols.length) {
+      updateSheetCols(cs=>[...cs,...addCols]);
+      updateSheetRows(rs=>rs.map(r=>({...r,...Object.fromEntries(addCols.map(c=>[c.key,""]))})));
+    }
+    if (mode === "replace") {
+      updateSheetRows(_ => newRows);
+    } else if (mode === "append") {
+      updateSheetRows(rs => [...rs, ...newRows]);
+    } else { // skip duplicates by first col key
+      const firstKey = newCols[0]?.key;
+      updateSheetRows(rs => {
+        const existingVals = new Set(rs.map(r=>String(r[firstKey]??"")));
+        return [...rs, ...newRows.filter(r=>!existingVals.has(String(r[firstKey]??"")))];
+      });
+    }
+    setImportPreview(null); setShowImportPanel(false);
+  }, [importPreview, baseCols, updateSheetCols, updateSheetRows]);
+
+  // ── UPGRADE 7: Command Palette commands ──────────────────────────────────
+  const allCommands = useMemo(() => {
+    const cmds = [
+      { label:"Bold", category:"Formatting", shortcut:"Ctrl+B", action:()=>{ /* toggleFmt called below */ } },
+      { label:"Italic", category:"Formatting", action:()=>{} },
+      { label:"Underline", category:"Formatting", action:()=>{} },
+      { label:"Insert Row Above", category:"Data", shortcut:"", action:()=>{if(selection.start)insertRowAbove(selection.start.ri);} },
+      { label:"Insert Row Below", category:"Data", action:()=>{if(selection.start)insertRowBelow(selection.start.ri);} },
+      { label:"Delete Row", category:"Data", action:()=>{if(selection.start)deleteRow(selection.start.ri);} },
+      { label:"Insert Col Left", category:"Data", action:()=>{if(selection.start)insertColLeft(selection.start.ci);} },
+      { label:"Insert Col Right", category:"Data", action:()=>{if(selection.start)insertColRight(selection.start.ci);} },
+      { label:"Delete Column", category:"Data", action:()=>{if(selection.start)deleteCol(selection.start.ci);} },
+      { label:"Sort Ascending", category:"Data", action:()=>{if(selection.start)setSortConfig([{key:visibleCols[selection.start.ci]?.key,dir:"asc"}]);} },
+      { label:"Sort Descending", category:"Data", action:()=>{if(selection.start)setSortConfig([{key:visibleCols[selection.start.ci]?.key,dir:"desc"}]);} },
+      { label:"Export CSV", category:"Data", action:()=>exportCSV() },
+      { label:"Export XLSX", category:"Data", action:()=>exportXLSX() },
+      { label:"Export JSON", category:"Data", action:()=>exportJSON() },
+      { label:"Export PDF", category:"Data", action:()=>exportPDF() },
+      { label:"Find & Replace", category:"Data", shortcut:"Ctrl+F", action:()=>setModal("findreplace") },
+      { label:"New Sheet", category:"Sheets", action:()=>addSheet() },
+      { label:"Conditional Format", category:"Formatting", action:()=>setModal("condfmt") },
+      { label:"Data Validation", category:"Data", action:()=>setModal("validation") },
+      { label:"Named Ranges", category:"Formulas", action:()=>setModal("namedranges") },
+      { label:"Merge Cells", category:"Formatting", action:()=>mergeCells() },
+      { label:"Toggle Heatmap", category:"View", action:()=>setHeatmapOn(h=>!h) },
+      { label:"Toggle Grid Lines", category:"View", action:()=>setShowGridLines(g=>!g) },
+      { label:"Toggle Zebra", category:"View", action:()=>setZebra(z=>!z) },
+      { label:"Undo", category:"Editing", shortcut:"Ctrl+Z", action:()=>undo() },
+      { label:"Redo", category:"Editing", shortcut:"Ctrl+Y", action:()=>redo() },
+      { label:"Open AI Assistant", category:"AI", action:()=>{setRibbonTab("AI");setShowAiPanel(true);} },
+      { label:"Open Pivot Table", category:"Data", action:()=>{setRibbonTab("Pivot");setShowPivotPanel(true);} },
+      ...FORMULA_FNS.map(fn=>({ label:`=${fn}( formula`, category:"Formulas", action:()=>{if(selection.start)startEdit(selection.start.ri,selection.start.ci,"="+fn+"(");} })),
+      ...sheets.map(s=>({ label:`Go to sheet: ${s.name}`, category:"Navigation", action:()=>setActiveSheet(s.id) })),
+    ];
+    return cmds;
+  }, [selection, visibleCols, sheets]);
+
+  const filteredCmds = useMemo(() => {
+    if (!cmdQuery.trim()) return allCommands.slice(0,20);
+    const q = cmdQuery.toLowerCase();
+    return allCommands.filter(c=>c.label.toLowerCase().includes(q)||c.category.toLowerCase().includes(q)).slice(0,20);
+  }, [cmdQuery, allCommands]);
+
+  // ── UPGRADE 8: Heatmap color helper ──────────────────────────────────────
+  const heatmapMeta = useMemo(() => {
+    if (!heatmapOn) return {};
+    const meta = {};
+    visibleCols.forEach(c => {
+      const nums = rows.map(r=>Number(r[c.key])).filter(n=>!isNaN(n)&&n!=="");
+      if (!nums.length) return;
+      meta[c.key] = { min: Math.min(...nums), max: Math.max(...nums) };
+    });
+    return meta;
+  }, [heatmapOn, visibleCols, rows]);
+
+  const getHeatmapBg = useCallback((colKey, val) => {
+    if (!heatmapOn) return null;
+    const m = heatmapMeta[colKey]; if (!m) return null;
+    const n = Number(val); if (isNaN(n)) return null;
+    const t = m.max === m.min ? 0.5 : (n - m.min) / (m.max - m.min);
+    // low=light blue (#bfdbfe), mid=white, high=deep orange (#ea580c)
+    if (t <= 0.5) {
+      const r2 = t * 2;
+      const r = Math.round(191 + (255-191)*r2), g = Math.round(219 + (255-219)*r2), b = Math.round(254 + (255-254)*r2);
+      return `rgb(${r},${g},${b})`;
+    } else {
+      const r2 = (t - 0.5) * 2;
+      const r = Math.round(255), g = Math.round(255 - (255-88)*r2), b = Math.round(255 - (255-12)*r2);
+      return `rgb(${r},${g},${b})`;
+    }
+  }, [heatmapOn, heatmapMeta]);
 
   // ── Formula trace ─────────────────────────────────────────────────────────
   const getTracedCells = useCallback((ri, ci) => {
@@ -2066,52 +2578,201 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
     onChange(row.__origIdx,statusCol.key,next);
   };
 
-  const contextItems=contextMenu?[
-    {icon:"✂️",label:"Cut",shortcut:"Ctrl+X",action:()=>handleCopy()},
-    {icon:"📋",label:"Copy",shortcut:"Ctrl+C",action:()=>handleCopy()},
-    {icon:"📌",label:"Paste",shortcut:"Ctrl+V",action:()=>handlePaste(contextMenu.ri,contextMenu.ci)},
-    {icon:"🧹",label:"Clear Cell",action:()=>{const row=processedRows[contextMenu.ri];const col=visibleCols[contextMenu.ci];if(row&&col&&onChange)onChange(row.__origIdx,col.key,"");}},
+  const _cm=contextMenu;
+  const _row=_cm?processedRows[_cm.ri]:null;
+  const _col=_cm?visibleCols[_cm.ci]:null;
+  const _cellVal=_row&&_col?_row[_col.key]:"";
+  const _cellRef=_cm?`${colLetter(_cm.ci)}${_cm.ri+1}`:"";
+  const _fmt=_cm?getFmt(_cm.ri,_cm.ci):{};
+  const contextItems=_cm?[
+    {__section:`Cell ${_cellRef}${_cellVal!==""?" · "+String(_cellVal).slice(0,22):""}`},
+    {icon:"✂️",label:"Cut",shortcut:"⌘X",action:()=>handleCopy()},
+    {icon:"📋",label:"Copy",shortcut:"⌘C",action:()=>handleCopy()},
+    {icon:"📌",label:"Paste",shortcut:"⌘V",action:()=>handlePaste(_cm.ri,_cm.ci)},
     "---",
-    {icon:"🔄",label:"Cycle Status",action:()=>cycleStatus(contextMenu.ri)},
-    {icon:"📅",label:"Insert Today's Date",action:()=>{const row=processedRows[contextMenu.ri];const col=visibleCols[contextMenu.ci];if(row&&col&&onChange)onChange(row.__origIdx,col.key,new Date().toLocaleDateString());}},
-    {icon:"🆔",label:"Generate ID",action:()=>{const col=visibleCols[contextMenu.ci];if(col&&onChange){const row=processedRows[contextMenu.ri];onChange(row.__origIdx,col.key,generateId(col.key));}}},
+    {__section:"Font"},
+    {icon:"🔤",label:"Font Family",children:[
+      ...["Arial","Calibri","Courier New","Georgia","Helvetica","Inter","Montserrat","Poppins","Roboto","Times New Roman","Trebuchet MS","Verdana"].map(f=>({icon:_fmt.fontFamily===f?"✓":"　",label:f,action:()=>applyFmt("fontFamily",f)})),
+    ]},
+    {icon:"🔡",label:"Font Size",children:[
+      ...[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72].map(s=>({icon:_fmt.fontSize===s?"✓":"　",label:`${s} pt`,action:()=>applyFmt("fontSize",s)})),
+    ]},
+    {icon:"≡",label:"Alignment",children:[
+      {__section:"Horizontal"},
+      {icon:_fmt.align==="left"||!_fmt.align?"✓":"　",label:"Align Left",action:()=>applyFmt("align","left")},
+      {icon:_fmt.align==="center"?"✓":"　",label:"Align Center",action:()=>applyFmt("align","center")},
+      {icon:_fmt.align==="right"?"✓":"　",label:"Align Right",action:()=>applyFmt("align","right")},
+      "---",
+      {__section:"Vertical"},
+      {icon:_fmt.valign==="top"?"✓":"　",label:"Top",action:()=>applyFmt("valign","top")},
+      {icon:_fmt.valign==="middle"||!_fmt.valign?"✓":"　",label:"Middle",action:()=>applyFmt("valign","middle")},
+      {icon:_fmt.valign==="bottom"?"✓":"　",label:"Bottom",action:()=>applyFmt("valign","bottom")},
+      "---",
+      {icon:"↵",label:_fmt.wrapText?"Wrap Text: ON":"Wrap Text: OFF",action:()=>applyFmt("wrapText",!_fmt.wrapText),badge:_fmt.wrapText?"ON":null},
+    ]},
     "---",
-    {icon:"⬆",label:"Insert Row Above",action:()=>insertRowAbove(contextMenu.ri)},
-    {icon:"⬇",label:"Insert Row Below",action:()=>insertRowBelow(contextMenu.ri)},
-    {icon:"⧉",label:"Duplicate Row",action:()=>duplicateRow(contextMenu.ri)},
-    {icon:"🗑",label:"Delete Row",danger:true,action:()=>deleteRow(contextMenu.ri)},
+    {icon:"𝐁",label:"Bold",shortcut:"⌘B",action:()=>toggleFmt("bold"),badge:_fmt.bold?"ON":null},
+    {icon:"𝐼",label:"Italic",action:()=>toggleFmt("italic"),badge:_fmt.italic?"ON":null},
+    {icon:"U̲",label:"Underline",action:()=>toggleFmt("underline"),badge:_fmt.underline?"ON":null},
     "---",
-    {icon:"⬅",label:"Insert Col Left",action:()=>insertColLeft(contextMenu.ci)},
-    {icon:"➡",label:"Insert Col Right",action:()=>insertColRight(contextMenu.ci)},
-    {icon:"🗑",label:"Delete Column",danger:true,action:()=>deleteCol(contextMenu.ci)},
+    {icon:"🎨",label:"Format Cell",children:[
+      {__section:"Font Family"},
+      ...["Arial","Calibri","Courier New","Georgia","Helvetica","Inter","Montserrat","Poppins","Roboto","Times New Roman","Trebuchet MS","Verdana"].map(f=>({icon:_fmt.fontFamily===f?"✓":"　",label:f,action:()=>applyFmt("fontFamily",f),badge:_fmt.fontFamily===f?"✓":null})),
+      "---",
+      {__section:"Font Size"},
+      ...([8,9,10,11,12,14,16,18,20,24,28,32,36,48,72]).map(s=>({icon:_fmt.fontSize===s?"✓":"　",label:`${s} pt`,action:()=>applyFmt("fontSize",s),badge:_fmt.fontSize===s?"✓":null})),
+      "---",
+      {__section:"Style"},
+      {icon:"𝐁",label:"Bold",shortcut:"⌘B",bold:true,action:()=>toggleFmt("bold"),badge:_fmt.bold?"ON":null},
+      {icon:"𝐼",label:"Italic",action:()=>toggleFmt("italic"),badge:_fmt.italic?"ON":null},
+      {icon:"U̲",label:"Underline",action:()=>toggleFmt("underline"),badge:_fmt.underline?"ON":null},
+      {icon:"S̶",label:"Strikethrough",action:()=>toggleFmt("strikethrough"),badge:_fmt.strikethrough?"ON":null},
+      "---",
+      {__section:"Alignment"},
+      {icon:_fmt.align==="left"||!_fmt.align?"✓":"　",label:"Align Left",action:()=>applyFmt("align","left")},
+      {icon:_fmt.align==="center"?"✓":"　",label:"Align Center",action:()=>applyFmt("align","center")},
+      {icon:_fmt.align==="right"?"✓":"　",label:"Align Right",action:()=>applyFmt("align","right")},
+      "---",
+      {__section:"Vertical Align"},
+      {icon:_fmt.valign==="top"?"✓":"　",label:"Top",action:()=>applyFmt("valign","top")},
+      {icon:_fmt.valign==="middle"||!_fmt.valign?"✓":"　",label:"Middle",action:()=>applyFmt("valign","middle")},
+      {icon:_fmt.valign==="bottom"?"✓":"　",label:"Bottom",action:()=>applyFmt("valign","bottom")},
+      {icon:"↵",label:_fmt.wrapText?"Wrap: ON":"Wrap: OFF",action:()=>applyFmt("wrapText",!_fmt.wrapText),badge:_fmt.wrapText?"ON":null},
+      "---",
+      {__section:"Text Color"},
+      {icon:"🔴",label:"Red",action:()=>applyFmt("textColor","#ef4444")},
+      {icon:"🟢",label:"Green",action:()=>applyFmt("textColor","#16a34a")},
+      {icon:"🔵",label:"Blue",action:()=>applyFmt("textColor","#2563eb")},
+      {icon:"🟠",label:"Orange",action:()=>applyFmt("textColor","#ea580c")},
+      {icon:"🟣",label:"Purple",action:()=>applyFmt("textColor","#7c3aed")},
+      {icon:"⚫",label:"Default",action:()=>applyFmt("textColor","#000000")},
+      "---",
+      {__section:"Cell Fill / Highlight"},
+      {icon:"🟡",label:"Yellow",action:()=>applyFmt("fillColor","#fef08a")},
+      {icon:"🟢",label:"Green",action:()=>applyFmt("fillColor","#bbf7d0")},
+      {icon:"🔵",label:"Blue",action:()=>applyFmt("fillColor","#bfdbfe")},
+      {icon:"🔴",label:"Red",action:()=>applyFmt("fillColor","#fecaca")},
+      {icon:"🟤",label:"Peach",action:()=>applyFmt("fillColor","#fed7aa")},
+      {icon:"🟣",label:"Lavender",action:()=>applyFmt("fillColor","#ede9fe")},
+      {icon:"⬜",label:"Clear Fill",action:()=>applyFmt("fillColor","#ffffff")},
+      "---",
+      {__section:"Number Format"},
+      {icon:_fmt.numFormat==="general"||!_fmt.numFormat?"✓":"　",label:"General",action:()=>applyFmt("numFormat","general")},
+      {icon:_fmt.numFormat==="number"?"✓":"　",label:"Number (1,234.00)",action:()=>applyFmt("numFormat","number")},
+      {icon:_fmt.numFormat==="currency"?"✓":"　",label:"Currency ($)",action:()=>applyFmt("numFormat","currency")},
+      {icon:_fmt.numFormat==="percent"?"✓":"　",label:"Percent (%)",action:()=>applyFmt("numFormat","percent")},
+      {icon:_fmt.numFormat==="date"?"✓":"　",label:"Date",action:()=>applyFmt("numFormat","date")},
+      {icon:_fmt.numFormat==="scientific"?"✓":"　",label:"Scientific (1.23E+4)",action:()=>applyFmt("numFormat","scientific")},
+      "---",
+      {icon:"🗑",label:"Clear All Formatting",danger:true,action:()=>{const k=`${_cm.ri}-${_cm.ci}`;setCellFmt(f=>{const n={...f};delete n[k];return n;});}},
+    ]},
+    {icon:"🔢",label:"Cell",children:[
+      {__section:"Insert"},
+      {icon:"📅",label:"Today's Date",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,new Date().toLocaleDateString());}},
+      {icon:"🕐",label:"Timestamp",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,new Date().toLocaleString());}},
+      {icon:"🆔",label:"Generate ID",action:()=>{if(_col&&onChange&&_row)onChange(_row.__origIdx,_col.key,generateId(_col.key));}},
+      "---",
+      {__section:"Transform"},
+      {icon:"🔢",label:"Increment +1",action:()=>{const n=Number(_cellVal);if(!isNaN(n)&&_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,n+1);}},
+      {icon:"🔡",label:"UPPERCASE",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).toUpperCase());}},
+      {icon:"🔠",label:"lowercase",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).toLowerCase());}},
+      {icon:"✏️",label:"Title Case",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).toLowerCase().replace(/(^|\s)\S/g,c=>c.toUpperCase()));}},
+      {icon:"✂️",label:"Trim Whitespace",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).trim());}},
+      {icon:"🔄",label:"Cycle Status",action:()=>cycleStatus(_cm.ri)},
+      "---",
+      {__section:"Clear"},
+      {icon:"🧹",label:"Clear Cell",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,"");}},
+      {icon:"🧽",label:"Clear Row",action:()=>{if(_row&&onChange)visibleCols.forEach(c=>onChange(_row.__origIdx,c.key,""));}},
+      {icon:"🗑",label:"Clear Formatting",action:()=>{if(!selection.start)return;const keys=[];const sr=selection.start,er=selection.end||selection.start;for(let r=Math.min(sr.ri,er.ri);r<=Math.max(sr.ri,er.ri);r++)for(let c=Math.min(sr.ci,er.ci);c<=Math.max(sr.ci,er.ci);c++)keys.push(`${r}-${c}`);setCellFmt(f=>{const n={...f};keys.forEach(k=>delete n[k]);return n;});}},
+      "---",
+      {icon:"💬",label:"Add Comment",action:()=>{const k=`${_row?.__origIdx}-${_col?.key}`;setCommentPopover({x:_cm.x,y:_cm.y,cellKey:k});}},
+      {icon:"🔗",label:"Merge Cells",action:mergeCells},
+      {icon:"⊠",label:"Unmerge",action:unmergeCells},
+    ]},
+    {icon:"↕️",label:"Rows",children:[
+      {icon:"⬆",label:"Insert Above",action:()=>insertRowAbove(_cm.ri)},
+      {icon:"⬇",label:"Insert Below",action:()=>insertRowBelow(_cm.ri)},
+      {icon:"⧉",label:"Duplicate",action:()=>duplicateRow(_cm.ri)},
+      {icon:"🗑",label:"Delete Row",danger:true,action:()=>deleteRow(_cm.ri)},
+      "---",
+      {icon:"▲",label:"Sort A→Z",action:()=>setSortConfig([{key:_col?.key,dir:"asc"}])},
+      {icon:"▼",label:"Sort Z→A",action:()=>setSortConfig([{key:_col?.key,dir:"desc"}])},
+      {icon:"🔽",label:"Filter by this value",action:()=>{if(_col&&_cellVal!=="")setFilters(f=>({...f,[_col.key]:new Set([String(_cellVal)])}));}},
+      {icon:"✕",label:"Clear Filters",action:()=>setFilters({})},
+      {icon:"✕",label:"Clear Sort",action:()=>setSortConfig([])},
+      "---",
+      {icon:"📌",label:pinnedRows.has(_row?.__origIdx)?"Unpin Row":"Pin to Top",action:()=>togglePinRow(_cm.ri)},
+      {icon:"🙈",label:"Hide Row",action:()=>setHiddenRows(s=>{const n=new Set(s);n.add(_cm.ri);return n;})},
+      {icon:"👁",label:"Unhide All Rows",action:()=>setHiddenRows(new Set())},
+      {icon:"↕️",label:"Set Row Height…",action:()=>{const h=prompt("Row height (px):",26);if(h)setRowHeights(rh=>({...rh,[_cm.ri]:Number(h)}));}},
+      {icon:"⊞",label:"Group Selected Rows",action:addRowGroup},
+    ]},
+    {icon:"↔️",label:"Columns",children:[
+      {icon:"⬅",label:"Insert Left",action:()=>insertColLeft(_cm.ci)},
+      {icon:"➡",label:"Insert Right",action:()=>insertColRight(_cm.ci)},
+      {icon:"🗑",label:"Delete Column",danger:true,action:()=>deleteCol(_cm.ci)},
+      "---",
+      {icon:"👁",label:"Hide Column",action:()=>setHiddenCols(s=>{const n=new Set(s);n.add(_cm.ci);return n;})},
+      {icon:"🙈",label:"Unhide All",action:()=>setHiddenCols(new Set())},
+      {icon:"↔",label:"Auto-fit Width",action:()=>{if(!_col)return;const maxLen=Math.max(_col.label.length,...processedRows.map(r=>String(r[_col.key]??"").length));setColWidths(w=>({...w,[_col.key]:Math.min(300,Math.max(60,maxLen*8+16))}));}},
+      {icon:"❄",label:frozenCols>_cm.ci?"Unfreeze":"Freeze to this col",action:()=>setFrozenCols(frozenCols>_cm.ci?0:_cm.ci+1)},
+      {icon:"⚡",label:sparkCols[_col?.key]?"Remove Sparkline":"Add Sparkline",action:()=>{if(_col)setSparkCols(s=>({...s,[_col.key]:!s[_col.key]}));}},
+    ]},
+    {icon:"📤",label:"Copy As",children:[
+      {icon:"📎",label:"Cell Ref ("+_cellRef+")",action:()=>navigator.clipboard?.writeText(_cellRef)},
+      {icon:"📄",label:"Row as CSV",action:()=>{if(_row)navigator.clipboard?.writeText(visibleCols.map(c=>String(_row[c.key]??"")).join(","));}},
+      {icon:"{}",label:"Row as JSON",action:()=>{if(_row)navigator.clipboard?.writeText(JSON.stringify(Object.fromEntries(visibleCols.map(c=>[c.key,_row[c.key]]))));}},
+      {icon:"📊",label:"Table as CSV",action:()=>exportCSV()},
+      {icon:"📋",label:"Table as JSON",action:()=>exportJSON()},
+    ]},
+    {icon:"🤖",label:"AI Assistant",badge:"✨",children:[
+      {__section:"Smart Actions"},
+      {icon:"💡",label:"Explain this cell",action:()=>{setRibbonTab("AI");setShowAiPanel(true);runAI(`Explain this spreadsheet value or formula: "${_cellVal}". Cell: ${_cellRef}, Column: "${_col?.label}"`);}},
+      {icon:"📐",label:"Suggest formula here",action:()=>{setRibbonTab("AI");setShowAiPanel(true);runAI(`Suggest the best formula for column "${_col?.label}" given columns: ${visibleCols.map(c=>c.label).join(", ")}. Cell: ${_cellRef}. Reply with formula only, starting with =`);}},
+      {icon:"🔍",label:"Anomalies in column",action:()=>{setRibbonTab("AI");setShowAiPanel(true);const vals=rows.map(r=>r[_col?.key]).slice(0,50).join(", ");runAI(`Find anomalies or outliers in column "${_col?.label}". Values: ${vals}`);}},
+      {icon:"📊",label:"Column stats",action:()=>{setRibbonTab("AI");setShowAiPanel(true);const vals=rows.map(r=>r[_col?.key]).filter(v=>v!=="");runAI(`Brief statistical summary of column "${_col?.label}": ${vals.slice(0,50).join(", ")}`);}},
+      {icon:"🧹",label:"Suggest data cleanup",action:()=>{setRibbonTab("AI");setShowAiPanel(true);const sample=rows.slice(0,10).map(r=>visibleCols.map(c=>r[c.key]).join(" | ")).join("\n");runAI(`Review this data and suggest cleanup steps:\n${sample}`);}},
+      "---",
+      {icon:"🤖",label:"Open AI Panel",action:()=>{setRibbonTab("AI");setShowAiPanel(true);}},
+    ]},
+    {icon:"📊",label:"Data & View",children:[
+      {icon:"🔍",label:"Find & Replace…",shortcut:"⌘F",action:()=>setModal("findreplace")},
+      {icon:"📈",label:"Insert Chart…",action:()=>setModal("chart")},
+      {icon:"🔲",label:"Pivot Table…",action:()=>{setRibbonTab("Pivot");setShowPivotPanel(true);}},
+      {icon:"🎨",label:"Conditional Format…",action:()=>setModal("condfmt")},
+      {icon:"✅",label:"Data Validation…",action:()=>setModal("validation")},
+      "---",
+      {icon:"🌡",label:heatmapOn?"Disable Heatmap":"Enable Heatmap",action:()=>setHeatmapOn(h=>!h)},
+      {icon:"📊",label:"Toggle Zebra",action:()=>setZebra(z=>!z)},
+      {icon:"⊞",label:"Split Pane",action:()=>setSplitPane(v=>!v)},
+      "---",
+      {icon:"➕",label:"Add Sheet",action:()=>addSheet()},
+      {icon:"⧉",label:"Duplicate Sheet",action:()=>duplicateSheet(activeSheet)},
+    ]},
     "---",
-    {icon:"🔗",label:"Merge Cells",action:mergeCells},
-    {icon:"⊠",label:"Unmerge Cells",action:unmergeCells},
-    {icon:"💬",label:"Add/Edit Comment",action:()=>{const row=processedRows[contextMenu.ri];const col=visibleCols[contextMenu.ci];const k=`${row?.__origIdx}-${col?.key}`;setCommentPopover({x:contextMenu.x,y:contextMenu.y,cellKey:k});}},
+    {icon:"↩️",label:"Undo",shortcut:"⌘Z",action:undo,disabled:!history.past.length},
+    {icon:"↪️",label:"Redo",shortcut:"⌘Y",action:redo,disabled:!history.future.length},
     "---",
-    {icon:"📋",label:"Save Row as Template",action:()=>{const row=processedRows[contextMenu.ri];if(row){const name=prompt("Template name:");if(name){const d=Object.fromEntries(baseCols.map(c=>[c.key,row[c.key]||""]));setRowTemplates(ts=>[...ts,{name,data:d}]);}}}},
-    {icon:"👁",label:"Hide Column",action:()=>setHiddenCols(s=>{const n=new Set(s);n.add(contextMenu.ci);return n;})},
-    {icon:"🙈",label:"Hide Row",action:()=>setHiddenRows(s=>{const n=new Set(s);n.add(contextMenu.ri);return n;})},
-    {icon:"↕️",label:"Set Row Height",action:()=>{const h=prompt("Row height (px):",26);if(h)setRowHeights(rh=>({...rh,[contextMenu.ri]:Number(h)}));}},
-    "---",
-    {icon:"🎨",label:"Conditional Format…",action:()=>setModal("condfmt")},
-    {icon:"✅",label:"Data Validation…",action:()=>setModal("validation")},
-    {icon:"📌",label:"Named Ranges…",action:()=>setModal("namedranges")},
-    "---",
-    {icon:"📌",label:pinnedRows.has(contextMenu.ri)?"Unpin Row":"Pin Row",action:()=>togglePinRow(contextMenu.ri)},
-    {icon:"⊞",label:"Group Selected Rows",action:addRowGroup},
-    "---",
-    {icon:"↩️",label:"Undo",shortcut:"Ctrl+Z",action:undo,disabled:!history.past.length},
-    {icon:"↪️",label:"Redo",shortcut:"Ctrl+Y",action:redo,disabled:!history.future.length},
-    onDelete&&"---",
-    onDelete&&{icon:"🗑",label:"Delete Row (Prop)",danger:true,action:()=>onDelete(processedRows[contextMenu.ri]?.__origIdx)},
+    {icon:"⌨️",label:"Command Palette",shortcut:"⌘P",action:()=>setCmdPaletteOpen(true)},
+    // ── Cell ──────────────────────────────────────────────────────────────────
+    {icon:"🔢", label:"Cell", children:[
+      {icon:"🔄",label:"Cycle Status",action:()=>cycleStatus(_cm.ri)},
+      {icon:"📅",label:"Insert Today's Date",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,new Date().toLocaleDateString());}},
+      {icon:"🕐",label:"Insert Timestamp",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,new Date().toLocaleString());}},
+      {icon:"🆔",label:"Generate ID",action:()=>{if(_col&&onChange&&_row)onChange(_row.__origIdx,_col.key,generateId(_col.key));}},
+      {icon:"🔢",label:"Increment Number",action:()=>{const n=Number(_cellVal);if(!isNaN(n)&&_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,n+1);}},
+      {icon:"🔡",label:"UPPER case",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).toUpperCase());}},
+      {icon:"🔠",label:"lower case",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).toLowerCase());}},
+      {icon:"✏️",label:"Title Case",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).replace(/\w/g,c=>c.toUpperCase()));}},
+      {icon:"✂️",label:"Trim Whitespace",action:()=>{if(_row&&_col&&onChange)onChange(_row.__origIdx,_col.key,String(_cellVal).trim());}},
+    ]},
   ].filter(Boolean):[];
 
   // ─────────────────────────────────────────────────────────────────────────
   // Ribbon tabs content
   // ─────────────────────────────────────────────────────────────────────────
   const selectedFmt = selection.start ? getFmt(selection.start.ri, selection.start.ci) : {};
-  const fontSizes = [8,9,10,11,12,14,16,18,20,24,28,36];
+  const fontSizes = [6,7,8,9,10,10.5,11,12,13,14,15,16,18,20,22,24,26,28,32,36,40,48,54,60,72,96];
 
   const renderRibbonHome = () => (
     <div style={{display:"flex",alignItems:"flex-start",gap:0,padding:"4px 8px 0",flexWrap:"wrap"}}>
@@ -2122,6 +2783,13 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         <IBtn icon="↪" label="Redo" onClick={redo} disabled={!history.future.length} title="Redo (Ctrl+Y)"/>
       </RibbonGroup>
       <RibbonGroup label="Font">
+        <select value={selectedFmt.fontFamily||"Courier New"} onChange={e=>applyFmt("fontFamily",e.target.value)}
+          style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:24,cursor:"pointer",maxWidth:140}}>
+          {[
+            "── System ──","Courier New","Arial","Arial Black","Arial Narrow","Calibri","Cambria","Candara","Century Gothic","Comic Sans MS","Consolas","Constantia","Corbel","Franklin Gothic Medium","Garamond","Georgia","Gill Sans","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","Microsoft Sans Serif","Palatino Linotype","Segoe UI","Tahoma","Times New Roman","Trebuchet MS","Ubuntu","Verdana","Futura","Baskerville","Didot","Optima","Rockwell","Copperplate",
+            "── Google Fonts ──","Roboto","Open Sans","Lato","Montserrat","Raleway","Poppins","Inter","Playfair Display","Merriweather","Source Code Pro","Fira Code","Space Mono","Nunito","Quicksand","Dancing Script","Pacifico","Ubuntu Mono","JetBrains Mono","Crimson Text","EB Garamond",
+          ].map(f=>f.startsWith("──")?<option key={f} disabled style={{color:"#999",fontStyle:"italic"}}>{f}</option>:<option key={f} value={f} style={{fontFamily:f}}>{f}</option>)}
+        </select>
         <select value={selectedFmt.fontSize||12} onChange={e=>applyFmt("fontSize",Number(e.target.value))}
           style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:24,cursor:"pointer"}}>
           {fontSizes.map(s=><option key={s} value={s}>{s}</option>)}
@@ -2129,6 +2797,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         <IBtn icon="𝐁" label="Bold" onClick={()=>toggleFmt("bold")} active={!!selectedFmt.bold} title="Bold (Ctrl+B)"/>
         <IBtn icon="𝐼" label="Italic" onClick={()=>toggleFmt("italic")} active={!!selectedFmt.italic} title="Italic"/>
         <IBtn icon="<u>U</u>" label="Uline" onClick={()=>toggleFmt("underline")} active={!!selectedFmt.underline} title="Underline"/>
+        <IBtn icon="S̶" label="Strike" onClick={()=>toggleFmt("strikethrough")} active={!!selectedFmt.strikethrough} title="Strikethrough"/>
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
           <label style={{fontSize:9,color:"#888"}}>Fill</label>
           <input type="color" value={selectedFmt.fillColor||"#ffffff"} onChange={e=>applyFmt("fillColor",e.target.value)} title="Fill Color" style={{width:24,height:18,border:"1px solid #ddd",borderRadius:2,cursor:"pointer",padding:0}}/>
@@ -2139,14 +2808,88 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         </div>
       </RibbonGroup>
       <RibbonGroup label="Alignment">
-        <IBtn icon="⬛" label="Left" onClick={()=>applyFmt("align","left")} active={selectedFmt.align==="left"} title="Align Left"/>
-        <IBtn icon="▬" label="Center" onClick={()=>applyFmt("align","center")} active={selectedFmt.align==="center"} title="Center"/>
-        <IBtn icon="⬛" label="Right" onClick={()=>applyFmt("align","right")} active={selectedFmt.align==="right"} title="Align Right"/>
+        <div style={{display:"flex",flexDirection:"column",gap:2}}>
+          <div style={{display:"flex",gap:2}}>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="9" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="12" x2="7" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} label="Left" onClick={()=>applyFmt("align","left")} active={selectedFmt.align==="left"||!selectedFmt.align} title="Align Left"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="3" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="2" y1="9" x2="12" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="4" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} label="Ctr" onClick={()=>applyFmt("align","center")} active={selectedFmt.align==="center"} title="Align Center"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="5" y1="6" x2="13" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="3" y1="9" x2="13" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="7" y1="12" x2="13" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} label="Right" onClick={()=>applyFmt("align","right")} active={selectedFmt.align==="right"} title="Align Right"/>
+          </div>
+          <div style={{display:"flex",gap:2}}>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="1" stroke="currentColor" strokeWidth="2"/><rect x="3" y="3" width="8" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} label="Top" onClick={()=>applyFmt("valign","top")} active={selectedFmt.valign==="top"} title="Align Top"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="7" x2="3" y2="7" stroke="currentColor" strokeWidth="2"/><line x1="11" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="2"/><rect x="3" y="4" width="8" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} label="Mid" onClick={()=>applyFmt("valign","middle")} active={selectedFmt.valign==="middle"||!selectedFmt.valign} title="Align Middle"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="13" x2="13" y2="13" stroke="currentColor" strokeWidth="2"/><rect x="3" y="7" width="8" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} label="Bot" onClick={()=>applyFmt("valign","bottom")} active={selectedFmt.valign==="bottom"} title="Align Bottom"/>
+          </div>
+        </div>
+        <div style={{width:1,height:36,background:"#e2e8f0",margin:"0 2px"}}/>
+        <div style={{display:"flex",flexDirection:"column",gap:2}}>
+          <IBtn icon="↵" label="Wrap" onClick={()=>applyFmt("wrapText",!selectedFmt.wrapText)} active={!!selectedFmt.wrapText} title="Wrap Text"/>
+          <div style={{display:"flex",gap:2}}>
+            <IBtn icon="→|" label="Indent+" onClick={()=>applyFmt("indent",(selectedFmt.indent||0)+1)} title="Increase Indent"/>
+            <IBtn icon="|←" label="Indent-" onClick={()=>applyFmt("indent",Math.max(0,(selectedFmt.indent||0)-1))} title="Decrease Indent"/>
+          </div>
+        </div>
+        <div style={{width:1,height:36,background:"#e2e8f0",margin:"0 2px"}}/>
+        <div style={{display:"flex",flexDirection:"column",gap:1,alignItems:"center"}}>
+          <label style={{fontSize:9,color:"#888"}}>Rotate°</label>
+          <input type="number" min="-90" max="90" value={selectedFmt.rotation||0}
+            onChange={e=>applyFmt("rotation",Number(e.target.value))}
+            style={{width:46,fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,textAlign:"center"}}
+            title="Text Rotation (-90 to 90)"/>
+        </div>
+      </RibbonGroup>
+      <RibbonGroup label="Number">
+        <select value={selectedFmt.numFormat||"general"} onChange={e=>applyFmt("numFormat",e.target.value)}
+          style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:24,cursor:"pointer",maxWidth:90}}>
+          <option value="general">General</option>
+          <option value="number">Number</option>
+          <option value="currency">Currency</option>
+          <option value="percent">Percent</option>
+          <option value="scientific">Scientific</option>
+          <option value="date">Date</option>
+          <option value="text">Text</option>
+        </select>
+        <IBtn icon="$" label="$" onClick={()=>applyFmt("numFormat","currency")} active={selectedFmt.numFormat==="currency"} title="Currency Format"/>
+        <IBtn icon="%" label="%" onClick={()=>applyFmt("numFormat","percent")} active={selectedFmt.numFormat==="percent"} title="Percent Format"/>
+        <IBtn icon=".0+" label="+Dec" onClick={()=>applyFmt("decimals",(selectedFmt.decimals??2)+1)} title="Increase Decimal Places"/>
+        <IBtn icon=".0-" label="-Dec" onClick={()=>applyFmt("decimals",Math.max(0,(selectedFmt.decimals??2)-1))} title="Decrease Decimal Places"/>
+      </RibbonGroup>
+      <RibbonGroup label="Borders">
+        <div style={{display:"flex",flexDirection:"column",gap:2}}>
+          <select value={selectedFmt.borderStyle||"none"} onChange={e=>applyFmt("borderStyle",e.target.value)}
+            style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:22,cursor:"pointer",maxWidth:108}}>
+            <option value="none">No Border</option>
+            <option value="all">All Borders</option>
+            <option value="outer">Outer Box</option>
+            <option value="bottom">Bottom Only</option>
+            <option value="top">Top Only</option>
+            <option value="left">Left Only</option>
+            <option value="right">Right Only</option>
+            <option value="thick">Thick Box</option>
+            <option value="double">Double Bottom</option>
+            <option value="dashed">Dashed All</option>
+            <option value="dotted">Dotted All</option>
+            <option value="inner">Inner Only</option>
+            <option value="topbottom">Top & Bottom</option>
+            <option value="medium">Medium Box</option>
+          </select>
+          <div style={{display:"flex",gap:4,alignItems:"center"}}>
+            <input type="color" value={selectedFmt.borderColor||"#000000"} onChange={e=>applyFmt("borderColor",e.target.value)} title="Border Color" style={{width:22,height:18,border:"1px solid #ddd",borderRadius:2,cursor:"pointer",padding:0}}/>
+            <select value={selectedFmt.borderWidth||1} onChange={e=>applyFmt("borderWidth",Number(e.target.value))}
+              style={{fontSize:10,padding:"1px 3px",border:"1px solid #ddd",borderRadius:3,height:20,cursor:"pointer",flex:1}}>
+              <option value={1}>Thin (1px)</option>
+              <option value={2}>Medium (2px)</option>
+              <option value={3}>Thick (3px)</option>
+              <option value={4}>Heavy (4px)</option>
+            </select>
+          </div>
+        </div>
       </RibbonGroup>
       <RibbonGroup label="Cells">
         <IBtn icon="🔗" label="Merge" onClick={mergeCells} title="Merge Cells"/>
         <IBtn icon="⊠" label="Unmerge" onClick={unmergeCells} title="Unmerge Cells"/>
         <IBtn icon="💬" label="Comment" onClick={()=>{if(!selection.start)return;const row=processedRows[selection.start.ri];const col=visibleCols[selection.start.ci];const k=`${row?.__origIdx}-${col?.key}`;const rect=document.getElementById(cellId(selection.start.ri,selection.start.ci))?.getBoundingClientRect();setCommentPopover({x:(rect?.right||400)+4,y:rect?.top||200,cellKey:k});}} title="Add/Edit Comment"/>
+        <IBtn icon="↵" label="Wrap" onClick={()=>applyFmt("wrapText",!selectedFmt.wrapText)} active={!!selectedFmt.wrapText} title="Toggle Wrap Text"/>
+        <IBtn icon="⬡" label="Clear Fmt" onClick={()=>{if(!selection.start||!onChange)return;const{start,end}=selection,e=end||start;for(let r=Math.min(start.ri,e.ri);r<=Math.max(start.ri,e.ri);r++)for(let c=Math.min(start.ci,e.ci);c<=Math.max(start.ci,e.ci);c++){const key=`${activeSheet}-${r}-${c}`;setCellFmts(f=>{const n={...f};delete n[key];return n;});}}} title="Clear Formatting"/>
       </RibbonGroup>
       <RibbonGroup label="Format">
         <IBtn icon="🎨" label="Cond Fmt" onClick={()=>setModal("condfmt")} title="Conditional Formatting"/>
@@ -2188,6 +2931,19 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
       </RibbonGroup>
       <RibbonGroup label="Export">
         <IBtn icon="⬇️" label="CSV" onClick={exportCSV} title="Export as CSV"/>
+        <IBtn icon="📗" label="XLSX" onClick={exportXLSX} title="Export as Excel XLSX (UPGRADE 4)"/>
+        <IBtn icon="📋" label="JSON" onClick={exportJSON} title="Export as JSON (UPGRADE 4)"/>
+        <IBtn icon="🖨️" label="PDF" onClick={exportPDF} title="Export/Print as PDF (UPGRADE 4)"/>
+        <label style={{display:"flex",alignItems:"center",gap:3,fontSize:9,cursor:"pointer",color:"#555"}}>
+          <input type="checkbox" checked={exportAllSheets} onChange={e=>setExportAllSheets(e.target.checked)}/> All sheets
+        </label>
+      </RibbonGroup>
+      <RibbonGroup label="Import">
+        <label style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1,cursor:"pointer",padding:"2px 6px",border:"1px solid #d0d0d0",borderRadius:4,background:"#e8eaed",fontSize:11,color:"#333"}}>
+          <span style={{fontSize:16}}>📤</span>
+          <span style={{fontSize:9}}>Import</span>
+          <input type="file" accept=".csv,.json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)handleImportFile(f);e.target.value="";}}/>
+        </label>
       </RibbonGroup>
     </div>
   );
@@ -2256,14 +3012,108 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         {Object.values(filters).some(f=>f?.size>0)&&<IBtn icon="✕" label="Clear" onClick={()=>setFilters({})} title="Clear Filters"/>}
         {sortConfig.length>0&&<IBtn icon="✕" label="Clear Sort" onClick={()=>setSortConfig([])} title="Clear All Sorts"/>}
       </RibbonGroup>
+      <RibbonGroup label="Clean Data">
+        <IBtn icon="🔁" label="Dedup" title="Remove Duplicate Rows" onClick={()=>{
+          const seen=new Set();
+          updateSheetRows(rs=>rs.filter(r=>{const key=JSON.stringify(Object.values(r));if(seen.has(key))return false;seen.add(key);return true;}));
+        }}/>
+        <IBtn icon="✂️" label="Trim All" title="Trim whitespace from all cells" onClick={()=>{
+          rows.forEach((r,ri)=>baseCols.forEach(c=>{const v=r[c.key];if(typeof v==="string"&&v!==v.trim()&&onChange)onChange(ri,c.key,v.trim());}));
+        }}/>
+        <IBtn icon="🔡" label="UPPER" title="UPPER case selected column" onClick={()=>{
+          if(!selection.start)return;const col=visibleCols[selection.start.ci];
+          visibleProcessedRows.forEach(r=>{if(onChange&&r[col.key])onChange(r.__origIdx,col.key,String(r[col.key]).toUpperCase());});
+        }}/>
+        <IBtn icon="🔠" label="lower" title="lowercase selected column" onClick={()=>{
+          if(!selection.start)return;const col=visibleCols[selection.start.ci];
+          visibleProcessedRows.forEach(r=>{if(onChange&&r[col.key])onChange(r.__origIdx,col.key,String(r[col.key]).toLowerCase());});
+        }}/>
+        <IBtn icon="🔢" label="To Num" title="Convert selected column to numbers" onClick={()=>{
+          if(!selection.start)return;const col=visibleCols[selection.start.ci];
+          visibleProcessedRows.forEach(r=>{const n=Number(String(r[col.key]).replace(/[^0-9.-]/g,""));if(!isNaN(n)&&onChange)onChange(r.__origIdx,col.key,n);});
+        }}/>
+      </RibbonGroup>
+      <RibbonGroup label="Transform">
+        <IBtn icon="⚡" label="Flash Fill" title="Auto-fill pattern from first entry (select a col first)" onClick={()=>{
+          if(!selection.start)return;const col=visibleCols[selection.start.ci];
+          const firstFilled=visibleProcessedRows.find(r=>r[col.key]&&r[col.key]!=="");
+          if(!firstFilled)return;alert("Flash Fill: Select a column, set the first row's value as a pattern—the rest will be filled based on adjacent column patterns.");
+        }}/>
+        <IBtn icon="🔀" label="Split Col" title="Split column by delimiter" onClick={()=>{
+          if(!selection.start)return;const col=visibleCols[selection.start.ci];
+          const delim=prompt(`Split column "${col.label}" by delimiter:`,",");if(!delim)return;
+          const maxParts=Math.max(...rows.map(r=>String(r[col.key]??"").split(delim).length));
+          for(let pi=0;pi<maxParts;pi++){
+            const newKey=`${col.key}_${pi+1}`;
+            if(!baseCols.find(c=>c.key===newKey))updateSheetCols(cs=>[...cs,{key:newKey,label:`${col.label} ${pi+1}`,width:100}]);
+            rows.forEach((r,ri)=>{const parts=String(r[col.key]??"").split(delim);if(onChange)onChange(ri,newKey,(parts[pi]||"").trim());});
+          }
+        }}/>
+        <IBtn icon="🔗" label="Concat" title="Concatenate two columns into new column" onClick={()=>{
+          const c1=prompt("Column 1 key:");const c2=prompt("Column 2 key:");const sep=prompt("Separator (e.g. space):"," ");
+          if(!c1||!c2)return;const newKey=`${c1}_${c2}_concat`;
+          updateSheetCols(cs=>[...cs,{key:newKey,label:`${c1}+${c2}`,width:140}]);
+          rows.forEach((r,ri)=>{if(onChange)onChange(ri,newKey,`${r[c1]??""}`+sep+`${r[c2]??""}`);});
+        }}/>
+      </RibbonGroup>
       <RibbonGroup label="Validation">
         <IBtn icon="✅" label="Validate" onClick={()=>setModal("validation")} title="Data Validation"/>
+        <IBtn icon="⚠️" label="Errors" title="Highlight validation errors" onClick={()=>{const errs=Object.keys(validErrors).length;alert(errs?`${errs} validation error(s) found. Cells are highlighted in the table.`:"No validation errors!");}}/>
       </RibbonGroup>
       <RibbonGroup label="Find">
         <IBtn icon="🔍" label="Find" onClick={()=>setModal("findreplace")} title="Find & Replace"/>
       </RibbonGroup>
       <RibbonGroup label="Cond Format">
         <IBtn icon="🎨" label="Rules" onClick={()=>setModal("condfmt")} title="Conditional Formatting"/>
+        <IBtn icon="🌡️" label="Heatmap" onClick={()=>setHeatmapOn(h=>!h)} active={heatmapOn} title="Toggle Heatmap"/>
+      </RibbonGroup>
+      <RibbonGroup label="Group By">
+        <IBtn icon="🗂" label="Group By" title="Group rows by selected column and aggregate" onClick={()=>{
+          if(!selection.start){alert("Select a column to group by first.");return;}
+          const groupCol=visibleCols[selection.start.ci];
+          const aggCol=visibleCols.find(c=>c.key!==groupCol.key&&rows.some(r=>!isNaN(Number(r[c.key]))));
+          if(!aggCol){alert("No numeric column found to aggregate.");return;}
+          const fn=prompt(`Aggregate function for "${aggCol.label}":\nSUM / COUNT / AVERAGE / MAX / MIN`,"SUM");
+          if(!fn)return;
+          const grouped={};
+          rows.forEach(r=>{const k=String(r[groupCol.key]??"(blank)");if(!grouped[k])grouped[k]=[];grouped[k].push(Number(r[aggCol.key])||0);});
+          const newKey=`${groupCol.key}_grouped_${aggCol.key}`;
+          const newRows=Object.entries(grouped).map(([k,vals])=>{
+            let agg;const f=fn.toUpperCase();
+            if(f==="SUM")agg=vals.reduce((a,b)=>a+b,0);
+            else if(f==="COUNT")agg=vals.length;
+            else if(f==="AVERAGE")agg=(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+            else if(f==="MAX")agg=Math.max(...vals);
+            else if(f==="MIN")agg=Math.min(...vals);
+            else agg=vals.reduce((a,b)=>a+b,0);
+            return{[groupCol.key]:k,[newKey]:agg};
+          });
+          const newCols=[{key:groupCol.key,label:groupCol.label,width:120},{key:newKey,label:`${f||"SUM"}(${aggCol.label})`,width:140}];
+          if(confirm(`Group by "${groupCol.label}" with ${fn.toUpperCase()}("${aggCol.label}")?\nThis will add a new sheet with ${newRows.length} groups.`)){
+            const newId="sheet_"+Date.now();
+            setSheets(ss=>[...ss,{id:newId,name:`GroupBy_${groupCol.label}`}]);
+            setSheetData(sd=>({...sd,[newId]:{rows:newRows,cols:newCols}}));
+            setActiveSheet(newId);
+          }
+        }}/>
+      </RibbonGroup>
+      <RibbonGroup label="Outliers">
+        <IBtn icon="🚨" label="Highlight" title="Highlight outliers in selected column (>2 std devs from mean)" onClick={()=>{
+          if(!selection.start){alert("Select a numeric column first.");return;}
+          const col=visibleCols[selection.start.ci];
+          const vals=rows.map((r,i)=>({i,v:Number(r[col.key])})).filter(x=>!isNaN(x.v)&&x.v!==0||String(rows[x.i][col.key])!=="");
+          const nums=vals.map(x=>x.v);
+          if(nums.length<3){alert("Need at least 3 numeric values.");return;}
+          const mean=nums.reduce((a,b)=>a+b,0)/nums.length;
+          const std=Math.sqrt(nums.reduce((a,b)=>a+(b-mean)**2,0)/nums.length);
+          if(std===0){alert("No variance in column — no outliers.");return;}
+          const outlierIdxs=vals.filter(x=>Math.abs(x.v-mean)>2*std).map(x=>x.i);
+          if(!outlierIdxs.length){alert(`No outliers found in "${col.label}" (threshold: mean ± 2σ).`);return;}
+          const newRules=[...condFmtRules,{type:"cell",col:col.key,op:"outlier2sd",val:"",val2:"",bg:"#fecaca",fg:"#7f1d1d",bold:true,barColor:"#ef4444",_outlierIdxs:outlierIdxs}];
+          setCondFmtRules(newRules);
+          alert(`Highlighted ${outlierIdxs.length} outlier(s) in "${col.label}" (mean=${mean.toFixed(2)}, σ=${std.toFixed(2)}).`);
+        }}/>
+        <IBtn icon="✕" label="Clear" title="Remove outlier highlights" onClick={()=>setCondFmtRules(r=>r.filter(x=>x.op!=="outlier2sd"))}/>
       </RibbonGroup>
       <RibbonGroup label="Saved Filters">
         <IBtn icon="💾" label="Save Filter" onClick={()=>{if(!Object.values(filters).some(f=>f?.size>0)){alert("No active filters to save.");return;}const name=prompt("Filter name:");if(name)setSavedFilters(fs=>[...fs,{name,filters:{...filters}}]);}} title="Save current filter set"/>
@@ -2282,6 +3132,18 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
       <RibbonGroup label="Show">
         <IBtn icon={showGridLines?"#":"#"} label="Grid" onClick={()=>setShowGridLines(g=>!g)} active={showGridLines} title="Toggle Grid Lines"/>
         <IBtn icon="≡" label="Zebra" onClick={()=>setZebra(z=>!z)} active={zebra} title="Zebra Stripes"/>
+        <IBtn icon="🌡️" label="Heat" onClick={()=>setHeatmapOn(h=>!h)} active={heatmapOn} title="Toggle Heatmap"/>
+      </RibbonGroup>
+      <RibbonGroup label="Zoom">
+        <button onClick={()=>setZoomLevel?.(z=>Math.max(60,z-10))} style={tBtn} title="Zoom Out">−</button>
+        <span style={{fontSize:11,background:"#e8eaed",padding:"2px 6px",borderRadius:3,fontFamily:"monospace",minWidth:36,textAlign:"center"}}>{typeof zoomLevel==="number"?zoomLevel:100}%</span>
+        <button onClick={()=>setZoomLevel?.(z=>Math.min(200,z+10))} style={tBtn} title="Zoom In">+</button>
+        <button onClick={()=>setZoomLevel?.(100)} style={{...tBtn,fontSize:10}} title="Reset Zoom">↺</button>
+      </RibbonGroup>
+      <RibbonGroup label="Row Height">
+        <IBtn icon="⊟" label="Compact" title="Compact rows (18px)" onClick={()=>{const n={};visibleProcessedRows.forEach((_,i)=>n[i]=18);setRowHeights(n);}}/>
+        <IBtn icon="⊞" label="Normal" title="Normal rows (26px)" onClick={()=>setRowHeights({})}/>
+        <IBtn icon="⊡" label="Tall" title="Tall rows (44px)" onClick={()=>{const n={};visibleProcessedRows.forEach((_,i)=>n[i]=44);setRowHeights(n);}}/>
       </RibbonGroup>
       <RibbonGroup label="Freeze">
         <div style={{display:"flex",alignItems:"center",gap:3}}>
@@ -2325,6 +3187,106 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
       <RibbonGroup label="Rows">
         <IBtn icon="+" label="+10 Rows" onClick={()=>autoExpandRows(10)} title="Add 10 empty rows"/>
       </RibbonGroup>
+      <RibbonGroup label="Col Stats">
+        <IBtn icon="σ" label="Stats" title="Show column statistics" onClick={()=>{
+          if(!selection.start)return;const col=visibleCols[selection.start.ci];
+          const vals=rows.map(r=>r[col.key]).filter(v=>v!==""&&!isNaN(Number(v))).map(Number);
+          if(!vals.length){alert(`Column "${col.label}" has no numeric data.`);return;}
+          const sum=vals.reduce((a,b)=>a+b,0),avg=sum/vals.length;
+          const med=[...vals].sort((a,b)=>a-b),mi=Math.floor(med.length/2);
+          alert(`Column: ${col.label}\nCount: ${vals.length}\nSum: ${sum.toFixed(2)}\nAverage: ${avg.toFixed(2)}\nMedian: ${med.length%2?med[mi]:((med[mi-1]+med[mi])/2).toFixed(2)}\nMin: ${Math.min(...vals)}\nMax: ${Math.max(...vals)}\nStdDev: ${Math.sqrt(vals.reduce((a,b)=>a+(b-avg)**2,0)/vals.length).toFixed(2)}`);
+        }}/>
+      </RibbonGroup>
+    </div>
+  );
+
+  // ── UPGRADE 2: Pivot ribbon ───────────────────────────────────────────────
+  const renderRibbonPivot = () => (
+    <div style={{display:"flex",alignItems:"flex-start",gap:0,padding:"4px 8px 0",flexWrap:"wrap"}}>
+      <RibbonGroup label="Pivot Table">
+        <IBtn icon="📊" label={showPivotPanel?"Hide Panel":"Show Panel"} onClick={()=>setShowPivotPanel(p=>!p)} active={showPivotPanel} title="Toggle Pivot Builder"/>
+        {pivotData&&<IBtn icon="⬇️" label="Export CSV" onClick={()=>{
+          if(!pivotData)return;
+          const { rowVals, colVals, grid, grandTotals } = pivotData;
+          const header = [pivotConfig.rowField, ...colVals, "Subtotal"].join(",");
+          const body = rowVals.map(rv=>[rv,...colVals.map(cv=>grid[rv][cv]),grid[rv].__subtotal].join(",")).join("\n");
+          const footer = ["Grand Total",...colVals.map(cv=>grandTotals[cv]),grandTotals.__subtotal].join(",");
+          const csv = [header,body,footer].join("\n");
+          const blob=new Blob([csv],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="pivot.csv";a.click();
+        }} title="Export Pivot as CSV"/>}
+        {pivotData&&<IBtn icon="📋" label="Export JSON" onClick={()=>{
+          if(!pivotData)return;
+          const blob=new Blob([JSON.stringify({config:pivotConfig,data:pivotData},null,2)],{type:"application/json"});
+          const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="pivot.json";a.click();
+        }} title="Export Pivot as JSON"/>}
+        {pivotData&&<IBtn icon="📈" label="Pivot Chart" onClick={()=>{
+          if(!pivotData)return;
+          const chartRows=pivotData.rowVals.map(rv=>({__label:rv,...Object.fromEntries(pivotData.colVals.map(cv=>[cv,pivotData.grid[rv][cv]]))}));
+          const chartCols=[{key:"__label",label:pivotConfig.rowField},...pivotData.colVals.map(cv=>({key:cv,label:cv}))];
+          setModal("chart");
+        }} title="Create Chart from Pivot"/>}
+      </RibbonGroup>
+      <RibbonGroup label="Aggregation">
+        {["SUM","COUNT","AVERAGE","MAX","MIN","MEDIAN","STDEV","FIRST","LAST"].map(fn=>(
+          <button key={fn} onClick={()=>setPivotConfig(c=>({...c,aggFn:fn}))}
+            style={{...tBtn,background:pivotConfig.aggFn===fn?"#6366f1":"#e8eaed",color:pivotConfig.aggFn===fn?"#fff":"#333",fontSize:10,padding:"2px 6px"}}>
+            {fn}
+          </button>
+        ))}
+      </RibbonGroup>
+    </div>
+  );
+
+  // ── UPGRADE 3: AI ribbon ──────────────────────────────────────────────────
+  const renderRibbonAI = () => (
+    <div style={{display:"flex",alignItems:"flex-start",gap:0,padding:"4px 8px 0",flexWrap:"wrap"}}>
+      <RibbonGroup label="AI Chat">
+        <IBtn icon="🤖" label={showAiPanel?"Hide Chat":"Open Chat"} onClick={()=>setShowAiPanel(p=>!p)} active={showAiPanel} title="Toggle AI Chat Panel"/>
+        <IBtn icon="🗑" label="Clear" onClick={()=>{setAiHistory([]);setAiResult("");}} title="Clear AI chat history"/>
+      </RibbonGroup>
+      <RibbonGroup label="Smart Actions">
+        <IBtn icon="🔍" label="Explain Cell" onClick={()=>{
+          if(!selection.start)return;setShowAiPanel(true);
+          const val=processedRows[selection.start.ri]?.[visibleCols[selection.start.ci]?.key]??"";
+          const ref=`${colLetter(selection.start.ci)}${selection.start.ri+1}`;
+          runAI(`Explain this formula or value at cell ${ref}: "${val}"`);
+        }} title="Explain selected cell"/>
+        <IBtn icon="⚠️" label="Anomalies" onClick={()=>{
+          if(!selection.start)return;setShowAiPanel(true);
+          const col=visibleCols[selection.start.ci];
+          const vals=rows.map(r=>r[col?.key]).filter(v=>v!=="").slice(0,50).join(", ");
+          runAI(`Find anomalies, outliers, or data quality issues in column "${col?.label}": ${vals}`);
+        }} title="Find anomalies in column"/>
+        <IBtn icon="💡" label="Formula" onClick={()=>{
+          if(!selection.start)return;setShowAiPanel(true);
+          const col=visibleCols[selection.start.ci];
+          runAI(`Suggest the best formula for column "${col?.label}" given spreadsheet columns: ${visibleCols.map(c=>c.label).join(", ")}. Reply with the formula only, starting with =`);
+        }} title="Suggest formula"/>
+        <IBtn icon="📊" label="Analyze" onClick={()=>{
+          setShowAiPanel(true);
+          const sample=rows.slice(0,10).map(r=>visibleCols.map(c=>r[c.key]).join(" | ")).join("\n");
+          runAI(`Analyze this dataset and give me: 1) Key insights, 2) Data quality issues, 3) Suggested formulas to add, 4) Visualization recommendations.\n\nColumns: ${visibleCols.map(c=>c.label).join(", ")}\nSample:\n${sample}`);
+        }} title="Full data analysis"/>
+        <IBtn icon="🧹" label="Cleanup" onClick={()=>{
+          setShowAiPanel(true);
+          const sample=rows.slice(0,8).map(r=>visibleCols.map(c=>r[c.key]).join(" | ")).join("\n");
+          runAI(`Review this data and give me a specific, actionable cleanup checklist:\n${sample}`);
+        }} title="Data cleanup suggestions"/>
+        <IBtn icon="📝" label="Generate" onClick={()=>{
+          setShowAiPanel(true);
+          runAI(`Write 3 useful calculated column formulas for a spreadsheet with columns: ${visibleCols.map(c=>c.label).join(", ")}. For each, show the formula and explain what it calculates.`);
+        }} title="Generate formula ideas"/>
+      </RibbonGroup>
+      <RibbonGroup label="AI Mode">
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          {[["chat","💬 Chat"],["formula","📐 Formula Mode"]].map(([m,l])=>(
+            <button key={m} onClick={()=>{setAiMode(m);setShowAiPanel(true);}}
+              style={{...tBtn,background:aiMode===m?"#6366f1":"#e8eaed",color:aiMode===m?"#fff":"#333",fontSize:10,padding:"2px 8px"}}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </RibbonGroup>
     </div>
   );
 
@@ -2332,15 +3294,55 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,flex:1,background:"#fff",fontFamily:"'Segoe UI',system-ui,sans-serif"}}
-      onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==="a"){e.preventDefault();if(visibleProcessedRows.length&&visibleCols.length)setSelection({start:{ri:0,ci:0},end:{ri:visibleProcessedRows.length-1,ci:visibleCols.length-1}});}}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,flex:1,background:"#fff",fontFamily:"'Segoe UI',system-ui,sans-serif",zoom:zoomLevel!==100?`${zoomLevel}%`:undefined}}
+      onKeyDown={e=>{
+        if((e.ctrlKey||e.metaKey)&&e.key==="a"){e.preventDefault();if(visibleProcessedRows.length&&visibleCols.length)setSelection({start:{ri:0,ci:0},end:{ri:visibleProcessedRows.length-1,ci:visibleCols.length-1}});}
+        // UPGRADE 7: Command Palette
+        if((e.ctrlKey||e.metaKey)&&(e.key==="p"||e.key==="P")){e.preventDefault();setCmdPaletteOpen(true);setCmdQuery("");setCmdIndex(0);setTimeout(()=>cmdInputRef.current?.focus(),50);}
+      }}>
+
+      {/* ── UPGRADE 7: Command Palette ── */}
+      {cmdPaletteOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99999,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:"15vh"}}
+          onClick={()=>setCmdPaletteOpen(false)}>
+          <div style={{background:"#fff",borderRadius:10,boxShadow:"0 24px 64px rgba(0,0,0,0.25)",width:540,maxHeight:"60vh",display:"flex",flexDirection:"column",overflow:"hidden"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderBottom:"1px solid #e5e7eb"}}>
+              <span style={{fontSize:16}}>⌨️</span>
+              <input ref={cmdInputRef} autoFocus value={cmdQuery} onChange={e=>{setCmdQuery(e.target.value);setCmdIndex(0);}}
+                onKeyDown={e=>{
+                  if(e.key==="ArrowDown"){e.preventDefault();setCmdIndex(i=>Math.min(i+1,filteredCmds.length-1));}
+                  if(e.key==="ArrowUp"){e.preventDefault();setCmdIndex(i=>Math.max(i-1,0));}
+                  if(e.key==="Enter"){const cmd=filteredCmds[cmdIndex];if(cmd){cmd.action();setCmdPaletteOpen(false);}}
+                  if(e.key==="Escape")setCmdPaletteOpen(false);
+                }}
+                placeholder="Type a command, formula, or sheet name…"
+                style={{flex:1,border:"none",outline:"none",fontSize:14,color:"#0f172a"}}/>
+              <kbd style={{fontSize:10,background:"#f1f5f9",border:"1px solid #cbd5e1",borderRadius:3,padding:"1px 5px",color:"#64748b"}}>Esc</kbd>
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              {filteredCmds.map((cmd,i)=>(
+                <div key={i} onClick={()=>{cmd.action();setCmdPaletteOpen(false);}}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",background:i===cmdIndex?"#eff6ff":"transparent",cursor:"pointer",transition:"background 0.1s"}}
+                  onMouseEnter={()=>setCmdIndex(i)}>
+                  <span style={{fontSize:11,color:"#6366f1",background:"#eef2ff",padding:"1px 6px",borderRadius:3,minWidth:70,textAlign:"center"}}>{cmd.category}</span>
+                  <span style={{flex:1,fontSize:13,color:"#0f172a"}}>{cmd.label}</span>
+                  {cmd.shortcut&&<kbd style={{fontSize:10,background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:3,padding:"1px 6px",color:"#64748b"}}>{cmd.shortcut}</kbd>}
+                </div>
+              ))}
+              {filteredCmds.length===0&&<div style={{padding:"24px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No commands found</div>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Ribbon Tabs ── */}
       <div style={{display:"flex",alignItems:"center",background:"#F8F9FA",borderBottom:`1px solid ${BORDER}`,paddingLeft:8,flexShrink:0}}>
-        {["Home","Insert","Formulas","Data","View"].map(tab=>(
-          <RibbonTab key={tab} label={tab} active={ribbonTab===tab} onClick={()=>setRibbonTab(tab)}/>
+        {["Home","Insert","Formulas","Data","View","Pivot","AI"].map(tab=>(
+          <RibbonTab key={tab} label={tab==="Pivot"?"📊 Pivot":tab==="AI"?"🤖 AI":tab} active={ribbonTab===tab} onClick={()=>setRibbonTab(tab)}/>
         ))}
         <div style={{marginLeft:"auto",padding:"0 8px",display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:10,color:"#6366f1",background:"#eef2ff",padding:"1px 6px",borderRadius:3,cursor:"pointer"}} title="Command Palette (Ctrl+P)" onClick={()=>{setCmdPaletteOpen(true);setTimeout(()=>cmdInputRef.current?.focus(),50);}}>⌨️ Ctrl+P</span>
           <span style={{fontSize:10,color:"#aaa"}}>ExcelTable Pro</span>
         </div>
       </div>
@@ -2352,7 +3354,198 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         {ribbonTab==="Formulas"&&renderRibbonFormulas()}
         {ribbonTab==="Data"&&renderRibbonData()}
         {ribbonTab==="View"&&renderRibbonView()}
+        {ribbonTab==="Pivot"&&renderRibbonPivot()}
+        {ribbonTab==="AI"&&renderRibbonAI()}
       </div>
+
+      {/* ── UPGRADE 2: Pivot Table Panel ── */}
+      {ribbonTab==="Pivot"&&showPivotPanel&&(
+        <div style={{background:"#f8faff",borderBottom:"1px solid #c7d2fe",padding:"12px 16px",flexShrink:0,display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
+          {/* Field config */}
+          <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:220}}>
+            <div style={{fontWeight:700,fontSize:12,color:"#4338ca",marginBottom:4}}>📊 Pivot Builder</div>
+            {[["rowField","Row Field"],["colField","Column Field (opt)"],["valueField","Value Field"],["filterField","Filter Field (opt)"]].map(([k,lbl])=>(
+              <div key={k} style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:11,color:"#555",width:130,flexShrink:0}}>{lbl}</span>
+                <select value={pivotConfig[k]} onChange={e=>setPivotConfig(c=>({...c,[k]:e.target.value}))}
+                  style={{flex:1,fontSize:11,padding:"3px 6px",border:"1px solid #c7d2fe",borderRadius:4,background:"#fff"}}>
+                  <option value="">(none)</option>
+                  {baseCols.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              </div>
+            ))}
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:11,color:"#555",width:130,flexShrink:0}}>Aggregation</span>
+              <select value={pivotConfig.aggFn} onChange={e=>setPivotConfig(c=>({...c,aggFn:e.target.value}))}
+                style={{flex:1,fontSize:11,padding:"3px 6px",border:"1px solid #c7d2fe",borderRadius:4,background:"#fff"}}>
+                {["SUM","COUNT","AVERAGE","MAX","MIN"].map(f=><option key={f}>{f}</option>)}
+              </select>
+            </div>
+            {pivotConfig.filterField&&(
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:11,color:"#555",width:130,flexShrink:0}}>Filter Value</span>
+                <input value={pivotConfig.filterValue} onChange={e=>setPivotConfig(c=>({...c,filterValue:e.target.value}))}
+                  style={{flex:1,fontSize:11,padding:"3px 6px",border:"1px solid #c7d2fe",borderRadius:4}}/>
+              </div>
+            )}
+          </div>
+          {/* Pivot grid */}
+          {pivotData?(
+            <div style={{flex:1,overflowX:"auto",maxHeight:300,overflowY:"auto"}}>
+              <table style={{borderCollapse:"collapse",fontSize:11,fontFamily:"monospace"}}>
+                <thead>
+                  <tr>
+                    <th style={{background:"#e0e7ff",padding:"4px 8px",border:"1px solid #c7d2fe",fontWeight:700}}>{pivotConfig.rowField}</th>
+                    {pivotData.colVals.map(cv=><th key={cv} style={{background:"#e0e7ff",padding:"4px 8px",border:"1px solid #c7d2fe",fontWeight:700,whiteSpace:"nowrap"}}>{cv}</th>)}
+                    <th style={{background:"#c7d2fe",padding:"4px 8px",border:"1px solid #a5b4fc",fontWeight:700}}>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pivotData.rowVals.map((rv,ri)=>(
+                    <tr key={rv} style={{background:ri%2===0?"#f8faff":"#fff"}}>
+                      <td style={{padding:"3px 8px",border:"1px solid #e0e7ff",fontWeight:600,color:"#3730a3"}}>{rv}</td>
+                      {pivotData.colVals.map(cv=><td key={cv} style={{padding:"3px 8px",border:"1px solid #e0e7ff",textAlign:"right"}}>{pivotData.grid[rv][cv]}</td>)}
+                      <td style={{padding:"3px 8px",border:"1px solid #c7d2fe",textAlign:"right",fontWeight:700,background:"#eef2ff"}}>{pivotData.grid[rv].__subtotal}</td>
+                    </tr>
+                  ))}
+                  <tr style={{background:"#dde0ff"}}>
+                    <td style={{padding:"3px 8px",border:"1px solid #c7d2fe",fontWeight:700,color:"#3730a3"}}>Grand Total</td>
+                    {pivotData.colVals.map(cv=><td key={cv} style={{padding:"3px 8px",border:"1px solid #c7d2fe",textAlign:"right",fontWeight:700}}>{pivotData.grandTotals[cv]}</td>)}
+                    <td style={{padding:"3px 8px",border:"1px solid #a5b4fc",textAlign:"right",fontWeight:900,background:"#c7d2fe"}}>{pivotData.grandTotals.__subtotal}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ):(
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#94a3b8",fontSize:13,padding:20}}>Select Row Field and Value Field to build pivot</div>
+          )}
+        </div>
+      )}
+
+      {/* ── UPGRADE 3: AI Panel (Full Chat History) ── */}
+      {ribbonTab==="AI"&&showAiPanel&&(
+        <div style={{background:"#fafafe",borderBottom:"1px solid #e0e7ff",flexShrink:0,display:"flex",flexDirection:"column",maxHeight:340}}>
+          {/* Header bar */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px 4px",borderBottom:"1px solid #e0e7ff",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontWeight:700,fontSize:12,color:"#4338ca"}}>🤖 AI Spreadsheet Assistant</span>
+              <span style={{fontSize:10,background:"#eef2ff",color:"#6366f1",padding:"1px 6px",borderRadius:3}}>claude-sonnet-4</span>
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <button onClick={()=>{setAiHistory([]);setAiResult("");}} style={{...tBtn,fontSize:10,color:"#ef4444",background:"transparent",border:"none"}} title="Clear chat">🗑 Clear</button>
+              <button onClick={()=>setShowAiPanel(false)} style={{...tBtn,fontSize:11,background:"transparent",border:"none",color:"#888"}}>✕</button>
+            </div>
+          </div>
+
+          {/* Quick action chips */}
+          <div style={{display:"flex",gap:4,padding:"6px 14px",flexWrap:"wrap",borderBottom:"1px solid #e0e7ff",flexShrink:0,background:"#f0f4ff"}}>
+            {[
+              {label:"💡 Explain cell",prompt:()=>{ const v=selection.start?processedRows[selection.start.ri]?.[visibleCols[selection.start.ci]?.key]??"":"(no cell selected)"; const ref=selection.start?`${colLetter(selection.start.ci)}${selection.start.ri+1}`:""; return `Explain this spreadsheet value or formula: "${v}" at cell ${ref}.`;}},
+              {label:"📐 Suggest formula",prompt:()=>`Suggest the best formula for column "${visibleCols[selection.start?.ci]?.label||"selected"}" given columns: ${visibleCols.map(c=>c.label).join(", ")}. Reply with formula starting with =`},
+              {label:"🔍 Find anomalies",prompt:()=>{ const col=visibleCols[selection.start?.ci];if(!col)return"Select a column first";const vals=rows.map(r=>r[col.key]).filter(v=>v!=="").slice(0,50).join(", ");return `Find anomalies or outliers in column "${col.label}": ${vals}`;}},
+              {label:"📊 Stats summary",prompt:()=>{ const sample=rows.slice(0,10).map(r=>visibleCols.map(c=>r[c.key]).join(" | ")).join("\n");return `Give a brief statistical and data quality summary of this spreadsheet data:\n${sample}`;}},
+              {label:"🧹 Cleanup tips",prompt:()=>{ const sample=rows.slice(0,8).map(r=>visibleCols.map(c=>r[c.key]).join(" | ")).join("\n");return `Review this data and suggest specific cleanup steps:\n${sample}`;}},
+              {label:"📝 Write formula",prompt:()=>`Write me a formula using columns: ${visibleCols.map(c=>c.label).join(", ")}. What would be a useful calculated field?`},
+            ].map((a,i)=>(
+              <button key={i} onClick={()=>{setAiQuery("");runAI(typeof a.prompt==="function"?a.prompt():a.prompt);}}
+                style={{fontSize:10,padding:"2px 8px",border:"1px solid #c7d2fe",borderRadius:10,background:"#fff",cursor:"pointer",color:"#4338ca",whiteSpace:"nowrap",transition:"background 0.1s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="#eef2ff"}
+                onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Chat history */}
+          <div style={{flex:1,overflowY:"auto",padding:"10px 14px",display:"flex",flexDirection:"column",gap:10,minHeight:0}}>
+            {aiHistory.length===0&&(
+              <div style={{textAlign:"center",color:"#94a3b8",fontSize:12,padding:"20px 0"}}>
+                <div style={{fontSize:24,marginBottom:6}}>🤖</div>
+                Ask anything about your data — formulas, analysis, cleanup, insights.<br/>
+                <span style={{fontSize:10}}>Your data context is automatically included.</span>
+              </div>
+            )}
+            {aiHistory.map((msg,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",flexDirection:msg.role==="user"?"row-reverse":"row"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:msg.role==="user"?"#6366f1":"#10b981",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:700,flexShrink:0}}>
+                  {msg.role==="user"?"U":"AI"}
+                </div>
+                <div style={{maxWidth:"75%",background:msg.role==="user"?"#6366f1":"#f0fdf4",color:msg.role==="user"?"#fff":"#0f172a",borderRadius:10,padding:"8px 12px",fontSize:12,lineHeight:1.5,position:"relative",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.07)",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                  {msg.content}
+                  {/* Insert formula button */}
+                  {msg.role==="assistant"&&msg.content.trim().match(/^=\w+/)&&(
+                    <button onClick={()=>{
+                      if(!selection.start)return;
+                      const row=processedRows[selection.start.ri];const col=visibleCols[selection.start.ci];
+                      const formula=msg.content.trim().split("\n")[0];
+                      if(row&&col&&onChange){onChange(row.__origIdx,col.key,formula);setAiHistory(h=>[...h,{role:"assistant",content:`✅ Inserted \`${formula}\` into ${colLetter(selection.start.ci)}${selection.start.ri+1}`}]);}
+                    }} style={{display:"block",marginTop:6,fontSize:10,padding:"2px 8px",background:"#22c55e",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontFamily:"monospace"}}>
+                      ⬆ Insert into selected cell
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {aiLoading&&(
+              <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:"#10b981",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:700}}>AI</div>
+                <div style={{background:"#f0fdf4",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#64748b"}}>
+                  <span style={{display:"inline-flex",gap:3}}>
+                    {[0,1,2].map(i=><span key={i} style={{width:6,height:6,borderRadius:"50%",background:"#10b981",display:"inline-block",animation:`bounce 1s ${i*0.2}s infinite`}}/>)}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div ref={aiChatEndRef}/>
+          </div>
+
+          {/* Input row */}
+          <div style={{padding:"8px 14px 10px",borderTop:"1px solid #e0e7ff",background:"#fff",flexShrink:0}}>
+            <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
+              <textarea value={aiQuery} onChange={e=>setAiQuery(e.target.value)} rows={2}
+                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(aiQuery.trim()&&!aiLoading){runAI(aiQuery);setAiQuery("");}}}}
+                placeholder="Ask about your data… (Enter to send, Shift+Enter for newline)"
+                style={{flex:1,padding:"6px 10px",fontSize:12,border:"1px solid #c7d2fe",borderRadius:8,fontFamily:"inherit",resize:"none",outline:"none",lineHeight:1.4,color:"#0f172a"}}
+              />
+              <button onClick={()=>{if(aiQuery.trim()&&!aiLoading){runAI(aiQuery);setAiQuery("");}}}
+                disabled={aiLoading||!aiQuery.trim()}
+                style={{padding:"8px 14px",background:aiLoading||!aiQuery.trim()?"#e0e7ff":"#6366f1",color:aiLoading||!aiQuery.trim()?"#94a3b8":"#fff",border:"none",borderRadius:8,cursor:aiLoading||!aiQuery.trim()?"default":"pointer",fontSize:12,fontWeight:700,flexShrink:0,height:46,transition:"background 0.15s"}}>
+                {aiLoading?"⏳":"Send ↑"}
+              </button>
+            </div>
+            <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>Your column names and sample data are automatically included as context.</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── UPGRADE 4: Import Panel ── */}
+      {showImportPanel&&importPreview&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:10,padding:20,minWidth:520,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 16px 48px rgba(0,0,0,0.2)"}}>
+            <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>📥 Import Preview — {importPreview.source}</div>
+            <div style={{fontSize:11,color:"#888",marginBottom:12}}>First 5 rows of {importPreview.rows.length} total</div>
+            <div style={{overflowX:"auto",marginBottom:12}}>
+              <table style={{borderCollapse:"collapse",fontSize:11,fontFamily:"monospace",minWidth:"100%"}}>
+                <thead><tr>{importPreview.cols.map(c=><th key={c.key} style={{background:"#e8eaed",padding:"4px 8px",border:"1px solid #ddd",fontWeight:600}}>{c.label}</th>)}</tr></thead>
+                <tbody>{importPreview.rows.slice(0,5).map((r,i)=><tr key={i}>{importPreview.cols.map(c=><td key={c.key} style={{padding:"3px 8px",border:"1px solid #eee"}}>{String(r[c.key]??"")}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <span style={{fontSize:12,fontWeight:600}}>On import:</span>
+              {["replace","append","skip"].map(m=>(
+                <label key={m} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,cursor:"pointer"}}>
+                  <input type="radio" name="importMode" checked={importPreview.mode===m} onChange={()=>setImportPreview(p=>({...p,mode:m}))}/> {m==="replace"?"Replace all":"skip"===m?"Skip duplicates":"Append rows"}
+                </label>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>{setImportPreview(null);setShowImportPanel(false);}} style={tBtn}>Cancel</button>
+              <button onClick={commitImport} style={{...tBtn,background:"#1a73e8",color:"#fff"}}>Import</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Formula Bar ── */}
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 8px",background:"#fff",borderBottom:`1px solid ${BORDER}`,flexShrink:0,minHeight:30,position:"relative"}}>
@@ -2422,6 +3615,10 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                         {hasFilter?"🔽":"▾"}
                       </button>
                       {openFilter===c.key&&<FilterDropdown col={c} rows={rows} activeFilter={filters[c.key]} onSort={dir=>{setSortConfig([{key:c.key,dir}]);setOpenFilter(null);}} onFilter={allowed=>setFilters(f=>({...f,[c.key]:allowed}))} onClose={()=>setOpenFilter(null)}/>}
+                      {/* UPGRADE 8: Heatmap legend bar */}
+                      {heatmapOn&&heatmapMeta[c.key]&&(
+                        <div title={`Min: ${heatmapMeta[c.key].min} Max: ${heatmapMeta[c.key].max}`} style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:"linear-gradient(to right,#bfdbfe,#fff,#ea580c)",borderRadius:0,opacity:0.85}}/>
+                      )}
                       <div onMouseDown={e=>startResize(e,ci)} style={{position:"absolute",right:0,top:0,bottom:0,width:4,cursor:"col-resize",background:resizing?.ci===ci?"#1a73e8":"transparent",zIndex:5}}/>
                     </div>
                   </th>
@@ -2457,7 +3654,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                     const dispVal=evalCell(rawVal,ri,ci);
                     const isFrozenC=ci<frozenCols;
                     const isFormula=typeof rawVal==="string"&&rawVal.startsWith("=");
-                    const condStyle=applyCondFmt(dispVal,condFmtRules,c.key,rows.map(row=>row[c.key]));
+                    const condStyle=applyCondFmt(dispVal,condFmtRules,c.key,rows.map(row=>row[c.key]),r.__origIdx);
                     const stableKey=`${r.__origIdx}-${c.key}`;
                     const hasValError=validErrors[stableKey];
                     const vRule=validation[c.key];
@@ -2466,7 +3663,8 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                     const hasComment=!!comments[stableKey];
                     const rowBg=zebra?(ri%2===0?"#fff":"#FAFAFA"):"#fff";
                     const baseBg=(!condStyle||condStyle.__databar)?undefined:condStyle?.background||(fmt.fillColor&&fmt.fillColor!=="#ffffff"?fmt.fillColor:isSel?SEL_BG:isFrozenC?FROZEN_BG:rowBg);
-                    const resolvedBg=baseBg||(fmt.fillColor&&fmt.fillColor!=="#ffffff"?fmt.fillColor:isSel?SEL_BG:isFrozenC?FROZEN_BG:rowBg);
+                    const heatBg=getHeatmapBg(c.key,dispVal);
+                    const resolvedBg=heatBg||(baseBg||(fmt.fillColor&&fmt.fillColor!=="#ffffff"?fmt.fillColor:isSel?SEL_BG:isFrozenC?FROZEN_BG:rowBg));
                     // Check merge
                     const merge=isMergeOrigin(merges,ri,ci);
                     const inMerge=cellInMerge(merges,ri,ci);
@@ -2480,14 +3678,32 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                           padding:"0 6px",
                           border:showGridLines?`1px solid ${hasValError?"#ef4444":BORDER}`:"none",
                           height:rowHeights[ri]||26,
-                          whiteSpace:"nowrap",cursor:"cell",overflow:"hidden",textOverflow:"ellipsis",
+                          whiteSpace:fmt.wrapText?"normal":"nowrap",cursor:"cell",overflow:"hidden",textOverflow:fmt.wrapText?"clip":"ellipsis",
                           fontSize:fmt.fontSize||12,
-                          fontFamily:"'Courier New',monospace",
+                          fontFamily:fmt.fontFamily?`'${fmt.fontFamily}',monospace`:"'Courier New',monospace",
                           fontWeight:condStyle?.fontWeight||(fmt.bold?"bold":"normal"),
                           fontStyle:fmt.italic?"italic":"normal",
-                          textDecoration:fmt.underline?"underline":"none",
+                          textDecoration:[fmt.underline?"underline":"",fmt.strikethrough?"line-through":""].filter(Boolean).join(" ")||"none",
                           color:condStyle?.color||fmt.textColor||"inherit",
-                          textAlign:fmt.align||"left",
+                          textAlign:fmt.numFormat==="currency"||fmt.numFormat==="number"||fmt.numFormat==="percent"||fmt.numFormat==="scientific"?(fmt.align||"right"):(fmt.align||"left"),
+                          verticalAlign:fmt.valign||"middle",
+                          paddingLeft:fmt.indent?`${6+fmt.indent*14}px`:"6px",
+                          ...(fmt.rotation?{transform:`rotate(${fmt.rotation}deg)`,transformOrigin:"center"}:{}),
+                          ...(fmt.borderStyle&&fmt.borderStyle!=="none"?{
+                            ...(fmt.borderStyle==="all"?{border:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="outer"?{border:`${(fmt.borderWidth||1)+1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="bottom"?{borderBottom:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="top"?{borderTop:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="left"?{borderLeft:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="right"?{borderRight:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="thick"?{border:`${(fmt.borderWidth||1)+2}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="double"?{borderBottom:`3px double ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="dashed"?{border:`${fmt.borderWidth||1}px dashed ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="dotted"?{border:`${fmt.borderWidth||1}px dotted ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="inner"?{borderRight:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`,borderBottom:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="topbottom"?{borderTop:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`,borderBottom:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                            ...(fmt.borderStyle==="medium"?{border:`${(fmt.borderWidth||1)+1}px solid ${fmt.borderColor||"#000"}`}:{}),
+                          }:{}),
                           outline:isSel?`2px solid ${SEL_COLOR}`:"none",outlineOffset:-2,
                           background:resolvedBg,
                           position:(isFrozenC||isFrozenRow)?"sticky":"relative",
@@ -2496,6 +3712,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                           minWidth:colW(ci),width:colW(ci)
                         }}
                         onClick={e=>select(ri,ci,e.shiftKey)}
+                        onMouseMove={()=>{if(fillHandleDragging&&fillDrag)setFillDrag(fd=>fd?{...fd,endRi:ri,endCi:ci}:fd);}}
                         onDoubleClick={()=>startEdit(ri,ci)}
                         onContextMenu={e=>openContextMenu(e,ri,ci)}
                         onFocus={()=>{if(!editing){setSelection({start:{ri,ci},end:null});const v=r[c.key];setFormulaInput(v!==undefined?String(v):"");}}}
@@ -2512,6 +3729,12 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                               onChange={v=>{setEditVal(v);commitEdit(ri,ci,v);}}
                               onBlur={()=>commitEdit(ri,ci)}
                             />
+                          ):c.type==="date"?(
+                            <input type="date" autoFocus value={editVal}
+                              onChange={e=>setEditVal(e.target.value)}
+                              onBlur={()=>commitEdit(ri,ci)}
+                              onKeyDown={e=>{if(e.key==="Enter")commitEdit(ri,ci);if(e.key==="Escape"){setEditing(null);}}}
+                              style={{position:"absolute",inset:0,border:"none",outline:`2px solid ${SEL_COLOR}`,padding:"0 4px",fontSize:fmt.fontSize||12,fontFamily:"inherit",background:"#fff",zIndex:10,width:"100%",boxSizing:"border-box"}}/>
                           ):(
                             <input autoFocus value={editVal}
                               onChange={e=>{setEditVal(e.target.value);setFormulaInput(e.target.value);updateAutocomplete(e.target.value);updateInlineSuggest(e.target.value,ri,ci);
@@ -2532,20 +3755,42 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                                 <StatusPill value={String(dispVal??"")} onClick={e=>{e.stopPropagation();if(onChange){const row2=processedRows[ri];const cur=row2[c.key]||"Pending";const next=STATUS_CYCLE[(STATUS_CYCLE.indexOf(cur)+1)%STATUS_CYCLE.length];pushHistory([{ri:row2.__origIdx,key:c.key,val:cur}]);onChange(row2.__origIdx,c.key,next);}}}/>
                               </span>
                             ):(
-                              <span style={{color:hasValError?"#ef4444":isFormula?"#1a73e8":"inherit",position:"relative",zIndex:1}}>
+                              <span style={{color:hasValError?"#ef4444":isFormula?"#1a73e8":"inherit",position:"relative",zIndex:1,display:"flex",alignItems:"center",gap:3}}>
                                 {hasValError&&<span title={hasValError} style={{marginRight:4}}>⚠️</span>}
-                                {c.xlRender?c.xlRender(dispVal,r):String(dispVal??"")}
+                                {c.xlRender?c.xlRender(dispVal,r):
+                                  // UPGRADE 6: Type renderers
+                                  c.type==="currency"?(<span style={{color:Number(dispVal)>=0?"#16a34a":"#dc2626",fontWeight:600}}>{Number(dispVal)||dispVal===0?`$${Number(dispVal).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`:""}</span>):
+                                  c.type==="percent"?(<span style={{position:"relative",display:"inline-flex",alignItems:"center",gap:4}}><div style={{position:"absolute",left:0,top:0,bottom:0,width:`${Math.min(100,Math.abs(Number(dispVal)))}%`,background:"#bfdbfe",opacity:0.5,borderRadius:2}}/><span style={{position:"relative"}}>{Number(dispVal)||dispVal===0?`${Number(dispVal).toFixed(1)}%`:""}</span></span>):
+                                  c.type==="date"?(<span>{dispVal?new Date(dispVal).toLocaleDateString("en-US",{year:"numeric",month:"short",day:"numeric"}):""}</span>):
+                                  c.type==="checkbox"?(<span onClick={e=>{e.stopPropagation();if(onChange){const row2=processedRows[ri];const cur=row2[c.key];onChange(row2.__origIdx,c.key,!cur&&cur!=="false"&&cur!==false?false:true);}}} style={{cursor:"pointer",fontSize:14}}>{(!dispVal||dispVal==="false"||dispVal===false)?"☐":"✅"}</span>):
+                                  c.type==="email"?(<a href={`mailto:${dispVal}`} onClick={e=>e.stopPropagation()} style={{color:"#2563eb",textDecoration:"underline"}}>{String(dispVal??"")}</a>):
+                                  c.type==="url"?(<a href={String(dispVal??"")} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{color:"#2563eb",textDecoration:"underline"}}>🔗 {String(dispVal??"")}</a>):
+                                  c.type==="badge"?(<span style={{display:"inline-block",padding:"1px 7px",borderRadius:10,fontSize:10,fontWeight:700,background:`hsl(${(String(dispVal??"").split("").reduce((a,b)=>a+b.charCodeAt(0),0)*37)%360},65%,88%)`,color:`hsl(${(String(dispVal??"").split("").reduce((a,b)=>a+b.charCodeAt(0),0)*37)%360},65%,30%)`}}>{String(dispVal??"")}</span>):
+                                  c.type==="rating"?(
+                                    <span style={{display:"inline-flex",gap:2}}>{[1,2,3,4,5].map(star=><span key={star} onClick={e=>{e.stopPropagation();if(onChange){const row2=processedRows[ri];onChange(row2.__origIdx,c.key,star);}}} style={{cursor:"pointer",fontSize:13,opacity:Number(dispVal)>=star?1:0.25}}>⭐</span>)}</span>
+                                  ):
+                                  (()=>{const v=dispVal??"";const n=Number(v);const dec=fmt.decimals??2;if(fmt.numFormat==="currency"&&!isNaN(n)&&v!=="")return<span style={{color:n>=0?"#16a34a":"#dc2626",fontWeight:600}}>{n.toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:dec,maximumFractionDigits:dec})}</span>;if(fmt.numFormat==="percent"&&!isNaN(n)&&v!=="")return<span>{(n).toFixed(dec)}%</span>;if(fmt.numFormat==="number"&&!isNaN(n)&&v!=="")return<span>{n.toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec})}</span>;if(fmt.numFormat==="scientific"&&!isNaN(n)&&v!=="")return<span>{n.toExponential(dec)}</span>;if(fmt.numFormat==="text")return<span>{String(v)}</span>;return String(v);})()
+                                }
                               </span>
                             )}
                             {condStyle?.__databar&&<div style={{position:"absolute",left:0,top:0,bottom:0,width:`${condStyle.pct}%`,background:condStyle.color,opacity:0.25,pointerEvents:"none"}}/>}
                             {/* Fill handle – bottom-right corner of selection's last cell */}
                             {isSel&&!isEd&&selection.start&&!selection.end&&selection.start.ri===ri&&selection.start.ci===ci&&(
                               <div
-                                onMouseDown={e=>{e.preventDefault();e.stopPropagation();setFillDrag({startRi:ri,startCi:ci,endRi:ri,endCi:ci});}}
-                                onMouseMove={e=>{if(fillDrag){setFillDrag(fd=>fd?{...fd,endRi:ri,endCi:ci}:fd);}}}
-                                onMouseUp={applyFillDrag}
+                                onMouseDown={e=>{e.preventDefault();e.stopPropagation();setFillDrag({startRi:ri,startCi:ci,endRi:ri,endCi:ci});setFillHandleDragging(true);}}
                                 style={{position:"absolute",right:-4,bottom:-4,width:8,height:8,background:SEL_COLOR,border:"1px solid #fff",cursor:"crosshair",zIndex:20,borderRadius:1}}
                               />
+                            )}
+                            {/* While dragging, show overlay on cells in range */}
+                            {fillHandleDragging&&fillDrag&&ri>=fillDrag.startRi&&ri<=fillDrag.endRi&&ci===fillDrag.startCi&&ri!==fillDrag.startRi&&(
+                              <div style={{position:"absolute",inset:0,background:"rgba(26,115,232,0.1)",border:"1px dashed #1a73e8",pointerEvents:"none",zIndex:15}}/>
+                            )}
+                            {/* Fill handle drag preview */}
+                            {fillDrag&&fillHandleDragging&&fillDrag.startRi===ri&&fillDrag.startCi===ci&&fillDrag.endRi!==ri&&(
+                              <div style={{position:"absolute",inset:0,border:"2px dashed #1a73e8",pointerEvents:"none",zIndex:25}}/>
+                            )}
+                            {fillDrag&&ri>fillDrag.startRi&&ri<=fillDrag.endRi&&fillDrag.startCi===ci&&(
+                              <div style={{position:"absolute",inset:0,background:"rgba(26,115,232,0.08)",border:"1px dashed #1a73e8",pointerEvents:"none",zIndex:15}}/>
                             )}
                             {/* Trace arrow highlight */}
                             {traceCell&&getTracedCells(traceCell.ri,traceCell.ci).some(t=>t.ri===ri&&t.ci===ci)&&(
@@ -2605,7 +3850,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
           return (
           <div key={s.id} style={{display:"flex",alignItems:"center",gap:0,marginRight:2,position:"relative"}}>
             <button onClick={()=>setActiveSheet(s.id)} onDoubleClick={()=>renameSheet(s.id)}
-              style={{padding:"3px 12px",fontSize:11,border:`1px solid ${BORDER}`,borderBottom:s.id===activeSheet?`2px solid ${tabColor||"#1a73e8"}`:"1px solid transparent",background:s.id===activeSheet?"#fff":"transparent",cursor:"pointer",borderRadius:"4px 4px 0 0",fontWeight:s.id===activeSheet?600:400,color:s.id===activeSheet?(tabColor||"#1a73e8"):"#555",whiteSpace:"nowrap",paddingLeft:tabColor?20:12,position:"relative"}}>
+              style={{padding:"3px 12px",fontSize:11,borderTop:`1px solid ${BORDER}`,borderLeft:`1px solid ${BORDER}`,borderRight:`1px solid ${BORDER}`,borderBottom:s.id===activeSheet?`2px solid ${tabColor||"#1a73e8"}`:"1px solid transparent",background:s.id===activeSheet?"#fff":"transparent",cursor:"pointer",borderRadius:"4px 4px 0 0",fontWeight:s.id===activeSheet?600:400,color:s.id===activeSheet?(tabColor||"#1a73e8"):"#555",whiteSpace:"nowrap",paddingLeft:tabColor?20:12,position:"relative"}}>
               {tabColor&&<span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",width:8,height:8,borderRadius:"50%",background:tabColor,display:"inline-block"}}/>}
               {s.name}
             </button>

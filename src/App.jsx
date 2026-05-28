@@ -26,7 +26,8 @@ import { B, INIT } from "./constants";
 import { AppProvider, useAppData } from "./context/AppContext";
 import { can, getVisibleModules } from "./services/permissions";
 import LoginScreen from "./LoginScreen";
-import "./mobile.css"; // ← NEW: global mobile responsiveness patch
+import "./mobile.css"; // ← global mobile responsiveness patch
+import "./LeadsTab.mobile.css"; // ← LeadsTab phone/tablet patch
 
 // Static imports kept for the inline AppShell below
 import Dashboard from "./tabs/Dashboard";

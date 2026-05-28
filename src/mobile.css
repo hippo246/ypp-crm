@@ -136,7 +136,7 @@
 
 /* ── Touch-friendly tap targets ─────────────────────────────────────────────── */
 @media (hover: none) {
-  button, [role="button"] {
+  button:not(td button):not(th button), [role="button"] {
     min-height: 36px;
   }
   .sidebar-item {
