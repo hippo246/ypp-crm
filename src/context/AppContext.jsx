@@ -20,6 +20,14 @@ const INITIAL_META = {
   presence: [],        // [{ userId, name, avatar, color, activeTab, lastSeen }]
   autoSaveStatus: "saved", // "saved" | "saving" | "unsaved"
   versionHistory: [],  // [{ id, timestamp, user, snapshot, label }]
+  // Safe fallbacks — overwritten by initialData, but prevent crashes
+  // if AppProvider is ever rendered without initialData prop
+  leads: [],
+  clients: [],
+  tasks: [],
+  accounting: [],
+  inventory: [],
+  suppliers: [],
 };
 
 function reducer(state, action) {
@@ -228,7 +236,7 @@ function reducer(state, action) {
 }
 
 export function AppProvider({ children, initialData }) {
-  const [state, dispatch] = useReducer(reducer, { ...initialData, ...INITIAL_META });
+  const [state, dispatch] = useReducer(reducer, { ...INITIAL_META, ...(initialData || {}) });
 
   // Derived notifications — recomputed whenever data changes
   const notifications = useMemo(() => {
