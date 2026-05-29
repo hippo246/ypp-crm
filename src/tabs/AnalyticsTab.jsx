@@ -1,9 +1,116 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { B } from "../constants";
 import { aed } from "../helpers";
 import Badge from "../components/Badge";
 import StatCard from "../components/StatCard";
 import SectionCard from "../components/SectionCard";
+
+// ── XP & Achievement constants ────────────────────────────────────────────────
+const XP_PER_SUBTAB   = 15;   // first visit to a sub-tab
+const XP_PER_REVISIT  = 3;    // subsequent visits
+const XP_LEVEL_SIZE   = 100;  // XP needed per level
+
+const ACHIEVEMENTS = [
+  { id: "conversion_pro",  icon: "🎯", label: "Conversion Pro",    desc: "Hit 80%+ conversion rate",            check: (d) => d.convRate >= 80 },
+  { id: "zero_overdue",    icon: "✅", label: "Clean Slate",        desc: "Zero overdue tasks",                   check: (d) => d.overdueTasks === 0 && d.totalTasks > 0 },
+  { id: "big_team",        icon: "👥", label: "Team Player",        desc: "10+ team members tracked",             check: (d) => d.teamSize >= 10 },
+  { id: "velocity",        icon: "⚡", label: "Velocity Master",    desc: "50+ tasks completed this period",      check: (d) => d.doneTasks >= 50 },
+  { id: "revenue_100k",    icon: "💰", label: "Centennial",         desc: "AED 100,000+ paid revenue",            check: (d) => d.totalRevenue >= 100000 },
+  { id: "full_pipeline",   icon: "🔥", label: "Pipeline on Fire",   desc: "Leads in every stage of the funnel",   check: (d) => d.pipelineStagesFilled >= 6 },
+  { id: "completion_90",   icon: "🏆", label: "Perfectionist",      desc: "90%+ task completion rate",            check: (d) => d.completionPct >= 90 },
+  { id: "explorer",        icon: "🗺️", label: "Data Explorer",     desc: "Visit all 7 analytics sub-tabs",       check: (d) => d.seenTabCount >= 7 },
+];
+
+// ── Toast component ───────────────────────────────────────────────────────────
+function Toast({ toasts }) {
+  return (
+    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 99999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: "linear-gradient(135deg, #1d3557 0%, #457b9d 100%)",
+          color: "#fff", borderRadius: 12, padding: "12px 18px",
+          fontSize: 13, fontWeight: 600, boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
+          display: "flex", alignItems: "center", gap: 10,
+          animation: "toastIn 0.35s cubic-bezier(0.34,1.56,0.64,1)",
+          maxWidth: 280,
+        }}>
+          <span style={{ fontSize: 20 }}>{t.icon}</span>
+          <div>
+            <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 1 }}>{t.category}</div>
+            <div>{t.message}</div>
+          </div>
+        </div>
+      ))}
+      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px) scale(0.9); } to { opacity:1; transform:translateX(0) scale(1); } }`}</style>
+    </div>
+  );
+}
+
+// ── Vibe Bar component ────────────────────────────────────────────────────────
+const VIBE_LEVELS = ["Lurker","Analyst","Data Hawk","Insight Seeker","Dashboard Pro","Oracle"];
+function VibeBar({ xp }) {
+  const level   = Math.min(Math.floor(xp / XP_LEVEL_SIZE), VIBE_LEVELS.length - 1);
+  const pct     = ((xp % XP_LEVEL_SIZE) / XP_LEVEL_SIZE) * 100;
+  const title   = VIBE_LEVELS[level];
+  const nextXP  = XP_LEVEL_SIZE - (xp % XP_LEVEL_SIZE);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px", background: "linear-gradient(90deg,rgba(29,53,87,0.06),rgba(69,123,157,0.06))", borderRadius: 10, border: `1px solid rgba(29,53,87,0.1)` }}>
+      <div style={{ fontSize: 18, lineHeight: 1 }}>📊</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: B.text }}>{title}</span>
+          <span style={{ fontSize: 10, color: B.muted }}>{xp} XP · {nextXP} to next level</span>
+        </div>
+        <div style={{ height: 6, background: "rgba(29,53,87,0.1)", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg,#1d3557,#457b9d)", borderRadius: 3, transition: "width 0.6s cubic-bezier(0.34,1.2,0.64,1)" }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Achievement Shelf component ───────────────────────────────────────────────
+function AchievementShelf({ achievements, unlocked }) {
+  const [hovered, setHovered] = useState(null);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: B.muted, letterSpacing: "0.5px", textTransform: "uppercase", marginRight: 2 }}>Achievements</span>
+      {achievements.map(a => {
+        const isUnlocked = unlocked.has(a.id);
+        return (
+          <div key={a.id} style={{ position: "relative" }}
+            onMouseEnter={() => setHovered(a.id)}
+            onMouseLeave={() => setHovered(null)}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 16, cursor: "default",
+              background: isUnlocked ? "linear-gradient(135deg,#1d3557,#457b9d)" : "rgba(0,0,0,0.06)",
+              border: isUnlocked ? "1.5px solid rgba(69,123,157,0.5)" : `1.5px solid ${B.border}`,
+              filter: isUnlocked ? "none" : "grayscale(1)",
+              opacity: isUnlocked ? 1 : 0.4,
+              transition: "all 0.2s",
+              boxShadow: isUnlocked ? "0 2px 8px rgba(29,53,87,0.25)" : "none",
+            }}>
+              {a.icon}
+            </div>
+            {hovered === a.id && (
+              <div style={{
+                position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
+                background: "#1d3557", color: "#fff", borderRadius: 8, padding: "8px 12px",
+                fontSize: 11, whiteSpace: "nowrap", pointerEvents: "none", zIndex: 9999,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>{a.label} {isUnlocked ? "✓" : "🔒"}</div>
+                <div style={{ opacity: 0.8 }}>{a.desc}</div>
+                <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "5px solid #1d3557" }} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function filterByRange(items, dateField, range) {
@@ -246,6 +353,35 @@ const AnalyticsTab = ({ data }) => {
   const [collapsed, setCollapsed] = useState({});
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, items }
   const [hoverCard, setHoverCard] = useState(null); // { data, x, y }
+
+  // ── Fun layer: XP + achievements ───────────────────────────────────────────
+  const [xpAnalytics, setXpAnalytics] = useState(0);
+  const [seenSubTabs, setSeenSubTabs] = useState(new Set(["overview"]));
+  const [toasts, setToasts] = useState([]);
+  const toastTimer = useRef({});
+  const prevUnlocked = useRef(new Set());
+
+  const addToast = useCallback((message, icon = "✨", category = "Discovery") => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t, { id, message, icon, category }]);
+    toastTimer.current[id] = setTimeout(() => {
+      setToasts(t => t.filter(x => x.id !== id));
+      delete toastTimer.current[id];
+    }, 3500);
+  }, []);
+
+  const handleSubTab = useCallback((val, lbl) => {
+    setSubTab(val);
+    const isNew = !seenSubTabs.has(val);
+    if (isNew) {
+      setSeenSubTabs(prev => new Set([...prev, val]));
+      setXpAnalytics(xp => xp + XP_PER_SUBTAB);
+      addToast(`You found the ${lbl}!`, "🔭", `+${XP_PER_SUBTAB} XP`);
+    } else {
+      setXpAnalytics(xp => xp + XP_PER_REVISIT);
+    }
+  }, [seenSubTabs, addToast]);
+
   const toggleCollapse = (key) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
   const openCtx = (e, items) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, items }); };
   const ranges = [["all","All Time"],["thisMonth","This Month"],["lastMonth","Last Month"],["thisQuarter","This Quarter"]];
@@ -290,6 +426,37 @@ const AnalyticsTab = ({ data }) => {
   const templateCount = filteredTasks.filter(t => t.isTemplate).length;
   const avgAttachments = filteredTasks.length ? (filteredTasks.reduce((a, t) => a + (t.attachments?.length || 0), 0) / filteredTasks.length).toFixed(1) : 0;
   const reviewPending = filteredTasks.filter(t => t.reviewAssignee && t.status !== "Done").length;
+
+  // ── Achievement check data ───────────────────────────────────────────────────
+  const achievementData = useMemo(() => ({
+    convRate:            convRate,
+    overdueTasks:        overdueTasks,
+    totalTasks:          filteredTasks.length,
+    teamSize:            [...new Set(tasks.map(t => t.assigned).filter(Boolean))].length,
+    doneTasks:           doneTasks,
+    totalRevenue:        totalRevenue,
+    pipelineStagesFilled: ["New","Contacted","Qualified","Proposal","Won","Lost"].filter(s => filteredLeads.some(l => l.status === s)).length,
+    completionPct:       completionPct,
+    seenTabCount:        seenSubTabs.size,
+  }), [convRate, overdueTasks, filteredTasks.length, tasks, doneTasks, totalRevenue, filteredLeads, completionPct, seenSubTabs]);
+
+  const unlockedAchievements = useMemo(() => {
+    const s = new Set();
+    ACHIEVEMENTS.forEach(a => { if (a.check(achievementData)) s.add(a.id); });
+    return s;
+  }, [achievementData]);
+
+  // Fire toast + XP when a new achievement unlocks
+  useEffect(() => {
+    unlockedAchievements.forEach(id => {
+      if (!prevUnlocked.current.has(id)) {
+        const a = ACHIEVEMENTS.find(x => x.id === id);
+        if (a) addToast(`${a.label} unlocked!`, a.icon, "Achievement");
+        setXpAnalytics(xp => xp + 25);
+      }
+    });
+    prevUnlocked.current = unlockedAchievements;
+  }, [unlockedAchievements, addToast]);
 
   // ── Team performance ────────────────────────────────────────────────────────
   const teamStats = useMemo(() => {
@@ -438,7 +605,7 @@ const AnalyticsTab = ({ data }) => {
           {/* Sub-tabs */}
           <div style={{ display: "flex", gap: 2, background: B.light, borderRadius: 8, padding: 3 }}>
             {SUBTABS.map(([val, lbl]) => (
-              <button key={val} onClick={() => setSubTab(val)}
+              <button key={val} onClick={() => handleSubTab(val, lbl)}
                 style={{ padding: viewMode === "compact" ? "3px 10px" : "5px 12px", borderRadius: 6, fontSize: 11, border: "none", background: subTab === val ? "#fff" : "transparent", color: subTab === val ? B.text : B.muted, cursor: "pointer", fontWeight: subTab === val ? 700 : 400, boxShadow: subTab === val ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s", fontFamily: "inherit" }}>
                 {lbl}
               </button>
@@ -464,6 +631,15 @@ const AnalyticsTab = ({ data }) => {
           </div>
         </div>
       </div>
+
+      {/* Vibe Bar + Achievement Shelf */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "4px 0 2px" }}>
+        <VibeBar xp={xpAnalytics} />
+        <AchievementShelf achievements={ACHIEVEMENTS} unlocked={unlockedAchievements} />
+      </div>
+
+      {/* Toast layer */}
+      <Toast toasts={toasts} />
 
       {/* ── OVERVIEW ──────────────────────────────────────────────────────────── */}
       {subTab === "overview" && (

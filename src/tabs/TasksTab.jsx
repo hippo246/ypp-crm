@@ -1,11 +1,219 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { B } from "../constants";
-import { filterSearch, nextId } from "../helpers";
+import { filterSearch, nextId, parseOperatorQuery } from "../helpers";
+import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
 import Badge from "../components/Badge";
 import SectionCard from "../components/SectionCard";
 import NTable from "../components/NTable";
 import ExcelTable from "../components/ExcelTable";
 import FormModal from "../components/FormModal";
+
+// ─── Fun Layer: Tasks Edition ─────────────────────────────────────────────────
+
+const TASK_VIBES = [
+  { hour: [6,11],  emoji: "☀️", msg: "Morning task sprint. Your to-do list isn't going to tackle itself." },
+  { hour: [11,14], emoji: "⚡", msg: "Midday momentum. Knock out the High priorities before lunch guilt sets in." },
+  { hour: [14,17], emoji: "📋", msg: "Afternoon grind. You're the only one who actually tracks these. Be proud." },
+  { hour: [17,20], emoji: "🌆", msg: "Golden hour — close out what you can before tomorrow-you inherits the mess." },
+  { hour: [20,24], emoji: "🌙", msg: "Night mode task review. Dedication or avoidance? Unclear." },
+  { hour: [0,6],   emoji: "🦉", msg: "3am task management. The dedication is noted. The therapy is recommended." },
+];
+
+const ADD_TASK_TOASTS = [
+  "✅ Task created. It won't do itself, but at least it exists now.",
+  "📋 Added to the list. The backlog grows stronger.",
+  "🎯 Task locked in. Your future self will deal with it.",
+  "📌 Queued up. Very organised. Very optimistic.",
+  "⚡ New task. You're basically a project manager at this point.",
+  "🗒️ Noted. Added. Ignored later, maybe. But noted.",
+  "🚀 Task launched into the backlog. May it survive.",
+  "💼 Created. Your productivity is showing.",
+  "📬 Task registered. The system is aware. The boss is not.",
+  "🏷️ Logged. One more thing for someone else to ignore in standup.",
+];
+
+const COMPLETE_TOASTS = [
+  "✅ DONE! One less thing haunting your dreams.",
+  "🎉 Completed! The task gods are appeased.",
+  "🏆 Finished! That one's been pending since when, exactly?",
+  "💪 Crushed it. Mark it done and never speak of it again.",
+  "🌟 Task complete! Someone's actually shipping things.",
+  "✨ Done and dusted. The backlog fears you.",
+  "🎯 Completed! Your sprint velocity is now technically infinite.",
+  "🥇 Knocked out! Your PM would weep with joy.",
+  "⚡ Done! Efficiency personified.",
+  "🦾 Complete. Absolutely nobody saw that coming. Except you.",
+];
+
+const EDIT_TASK_TOASTS = [
+  "✏️ Task updated. Refined and improved.",
+  "🔧 Tweaked. Scope creep is a journey, not a destination.",
+  "📝 Edit saved. The audit trail thanks you for your diligence.",
+  "⚙️ Updated. Meticulous as ever.",
+  "🔄 Changes locked in. Pivoting is just agile in disguise.",
+];
+
+const TASK_ACHIEVEMENTS = [
+  { id: "task_first",    icon: "📋", title: "First Task",       desc: "Created your first task",                            check: (t) => t.length >= 1 },
+  { id: "task_done1",    icon: "✅", title: "First Done",       desc: "Completed your first task",                          check: (t) => t.some(x => x.status === "Done") },
+  { id: "task_done10",   icon: "🏆", title: "Ten Done",         desc: "10+ tasks completed",                                check: (t) => t.filter(x => x.status === "Done").length >= 10 },
+  { id: "task_nodueovd", icon: "🗓️", title: "On Schedule",     desc: "Zero overdue tasks at the moment",                   check: (t) => t.filter(x => x.status !== "Done" && x.due && x.due < new Date().toISOString().slice(0,10)).length === 0 && t.length > 0 },
+  { id: "task_highpri",  icon: "🚨", title: "Crisis Handled",   desc: "Completed a High priority task",                    check: (t) => t.some(x => x.priority === "High" && x.status === "Done") },
+  { id: "task_all4",     icon: "🌈", title: "Full Board",       desc: "Tasks in all 4 statuses simultaneously",             check: (t) => ["Pending","In Progress","Done","Blocked"].every(s => t.some(x => x.status === s)) },
+  { id: "task_delegate", icon: "👥", title: "Delegation King",  desc: "Tasks assigned to 3+ different people",             check: (t) => new Set(t.map(x => x.assigned).filter(Boolean)).size >= 3 },
+  { id: "task_twenty",   icon: "🏭", title: "Backlog Legend",   desc: "20+ tasks tracked — you run a proper operation",    check: (t) => t.length >= 20 },
+];
+
+function spawnConfetti(x, y) {
+  const colors = ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#ec4899","#06b6d4"];
+  const container = document.createElement("div");
+  container.style.cssText = `position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:99999;overflow:hidden`;
+  document.body.appendChild(container);
+  for (let i = 0; i < 60; i++) {
+    const el = document.createElement("div");
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const size  = 6 + Math.random() * 8;
+    const angle = Math.random() * 360;
+    const vx    = (Math.random() - 0.5) * 400;
+    const vy    = -200 - Math.random() * 300;
+    el.style.cssText = `position:absolute;width:${size}px;height:${size}px;background:${color};left:${x}px;top:${y}px;border-radius:${Math.random() > 0.5 ? "50%" : "2px"};transform:rotate(${angle}deg);opacity:1;transition:none`;
+    container.appendChild(el);
+    const start = performance.now();
+    const dur   = 900 + Math.random() * 600;
+    const spin  = (Math.random() - 0.5) * 720;
+    const animate = (now) => {
+      const t = Math.min((now - start) / dur, 1);
+      el.style.left      = `${x + vx * t}px`;
+      el.style.top       = `${y + (vy * t + 300 * t * t)}px`;
+      el.style.opacity   = String(1 - t);
+      el.style.transform = `rotate(${angle + spin * t}deg)`;
+      if (t < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }
+  setTimeout(() => document.body.removeChild(container), 1600);
+}
+
+function useToasts() {
+  const [toasts, setToasts] = useState([]);
+  const push = useCallback((msg, icon = "✅", type = "add", title = null) => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t.slice(-3), { id, msg, icon, type, title }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
+  }, []);
+  return { toasts, push };
+}
+
+function ToastStack({ toasts }) {
+  return (
+    <div style={{ position:"fixed", bottom:24, right:24, zIndex:99998, display:"flex", flexDirection:"column", gap:8, pointerEvents:"none" }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: t.type === "achievement" ? "linear-gradient(135deg,#1e293b,#0f172a)" : "#1e293b",
+          color:"#fff", padding:"12px 18px", borderRadius:12,
+          fontSize:13, fontWeight:600, maxWidth:320,
+          boxShadow:"0 8px 32px rgba(0,0,0,0.35)",
+          borderLeft: t.type === "achievement" ? "4px solid #f59e0b" : "4px solid #10b981",
+          animation:"slideInRight 0.3s ease", display:"flex", alignItems:"center", gap:10,
+        }}>
+          <span style={{ fontSize:20 }}>{t.icon}</span>
+          <div>
+            {t.title && <div style={{ fontSize:11, fontWeight:700, color:"#f59e0b", textTransform:"uppercase", letterSpacing:0.5, marginBottom:2 }}>{t.title}</div>}
+            {t.msg}
+          </div>
+        </div>
+      ))}
+      <style>{`@keyframes slideInRight{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+    </div>
+  );
+}
+
+function useXP(storageKey = "tasks_xp") {
+  const [xp, setXP] = useState(() => Number(localStorage.getItem(storageKey)) || 0);
+  const gain = useCallback((amount) => {
+    setXP(prev => {
+      const next = prev + amount;
+      localStorage.setItem(storageKey, String(next));
+      return next;
+    });
+  }, [storageKey]);
+  return { xp, gain };
+}
+
+function XPBar({ xp }) {
+  const level  = Math.floor(xp / 100) + 1;
+  const pct    = xp % 100;
+  const titles = ["Intern","Junior","Analyst","Senior","Manager","Director","VP","C-Suite","Legend","GOD MODE"];
+  const title  = titles[Math.min(level - 1, titles.length - 1)];
+  const colors = ["#94a3b8","#60a5fa","#34d399","#a78bfa","#f59e0b","#f97316","#ef4444","#ec4899","#06b6d4","#fbbf24"];
+  const color  = colors[Math.min(level - 1, colors.length - 1)];
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, background:B.white, border:`1px solid ${B.border}`, borderRadius:10, padding:"8px 14px" }}>
+      <div style={{ textAlign:"center", minWidth:40 }}>
+        <div style={{ fontSize:18, lineHeight:1 }}>✅</div>
+        <div style={{ fontSize:9, fontWeight:800, color, letterSpacing:0.5, textTransform:"uppercase" }}>Lv.{level}</div>
+      </div>
+      <div style={{ flex:1 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+          <span style={{ fontSize:11, fontWeight:700, color }}>{title}</span>
+          <span style={{ fontSize:10, color:B.muted }}>{xp} XP</span>
+        </div>
+        <div style={{ height:5, background:B.border, borderRadius:99, overflow:"hidden" }}>
+          <div style={{ width:`${pct}%`, height:"100%", background:`linear-gradient(90deg,${color},${color}cc)`, borderRadius:99, transition:"width 0.6s ease" }} />
+        </div>
+        <div style={{ fontSize:9, color:B.muted, marginTop:2 }}>{100 - pct} XP to next level</div>
+      </div>
+    </div>
+  );
+}
+
+function AchievementShelf({ tasks, newlyUnlocked }) {
+  const unlocked = TASK_ACHIEVEMENTS.filter(a => a.check(tasks));
+  return (
+    <div style={{ background:B.white, border:`1px solid ${B.border}`, borderRadius:10, padding:"10px 14px" }}>
+      <div style={{ fontSize:10, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>🏆 Achievements</div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        {TASK_ACHIEVEMENTS.map(a => {
+          const done  = a.check(tasks);
+          const isNew = newlyUnlocked.includes(a.id);
+          return (
+            <div key={a.id} title={`${a.title}: ${a.desc}`} style={{
+              width:38, height:38, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:20, cursor:"default",
+              background: done ? (isNew ? "#fef9c3" : B.light) : "#f8fafc",
+              border:`1px solid ${done ? (isNew ? "#f59e0b" : B.border) : "#e2e8f0"}`,
+              opacity: done ? 1 : 0.3, filter: done ? "none" : "grayscale(1)",
+              transform: isNew ? "scale(1.15)" : "scale(1)",
+              transition:"all 0.3s ease",
+              boxShadow: isNew ? "0 0 0 3px #f59e0b40" : "none",
+            }}>{a.icon}</div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize:9, color:B.muted, marginTop:6 }}>{unlocked.length}/{TASK_ACHIEVEMENTS.length} unlocked — hover for details</div>
+    </div>
+  );
+}
+
+function DailyVibeBar() {
+  const h    = new Date().getHours();
+  const vibe = TASK_VIBES.find(v => h >= v.hour[0] && h < v.hour[1]) || TASK_VIBES[0];
+  const day  = new Date().toLocaleDateString("en", { weekday:"long" });
+  const isMonday = new Date().getDay() === 1;
+  const isFriday = new Date().getDay() === 5;
+  const bonus = isMonday ? " Monday task dump — add everything, panic later." : isFriday ? " Friday! Close what you can, defer what you can't, blame what you shouldn't." : "";
+  return (
+    <div style={{ background:`linear-gradient(135deg,#0f172a,#1e293b)`, borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:12 }}>
+      <span style={{ fontSize:22 }}>{vibe.emoji}</span>
+      <div>
+        <div style={{ fontSize:12, fontWeight:700, color:"#fff" }}>{vibe.msg}{bonus}</div>
+        <div style={{ fontSize:10, color:"#94a3b8", marginTop:1 }}>{day} · Your boss has no idea what's in this backlog. That's actually fine.</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── End Fun Layer ─────────────────────────────────────────────────────────────
 
 const MEMBERS = ["Anna", "Mark", "James", "Other"];
 const RISK_COLORS = { High: B.red, Medium: B.orange, Low: B.green };
@@ -579,6 +787,197 @@ const TaskDetailPanel = ({ task, taskIndex, allTasks, onClose, onUpdate, onAddCo
   );
 };
 
+// ─── Add Task Wizard (3-step modal) ──────────────────────────────────────────
+const WIZARD_STEPS = ["Identity", "Deal", "Review"];
+
+function WizardInput({ label, required, children }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <label style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: 0.3, textTransform: "uppercase" }}>
+        {label}{required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle = {
+  width: "100%", padding: "10px 13px", fontSize: 13, border: "1.5px solid #e5e7eb",
+  borderRadius: 8, fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+  color: "#111827", background: "#fff", transition: "border-color 0.15s",
+};
+
+function AddTaskWizard({ onSave, onClose }) {
+  const [step, setStep] = useState(0); // 0=Identity, 1=Deal, 2=Review
+  const [vals, setVals] = useState({
+    title: "", assigned: "", reviewAssignee: "", priority: "Medium",
+    status: "Pending", due: "", start: "", risk: "Low", ref: "",
+  });
+  const [errors, setErrors] = useState({});
+
+  const set = (k, v) => setVals(p => ({ ...p, [k]: v }));
+  const inp = (k, extra = {}) => ({
+    value: vals[k], onChange: e => set(k, e.target.value),
+    style: { ...inputStyle, ...(errors[k] ? { borderColor: "#ef4444" } : {}), ...extra },
+    onFocus: e => { e.target.style.borderColor = "#6366f1"; },
+    onBlur:  e => { e.target.style.borderColor = errors[k] ? "#ef4444" : "#e5e7eb"; },
+  });
+  const sel = (k) => ({
+    value: vals[k], onChange: e => set(k, e.target.value),
+    style: { ...inputStyle, appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 30 },
+  });
+
+  const validateStep = () => {
+    if (step === 0 && !vals.title.trim()) { setErrors({ title: true }); return false; }
+    setErrors({});
+    return true;
+  };
+
+  const next = () => { if (validateStep()) setStep(s => s + 1); };
+  const back = () => setStep(s => s - 1);
+
+  const overlayStyle = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+  };
+  const modalStyle = {
+    background: "#fff", borderRadius: 14, width: "100%", maxWidth: 520,
+    boxShadow: "0 24px 60px rgba(0,0,0,0.22)", display: "flex", flexDirection: "column", overflow: "hidden",
+  };
+
+  const ReviewRow = ({ label, value, fallback = "—" }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid #f3f4f6", fontSize: 13 }}>
+      <span style={{ color: "#6b7280", fontWeight: 500 }}>{label}</span>
+      <span style={{ color: "#111827", fontWeight: 600, textAlign: "right", maxWidth: "60%" }}>{value || fallback}</span>
+    </div>
+  );
+
+  return (
+    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={modalStyle}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #f3f4f6" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <span style={{ fontSize: 22 }}>✅</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: "#111827" }}>Add New Task</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#9ca3af" }}>Step {step + 1} of 3 — {WIZARD_STEPS[step]}</div>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af", lineHeight: 1, padding: 0 }}>✕</button>
+          </div>
+          {/* Step dots */}
+          <div style={{ display: "flex", alignItems: "center", gap: 0, marginTop: 16 }}>
+            {WIZARD_STEPS.map((s, i) => (
+              <div key={s} style={{ display: "flex", alignItems: "center", flex: i < 2 ? 1 : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 12, fontWeight: 700,
+                    background: i < step ? "#6366f1" : i === step ? "#6366f1" : "#f3f4f6",
+                    color: i <= step ? "#fff" : "#9ca3af",
+                    border: i === step ? "2px solid #6366f1" : "2px solid transparent",
+                  }}>
+                    {i < step ? "✓" : i + 1}
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: i === step ? 700 : 500, color: i === step ? "#6366f1" : i < step ? "#374151" : "#9ca3af" }}>{s}</span>
+                </div>
+                {i < 2 && <div style={{ flex: 1, height: 2, background: i < step ? "#6366f1" : "#e5e7eb", margin: "0 10px", borderRadius: 2 }} />}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "24px 24px 8px", display: "flex", flexDirection: "column", gap: 16, minHeight: 220 }}>
+          {step === 0 && (<>
+            <WizardInput label="Task Title" required>
+              <input {...inp("title")} placeholder="e.g. Follow up with client" />
+              {errors.title && <span style={{ fontSize: 11, color: "#ef4444" }}>Task title is required</span>}
+            </WizardInput>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <WizardInput label="Assigned To">
+                <select {...sel("assigned")}>
+                  <option value="">— Unassigned —</option>
+                  {MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </WizardInput>
+              <WizardInput label="Reviewer">
+                <select {...sel("reviewAssignee")}>
+                  <option value="">— None —</option>
+                  {MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </WizardInput>
+            </div>
+            <WizardInput label="Lead Source / Reference">
+              <input {...inp("ref")} placeholder="L001, C001… or leave blank" />
+            </WizardInput>
+          </>)}
+
+          {step === 1 && (<>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <WizardInput label="Priority">
+                <select {...sel("priority")}>
+                  {["High","Medium","Low"].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </WizardInput>
+              <WizardInput label="Status">
+                <select {...sel("status")}>
+                  {["Pending","In Progress","In Review","Done","Blocked"].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </WizardInput>
+              <WizardInput label="Risk Level">
+                <select {...sel("risk")}>
+                  {["High","Medium","Low"].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </WizardInput>
+              <WizardInput label="Start Date">
+                <input type="date" {...inp("start")} />
+              </WizardInput>
+              <WizardInput label="Due Date">
+                <input type="date" {...inp("due")} />
+              </WizardInput>
+            </div>
+          </>)}
+
+          {step === 2 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Review before saving</div>
+              <ReviewRow label="Task Title" value={vals.title} />
+              <ReviewRow label="Assigned To" value={vals.assigned} />
+              <ReviewRow label="Reviewer" value={vals.reviewAssignee} />
+              <ReviewRow label="Priority" value={vals.priority} />
+              <ReviewRow label="Status" value={vals.status} />
+              <ReviewRow label="Risk" value={vals.risk} />
+              <ReviewRow label="Due Date" value={vals.due} />
+              <ReviewRow label="Reference" value={vals.ref} />
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "16px 24px 22px", gap: 10 }}>
+          <button onClick={step === 0 ? onClose : back}
+            style={{ padding: "10px 22px", border: "1.5px solid #e5e7eb", borderRadius: 8, background: "#fff", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            {step === 0 ? "Cancel" : "← Back"}
+          </button>
+          {step < 2
+            ? <button onClick={next}
+                style={{ padding: "10px 28px", background: "linear-gradient(135deg,#6366f1,#4f46e5)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(99,102,241,0.35)" }}>
+                Next →
+              </button>
+            : <button onClick={() => onSave(vals)}
+                style={{ padding: "10px 28px", background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(16,185,129,0.35)" }}>
+                ✓ Save Task
+              </button>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const FIELDS = [
   { key: "title", label: "Task Title", placeholder: "Task description" },
   { key: "assigned", label: "Assigned To", type: "select", options: MEMBERS },
@@ -605,9 +1004,42 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
   const dragRef = useRef(null);
   const statuses = ["All", "Pending", "In Progress", "In Review", "Done", "Blocked"];
 
+  // ── Fun Layer wiring ──────────────────────────────────────────────────────────
+  const { xp, gain } = useXP("tasks_xp");
+  const { toasts, push } = useToasts();
+  const [newlyUnlocked, setNewlyUnlocked] = useState([]);
+  const unlockedRef = useRef(new Set(JSON.parse(localStorage.getItem("tasks_achievements") || "[]")));
+
+  // Achievement watcher
+  useEffect(() => {
+    const freshlyUnlocked = [];
+    TASK_ACHIEVEMENTS.forEach(a => {
+      if (!unlockedRef.current.has(a.id) && a.check(data.tasks)) {
+        unlockedRef.current.add(a.id);
+        freshlyUnlocked.push(a.id);
+        gain(50);
+        push(`${a.title} — ${a.desc}`, a.icon, "achievement", "🏆 Achievement Unlocked");
+      }
+    });
+    if (freshlyUnlocked.length) {
+      localStorage.setItem("tasks_achievements", JSON.stringify([...unlockedRef.current]));
+      setNewlyUnlocked(prev => [...new Set([...prev, ...freshlyUnlocked])]);
+      setTimeout(() => setNewlyUnlocked(prev => prev.filter(id => !freshlyUnlocked.includes(id))), 3000);
+    }
+  }, [data.tasks]);
+
+  const [localSearch, setLocalSearch] = useState(search || "");
+  const parsedQuery = useMemo(() => parseOperatorQuery(localSearch || search || ""), [localSearch, search]);
+  const TASK_SUGGESTION_FIELDS = ["status", "priority", "assigned", "title"];
+  const { suggestions: taskSuggestions, showSuggestions: taskShowSuggestions, onSuggestionSelect: taskOnSuggestionSelect } = useSearchSuggestions(localSearch, TASK_SUGGESTION_FIELDS, setLocalSearch);
+
   let rows = filter === "All" ? data.tasks : data.tasks.filter((t) => t.status === filter);
-  rows = filterSearch(rows, search, ["title", "assigned", "ref"]);
+  rows = useTableFilterV2(rows, parsedQuery, ["title", "assigned", "ref"]);
   if (colabFilter !== "All") rows = rows.filter(t => t.assigned === colabFilter || (t.team || []).includes(colabFilter));
+
+  const { sortedData: taskSortedRows, sortKey: taskSortKey, sortDir: taskSortDir, toggleSort: taskToggleSort } = useSortedData(rows);
+  rows = taskSortedRows;
+  const { page: taskPage, setPage: setTaskPage, pageSize: taskPageSize, setPageSize: setTaskPageSize, pageData: taskPageData, pageCount: taskPageCount } = usePagination(rows);
 
   // Workload map
   const workload = useMemo(() => {
@@ -674,18 +1106,26 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
 
   const handleAdd = (vals) => {
     setData({ ...data, tasks: [...data.tasks, { id: nextId("T"), progress: 0, subtasks: [], dependsOn: [], team: [], comments: [], attachments: [], activityLog: [], notes: "", bottleneck: false, milestone: false, recurring: null, approvalStatus: null, reviewAssignee: "", risk: "Low", start: "", ...vals }] });
+    gain(5);
+    push(ADD_TASK_TOASTS[Math.floor(Math.random() * ADD_TASK_TOASTS.length)], "📋", "add");
   };
 
-  const handleBulkComplete = () => {
+  const handleBulkComplete = (e) => {
     const updated = data.tasks.map(t => selected.has(t.id) ? { ...t, status: "Done", progress: 100 } : t);
     setData({ ...data, tasks: updated });
+    const count = selected.size;
     setSelected(new Set());
+    gain(count * 10);
+    push(COMPLETE_TOASTS[Math.floor(Math.random() * COMPLETE_TOASTS.length)], "✅", "complete");
+    if (e?.currentTarget) { const r = e.currentTarget.getBoundingClientRect(); spawnConfetti(r.left + r.width / 2, r.top); }
   };
 
   const handleQuickAdd = () => {
     if (!quickTitle.trim()) return;
     setData({ ...data, tasks: [...data.tasks, { id: nextId("T"), title: quickTitle, assigned: "", reviewAssignee: "", team: [], priority: "Medium", status: "Pending", due: "", start: "", ref: "", progress: 0, risk: "Low", subtasks: [], dependsOn: [], recurring: null, milestone: false, notes: "", comments: [], attachments: [], activityLog: [], bottleneck: false, approvalStatus: null }] });
     setQuickTitle("");
+    gain(5);
+    push(ADD_TASK_TOASTS[Math.floor(Math.random() * ADD_TASK_TOASTS.length)], "📋", "add");
   };
 
   const handleKanbanDrop = (newStatus) => {
@@ -734,6 +1174,13 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
     const updated = [...data.tasks];
     updated[taskIndex] = { ...updated[taskIndex], [key]: val };
     setDetailTask({ task: updated[taskIndex], index: taskIndex });
+    if (key === "status" && val === "Done") {
+      gain(10);
+      push(COMPLETE_TOASTS[Math.floor(Math.random() * COMPLETE_TOASTS.length)], "✅", "complete");
+      spawnConfetti(window.innerWidth / 2, window.innerHeight / 3);
+    } else if (key !== "status") {
+      push(EDIT_TASK_TOASTS[Math.floor(Math.random() * EDIT_TASK_TOASTS.length)], "✏️", "edit");
+    }
   };
 
   // Template presets
@@ -751,6 +1198,13 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Fun Layer */}
+      <DailyVibeBar />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <XPBar xp={xp} />
+        <AchievementShelf tasks={data.tasks} newlyUnlocked={newlyUnlocked} />
+      </div>
+      <ToastStack toasts={toasts} />
       {/* Summary chips */}
       {(overdueCount > 0 || todayCount > 0 || bottleneckCount > 0 || milestoneCount > 0) && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -786,7 +1240,7 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
             </button>
           ))}
           {selected.size > 0 && (
-            <button onClick={handleBulkComplete} style={{ padding: "4px 14px", borderRadius: 20, fontSize: 11, background: B.green, color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, marginLeft: 4 }}>
+            <button onClick={e => handleBulkComplete(e)} style={{ padding: "4px 14px", borderRadius: 20, fontSize: 11, background: B.green, color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, marginLeft: 4 }}>
               ✓ Mark {selected.size} done
             </button>
           )}
@@ -843,13 +1297,44 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
         </SectionCard>
       )}
 
+      {/* Search + suggestions */}
+      <div style={{ position:"relative" }}>
+        <input
+          value={localSearch}
+          onChange={e => setLocalSearch(e.target.value)}
+          placeholder="Search tasks… (e.g. status:Done priority:High assigned:Sara)"
+          style={{ width:"100%", padding:"7px 12px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:6, outline:"none", boxSizing:"border-box" }}
+        />
+        {taskShowSuggestions && taskSuggestions.length > 0 && (
+          <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:400, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, boxShadow:"0 4px 16px rgba(0,0,0,0.10)", maxHeight:200, overflowY:"auto" }}>
+            {taskSuggestions.map((s, i) => (
+              <div key={i} onClick={() => taskOnSuggestionSelect(s)} style={{ padding:"7px 12px", fontSize:12, cursor:"pointer", borderBottom:`1px solid ${B.border}` }}
+                onMouseEnter={e=>e.currentTarget.style.background=B.light}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                {s}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* List view */}
       {taskView === "list" && (
         <SectionCard title={`Tasks — ${rows.length} records`}>
           {viewMode === "excel"
-            ? <><div className="excel-mobile-warning"><span style={{fontSize:24}}>🖥️</span><span>Excel view is only available on desktop</span></div><div className="excel-table-wrap" style={{ maxHeight: "calc(100vh - 280px)", display: "flex", flexDirection: "column", overflow: "hidden" }}><ExcelTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} /></div></>
+            ? <><div className="excel-mobile-warning"><span style={{fontSize:24}}>🖥️</span><span>Excel view is only available on desktop</span></div><div className="excel-table-wrap" style={{ maxHeight: "calc(100vh - 280px)", display: "flex", flexDirection: "column", overflow: "hidden" }}><ExcelTable cols={cols} rows={taskPageData} onChange={handleChange} onDelete={handleDelete} /></div></>
             : <>
-                <NTable cols={cols} rows={rows} onRowClick={openDetail} />
+                <NTable cols={cols} rows={taskPageData} onRowClick={openDetail} />
+                {taskPageCount > 1 && (
+                  <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", fontSize:12, color:B.muted, borderTop:`1px solid ${B.border}` }}>
+                    <button onClick={() => setTaskPage(p => Math.max(0,p-1))} disabled={taskPage===0} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>‹</button>
+                    <span>Page {taskPage+1} / {taskPageCount}</span>
+                    <button onClick={() => setTaskPage(p => Math.min(taskPageCount-1,p+1))} disabled={taskPage===taskPageCount-1} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>›</button>
+                    <select value={taskPageSize} onChange={e=>{ setTaskPageSize(Number(e.target.value)); setTaskPage(0); }} style={{ marginLeft:"auto", padding:"3px 6px", fontSize:11, border:`1px solid ${B.border}`, borderRadius:5 }}>
+                      {[10,25,50,100].map(n=><option key={n} value={n}>{n} / page</option>)}
+                    </select>
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 8, padding: "10px 14px", borderTop: `1px solid ${B.border}`, background: B.light + "80" }}>
                   <input value={quickTitle} onChange={e => setQuickTitle(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleQuickAdd()}
@@ -894,7 +1379,7 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
         </div>
       )}
 
-      {modal && <FormModal title="Add Task" fields={FIELDS} onSave={handleAdd} onClose={() => setModal(false)} />}
+      {modal && <AddTaskWizard onSave={vals => { handleAdd(vals); setModal(false); }} onClose={() => setModal(false)} />}
 
       {/* Task detail side panel */}
       {detailTask && (

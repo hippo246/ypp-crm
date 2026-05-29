@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { B } from "../constants";
-import { aed, filterSearch, nextId } from "../helpers";
+import { aed, filterSearch, nextId, parseOperatorQuery } from "../helpers";
+import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
 import { useAppData } from "../context/AppContext";
 import {
   scoreLead,
@@ -16,7 +17,7 @@ import StatCard from "../components/StatCard";
 import SectionCard from "../components/SectionCard";
 import NTable from "../components/NTable";
 import ExcelTable from "../components/ExcelTable";
-import FormModal from "../components/FormModal";
+// FormModal intentionally removed — Add Lead now uses the 3-step AddLeadModal
 
 // ─── Window width hook ─────────────────────────────────────────────────────────
 function useWindowWidth() {
@@ -141,6 +142,447 @@ function getSLAStatus(lead) {
 // ─── Tag options ───────────────────────────────────────────────────────────────
 const TAG_OPTIONS = ["VIP", "Urgent", "Arabic speaker", "Needs callback", "Cold lead", "Government", "Returning"];
 
+// ─── Fun layer: vibes, XP, achievements, confetti, toasts ────────────────────
+
+const LEAD_VIBES = [
+  { hour: [6,11],  emoji: "☀️", msg: "Morning pipeline check. Let's fill that funnel." },
+  { hour: [11,14], emoji: "🔥", msg: "Midday grind. Those leads won't chase themselves." },
+  { hour: [14,17], emoji: "⚡", msg: "Afternoon push. Close something today." },
+  { hour: [17,20], emoji: "🌆", msg: "Golden hour. One more Win before EOD?" },
+  { hour: [20,24], emoji: "🌙", msg: "Night mode. Dedication level: unmatched." },
+  { hour: [0,6],   emoji: "🦉", msg: "Can't sleep? Your pipeline is restless too." },
+];
+
+const ADD_LEAD_TOASTS = [
+  "🎯 New lead in the pipeline. Let's go.",
+  "📥 Fresh blood! Work it.",
+  "🚀 Lead launched into orbit.",
+  "💼 Another one for the board.",
+  "📣 New lead added. Your future self thanks you.",
+  "🌱 Planted a seed. Now water it.",
+  "🎪 The circus grows. New act incoming.",
+  "🧲 Attracted another one. Magnetic.",
+  "📊 Pipeline looking thicc.",
+  "🎉 Fresh lead! Don't let it go cold.",
+];
+
+const WIN_LEAD_TOASTS = [
+  "🏆 WON! Absolute legend move.",
+  "💰 Ka-ching! That's revenue, baby.",
+  "🎯 Direct hit. Client incoming.",
+  "🥇 First place finish. Won and done.",
+  "🚀 Deal closed! To the moon.",
+  "✨ They said yes! Effortlessly elite.",
+  "🎉 Winner winner, client dinner.",
+  "😎 Another W for the board.",
+  "💎 Diamond secured. Boss is shook.",
+  "🦁 Closed like a predator. Respect.",
+];
+
+const CONVERT_TOASTS = [
+  "↗️ Lead → Client. The dream.",
+  "🎊 Conversion achieved! That's the whole point.",
+  "🌟 They're officially a client now. Treat them well.",
+  "💼 New client added to the roster.",
+  "🏅 Converted! Someone's getting a bonus (not you, but still).",
+  "📈 Conversion rate just went up. You're welcome.",
+  "🤝 Deal sealed, client locked in. Smooth.",
+  "🎯 Pipeline to revenue. Textbook execution.",
+  "🥂 Client acquired. Cheers.",
+  "👑 Another conversion. The pipeline bows to you.",
+];
+
+const LEAD_ACHIEVEMENTS = [
+  { id: "first_lead",   icon: "🌱", title: "First Blood",       desc: "Added your first lead",                        check: (ls) => ls.length >= 1 },
+  { id: "ten_leads",    icon: "📊", title: "Pipeline Builder",  desc: "10+ leads in the system",                      check: (ls) => ls.length >= 10 },
+  { id: "first_win",    icon: "🏆", title: "First Win",         desc: "Closed your first Won lead",                   check: (ls) => ls.some(l => l.status === "Won") },
+  { id: "five_wins",    icon: "🔥", title: "On Fire",           desc: "5+ Won leads",                                 check: (ls) => ls.filter(l => l.status === "Won").length >= 5 },
+  { id: "vip_lead",     icon: "👑", title: "VIP Whisperer",     desc: "A VIP priority lead in the pipeline",          check: (ls) => ls.some(l => l.priority === "VIP") },
+  { id: "clean_pipe",   icon: "✨", title: "Clean Pipeline",    desc: "Zero overdue follow-ups",                      check: (ls) => ls.length > 0 && ls.filter(l => { const fu = getFollowUpStatus(l.followUpDate); return fu && fu.color === "#ef4444"; }).length === 0 },
+  { id: "delegator",    icon: "🤝", title: "Delegation King",   desc: "Leads assigned to 3+ different staff members", check: (ls) => new Set(ls.map(l => l.assignedTo).filter(Boolean)).size >= 3 },
+  { id: "big_deal",     icon: "💎", title: "Big Deal Energy",   desc: "A single lead worth AED 50,000+",              check: (ls) => ls.some(l => (l.value || 0) >= 50000) },
+];
+
+function spawnConfetti(x, y) {
+  const colors = ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#ec4899","#06b6d4"];
+  const container = document.createElement("div");
+  container.style.cssText = `position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:99999;overflow:hidden`;
+  document.body.appendChild(container);
+  for (let i = 0; i < 60; i++) {
+    const el = document.createElement("div");
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const size  = 6 + Math.random() * 8;
+    const angle = Math.random() * 360;
+    const vx    = (Math.random() - 0.5) * 400;
+    const vy    = -200 - Math.random() * 300;
+    el.style.cssText = `position:absolute;width:${size}px;height:${size}px;background:${color};
+      left:${x}px;top:${y}px;border-radius:${Math.random() > 0.5 ? "50%" : "2px"};
+      transform:rotate(${angle}deg);opacity:1;transition:none`;
+    container.appendChild(el);
+    const start = performance.now();
+    const dur   = 900 + Math.random() * 600;
+    const spin  = (Math.random() - 0.5) * 720;
+    const animate = (now) => {
+      const t = Math.min((now - start) / dur, 1);
+      el.style.left    = `${x + vx * t}px`;
+      el.style.top     = `${y + (vy * t + 300 * t * t)}px`;
+      el.style.opacity = String(1 - t);
+      el.style.transform = `rotate(${angle + spin * t}deg)`;
+      if (t < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }
+  setTimeout(() => document.body.removeChild(container), 1600);
+}
+
+function useLeadToasts() {
+  const [toasts, setToasts] = useState([]);
+  const push = useCallback((msg, icon = "🎯", type = "lead", title = null) => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t.slice(-3), { id, msg, icon, type, title }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
+  }, []);
+  return { toasts, push };
+}
+
+function LeadToastStack({ toasts }) {
+  return (
+    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 99998, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: t.type === "achievement" ? "linear-gradient(135deg,#1e293b,#0f172a)" : "#1e293b",
+          color: "#fff", padding: "12px 18px", borderRadius: 12,
+          fontSize: 13, fontWeight: 600, maxWidth: 320,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+          borderLeft: t.type === "achievement" ? "4px solid #f59e0b" : "4px solid #10b981",
+          animation: "leadSlideIn 0.3s ease",
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <span style={{ fontSize: 20 }}>{t.icon}</span>
+          <div>
+            {t.title && <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{t.title}</div>}
+            {t.msg}
+          </div>
+        </div>
+      ))}
+      <style>{`@keyframes leadSlideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+    </div>
+  );
+}
+
+function LeadXPBar({ xp }) {
+  const level   = Math.floor(xp / 100) + 1;
+  const pct     = xp % 100;
+  const titles  = ["Intern","Junior","Analyst","Senior","Manager","Director","VP","C-Suite","Legend","GOD MODE"];
+  const title   = titles[Math.min(level - 1, titles.length - 1)];
+  const colors  = ["#94a3b8","#60a5fa","#34d399","#a78bfa","#f59e0b","#f97316","#ef4444","#ec4899","#06b6d4","#fbbf24"];
+  const color   = colors[Math.min(level - 1, colors.length - 1)];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 14px" }}>
+      <div style={{ textAlign: "center", minWidth: 40 }}>
+        <div style={{ fontSize: 18, lineHeight: 1 }}>⚡</div>
+        <div style={{ fontSize: 9, fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" }}>Lv.{level}</div>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color }}>{title}</span>
+          <span style={{ fontSize: 10, color: "#94a3b8" }}>{xp} XP</span>
+        </div>
+        <div style={{ height: 5, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg,${color},${color}cc)`, borderRadius: 99, transition: "width 0.6s ease" }} />
+        </div>
+        <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 2 }}>{100 - pct} XP to next level</div>
+      </div>
+    </div>
+  );
+}
+
+function LeadAchievementShelf({ leads, newlyUnlocked }) {
+  const unlocked = LEAD_ACHIEVEMENTS.filter(a => a.check(leads));
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🏆 Achievements</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {LEAD_ACHIEVEMENTS.map(a => {
+          const done  = a.check(leads);
+          const isNew = newlyUnlocked.includes(a.id);
+          return (
+            <div key={a.id} title={`${a.title}: ${a.desc}`} style={{
+              width: 38, height: 38, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 20, cursor: "default",
+              background: done ? (isNew ? "#fef9c3" : "#f8fafc") : "#f8fafc",
+              border: `1px solid ${done ? (isNew ? "#f59e0b" : "#e2e8f0") : "#e2e8f0"}`,
+              opacity: done ? 1 : 0.3,
+              filter: done ? "none" : "grayscale(1)",
+              transform: isNew ? "scale(1.15)" : "scale(1)",
+              transition: "all 0.3s ease",
+              boxShadow: isNew ? "0 0 0 3px #f59e0b40" : "none",
+            }}>
+              {a.icon}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 6 }}>{unlocked.length}/{LEAD_ACHIEVEMENTS.length} unlocked — hover for details</div>
+    </div>
+  );
+}
+
+function LeadDailyVibeBar() {
+  const h    = new Date().getHours();
+  const vibe = LEAD_VIBES.find(v => h >= v.hour[0] && h < v.hour[1]) || LEAD_VIBES[0];
+  const day  = new Date().toLocaleDateString("en", { weekday: "long" });
+  const isMonday = new Date().getDay() === 1;
+  const isFriday = new Date().getDay() === 5;
+  const bonus = isMonday ? " Monday? More like money day." : isFriday ? " Friday! Close at least one before you clock out." : "";
+  return (
+    <div style={{ background: "linear-gradient(135deg,#0f172a,#1e293b)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+      <span style={{ fontSize: 22 }}>{vibe.emoji}</span>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{vibe.msg}{bonus}</div>
+        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>{day} · Your boss has no idea how hard you're working right now.</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 3-Step Add Lead Modal ────────────────────────────────────────────────────
+
+function AddLeadModal({ onSave, onClose }) {
+  const [step, setStep] = useState(1);
+  const [errors, setErrors] = useState({});
+
+  // Step 1 — Identity
+  const [name,   setName]   = useState("");
+  const [email,  setEmail]  = useState("");
+  const [phone,  setPhone]  = useState("");
+  const [source, setSource] = useState("Other");
+
+  // Step 2 — Deal
+  const [service,    setService]    = useState("UAE Visa");
+  const [status,     setStatus]     = useState("New");
+  const [priority,   setPriority]   = useState("");
+  const [value,      setValue]      = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
+  const [notes,      setNotes]      = useState("");
+
+  const inp = () => ({
+    style: {
+      width: "100%", padding: "9px 12px", fontSize: 13,
+      border: "1.5px solid #e2e8f0", borderRadius: 8, fontFamily: "inherit",
+      outline: "none", boxSizing: "border-box", background: "#fff",
+    }
+  });
+  const sel = () => ({
+    style: {
+      width: "100%", padding: "9px 12px", fontSize: 13,
+      border: "1.5px solid #e2e8f0", borderRadius: 8, fontFamily: "inherit",
+      outline: "none", background: "#fff", cursor: "pointer",
+    }
+  });
+  const lbl = (text) => (
+    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 5 }}>{text}</div>
+  );
+
+  const validateStep1 = () => {
+    const e = {};
+    if (!name.trim()) e.name = "Name is required";
+    if (email && !/\S+@\S+\.\S+/.test(email)) e.email = "Invalid email";
+    return e;
+  };
+
+  const handleNext = () => {
+    if (step === 1) {
+      const e = validateStep1();
+      if (Object.keys(e).length) { setErrors(e); return; }
+      setErrors({});
+    }
+    setStep(s => s + 1);
+  };
+
+  const handleSave = () => {
+    const e = validateStep1();
+    if (Object.keys(e).length) { setErrors(e); setStep(1); return; }
+    onSave({ name, email, phone, source, service, status, priority, value, assignedTo, notes });
+    onClose();
+  };
+
+  const STEP_LABELS = ["Identity", "Deal", "Review"];
+  const stageColor = { New:"#6366f1",Contacted:"#f59e0b",Qualified:"#3b82f6",Proposal:"#8b5cf6",Won:"#10b981",Lost:"#ef4444" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }} />
+      <div style={{ position: "relative", zIndex: 1, background: "#fff", borderRadius: 16, width: 520, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ padding: "20px 24px 0", borderBottom: "1px solid #f1f5f9", paddingBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a" }}>🎯 Add New Lead</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Step {step} of 3 — {STEP_LABELS[step - 1]}</div>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8", lineHeight: 1 }}>✕</button>
+          </div>
+          {/* Step dots */}
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {STEP_LABELS.map((label, i) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{
+                  width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 11, fontWeight: 800,
+                  background: step > i + 1 ? "#10b981" : step === i + 1 ? "#3b82f6" : "#f1f5f9",
+                  color: step >= i + 1 ? "#fff" : "#94a3b8",
+                  transition: "all 0.2s",
+                }}>
+                  {step > i + 1 ? "✓" : i + 1}
+                </div>
+                <span style={{ fontSize: 11, fontWeight: step === i + 1 ? 700 : 400, color: step === i + 1 ? "#3b82f6" : "#94a3b8" }}>{label}</span>
+                {i < 2 && <div style={{ width: 24, height: 1, background: step > i + 1 ? "#10b981" : "#e2e8f0", marginLeft: 2 }} />}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+          {/* ── Step 1: Identity ── */}
+          {step === 1 && (
+            <>
+              <div>
+                {lbl("Full Name *")}
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ahmed Al Mansouri" {...inp()} />
+                {errors.name && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.name}</div>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  {lbl("Email")}
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" {...inp()} />
+                  {errors.email && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.email}</div>}
+                </div>
+                <div>
+                  {lbl("Phone")}
+                  <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+971 50 000 0000" {...inp()} />
+                </div>
+              </div>
+              <div>
+                {lbl("Lead Source")}
+                <select value={source} onChange={e => setSource(e.target.value)} {...sel()}>
+                  {SOURCE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* ── Step 2: Deal ── */}
+          {step === 2 && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  {lbl("Service")}
+                  <select value={service} onChange={e => setService(e.target.value)} {...sel()}>
+                    {SERVICE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  {lbl("Status")}
+                  <select value={status} onChange={e => setStatus(e.target.value)} {...sel()}>
+                    {STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  {lbl("Priority")}
+                  <select value={priority} onChange={e => setPriority(e.target.value)} {...sel()}>
+                    {PRIORITY_OPTIONS.map(o => <option key={o || "none"} value={o}>{o || "— None —"}</option>)}
+                  </select>
+                </div>
+                <div>
+                  {lbl("Value (AED)")}
+                  <input type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="0" min={0} {...inp()} />
+                </div>
+              </div>
+              <div>
+                {lbl("Assign To")}
+                <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} {...sel()}>
+                  {STAFF_OPTIONS.map(o => <option key={o || "unassigned"} value={o}>{o || "— Unassigned —"}</option>)}
+                </select>
+              </div>
+              <div>
+                {lbl("Notes")}
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes about this lead…"
+                  style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: "1.5px solid #e2e8f0", borderRadius: 8, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical", minHeight: 72 }} />
+              </div>
+            </>
+          )}
+
+          {/* ── Step 3: Review ── */}
+          {step === 3 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ background: `linear-gradient(135deg,#3b82f612,#8b5cf608)`, border: "1px solid #3b82f625", borderRadius: 12, padding: "16px 20px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Lead Summary</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[
+                    ["Name",       name],
+                    ["Source",     source],
+                    ["Email",      email || "—"],
+                    ["Phone",      phone || "—"],
+                    ["Service",    service],
+                    ["Status",     status],
+                    ["Priority",   priority || "None"],
+                    ["Value",      value ? `AED ${Number(value).toLocaleString()}` : "—"],
+                    ["Assigned To",assignedTo || "—"],
+                  ].map(([k, v]) => (
+                    <div key={k}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{k}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: k === "Status" ? (stageColor[v] || "#334155") : "#334155", marginTop: 2 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {notes && (
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#92400e" }}>
+                  <strong>Notes:</strong> {notes}
+                </div>
+              )}
+              {Object.keys(errors).length > 0 && (
+                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#ef4444" }}>
+                  ⚠ Please fix errors on step 1 before saving.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fafafa", borderRadius: "0 0 16px 16px" }}>
+          <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 600, background: "#fff", border: "1px solid #e2e8f0", cursor: "pointer", color: "#64748b", fontFamily: "inherit" }}>
+            Cancel
+          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {step > 1 && (
+              <button onClick={() => setStep(s => s - 1)} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 600, background: "#fff", border: "1px solid #e2e8f0", cursor: "pointer", color: "#334155", fontFamily: "inherit" }}>
+                ← Back
+              </button>
+            )}
+            {step < 3 ? (
+              <button onClick={handleNext} style={{ padding: "8px 22px", borderRadius: 8, fontSize: 12, fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                Next →
+              </button>
+            ) : (
+              <button onClick={handleSave} style={{ padding: "8px 22px", borderRadius: 8, fontSize: 13, fontWeight: 700, background: "#10b981", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                ✓ Add Lead
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ADD_FIELDS = [
   { key: "name",       label: "Name",                      placeholder: "Full name" },
   { key: "email",      label: "Email",      type: "email" },
@@ -225,6 +667,41 @@ export default function LeadsTab({ viewMode, search }) {
   const [hoverLead,      setHoverLead]      = useState(null);
   const [hoverPos,       setHoverPos]       = useState({ x: 0, y: 0 });
 
+  // ── Fun layer: XP, achievements, toasts ─────────────────────────────────────
+  const [xp,             setXp]             = useState(() => { try { return Number(localStorage.getItem("xp_leads") || 0); } catch { return 0; } });
+  const [newlyUnlocked,  setNewlyUnlocked]  = useState([]);
+  const { toasts, push: pushToast }         = useLeadToasts();
+
+  const grantXP = useCallback((amount) => {
+    setXp(prev => {
+      const next = prev + amount;
+      try { localStorage.setItem("xp_leads", String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const checkAchievements = useCallback((nextLeads) => {
+    const raw = localStorage.getItem("xp_leads_achievements");
+    const already = raw ? new Set(JSON.parse(raw)) : new Set();
+    const fresh = [];
+    LEAD_ACHIEVEMENTS.forEach(a => {
+      if (!already.has(a.id) && a.check(nextLeads)) {
+        fresh.push(a.id);
+        already.add(a.id);
+      }
+    });
+    if (fresh.length) {
+      const updated = JSON.stringify([...already]);
+      try { localStorage.setItem("xp_leads_achievements", updated); } catch {}
+      setNewlyUnlocked(fresh);
+      fresh.forEach(id => {
+        const a = LEAD_ACHIEVEMENTS.find(x => x.id === id);
+        if (a) pushToast(`${a.title} — ${a.desc}`, a.icon, "achievement", "Achievement Unlocked");
+      });
+      setTimeout(() => setNewlyUnlocked([]), 4000);
+    }
+  }, [pushToast]);
+
   const winW         = useWindowWidth();
   const isPhone      = winW < 640;
   const isTablet     = winW >= 640 && winW < 1100;
@@ -236,6 +713,11 @@ export default function LeadsTab({ viewMode, search }) {
   const pipelineStats= useMemo(() => getPipelineStats(leads),  [leads]);
   const lostReasons  = useMemo(() => getLostReasons(leads),    [leads]);
 
+  const [localSearch, setLocalSearch] = useState(search || "");
+  const parsedQuery = useMemo(() => parseOperatorQuery(localSearch || search || ""), [localSearch, search]);
+  const LEAD_SUGGESTION_FIELDS = ["status", "priority", "source", "service", "assignedTo"];
+  const { suggestions, showSuggestions, onSuggestionSelect } = useSearchSuggestions(localSearch, LEAD_SUGGESTION_FIELDS, setLocalSearch);
+
   // ── Filtered rows ────────────────────────────────────────────────────────────
   let rows = filter === "All" ? leads : leads.filter((l) => l.status === filter);
   // Archived filter
@@ -245,7 +727,11 @@ export default function LeadsTab({ viewMode, search }) {
   if (tagFilter !== "All")      rows = rows.filter(l => (l.tags || []).includes(tagFilter));
   if (showDupesOnly) rows = rows.filter((l) => dupeIds.has(l.id));
   if (showStaleOnly) rows = rows.filter((l) => staleLeads.some((s) => s.id === l.id));
-  rows = filterSearch(rows, search, ["name", "email", "phone", "service", "source", "notes"]);
+  rows = useTableFilterV2(rows, parsedQuery, ["name", "email", "phone", "service", "source", "notes"]);
+
+  const { sortedData: sortedLeadRows, sortKey: leadSortKey, sortDir: leadSortDir, toggleSort: toggleLeadSort } = useSortedData(rows);
+  rows = sortedLeadRows;
+  const { page: leadPage, setPage: setLeadPage, pageSize: leadPageSize, setPageSize: setLeadPageSize, pageData: leadPageData, pageCount: leadPageCount } = usePagination(rows);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -268,6 +754,13 @@ export default function LeadsTab({ viewMode, search }) {
       return { ...l, [key]: val, updatedAt: today, timeline };
     });
     setData({ ...data, leads: updated });
+    // 🎉 Fun layer — Won confetti + toast
+    if (key === "status" && val === "Won" && lead?.status !== "Won") {
+      spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
+      pushToast(WIN_LEAD_TOASTS[Math.floor(Math.random() * WIN_LEAD_TOASTS.length)], "🏆", "win");
+      grantXP(25);
+      checkAchievements(updated);
+    }
   };
 
   const handleDelete = (ri) => {
@@ -294,13 +787,19 @@ export default function LeadsTab({ viewMode, search }) {
       tags: [],
       callLog: [],
     };
-    setData({ ...data, leads: [...data.leads, newLead] });
+    const nextLeads = [...data.leads, newLead];
+    setData({ ...data, leads: nextLeads });
+    // 🎯 Fun layer — add toast + XP + achievements
+    pushToast(ADD_LEAD_TOASTS[Math.floor(Math.random() * ADD_LEAD_TOASTS.length)], "🎯", "lead");
+    grantXP(10);
+    checkAchievements(nextLeads);
   };
 
   /** Save all edits from the edit modal */
   const handleEditSave = (vals, timelineEntries = []) => {
     if (!editLead) return;
     const today = new Date().toISOString().slice(0, 10);
+    const wasWon = editLead.status !== "Won" && vals.status === "Won";
     const updated = data.leads.map(l => {
       if (l.id !== editLead.id) return l;
       const timeline = [...(l.timeline || []), ...timelineEntries];
@@ -308,6 +807,13 @@ export default function LeadsTab({ viewMode, search }) {
     });
     setData({ ...data, leads: updated });
     setEditLead(null);
+    // 🏆 Fun layer — Won via edit
+    if (wasWon) {
+      spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
+      pushToast(WIN_LEAD_TOASTS[Math.floor(Math.random() * WIN_LEAD_TOASTS.length)], "🏆", "win");
+      grantXP(25);
+      checkAchievements(updated);
+    }
   };
 
   const handleArchiveLead = (lead) => {
@@ -495,7 +1001,11 @@ export default function LeadsTab({ viewMode, search }) {
       l.id === lead.id ? { ...l, status: "Won", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: "Converted to client 🎉" }] } : l
     );
     setData({ ...data, clients: [...(data.clients || []), newClient], leads: updatedLeads });
-    alert(`✅ ${lead.name} converted to client successfully!`);
+    // 🌟 Fun layer — convert toast + confetti + XP
+    spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
+    pushToast(CONVERT_TOASTS[Math.floor(Math.random() * CONVERT_TOASTS.length)], "🌟", "convert");
+    grantXP(40);
+    checkAchievements(updatedLeads);
   };
 
   const handleMergeDupes = () => {
@@ -519,6 +1029,13 @@ export default function LeadsTab({ viewMode, search }) {
       l.id === leadId ? { ...l, status: newStatus, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed: ${lead?.status} → ${newStatus}` }] } : l
     );
     setData({ ...data, leads: updated });
+    // 🎉 Fun layer — Won confetti on kanban drop
+    if (newStatus === "Won" && lead?.status !== "Won") {
+      spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
+      pushToast(WIN_LEAD_TOASTS[Math.floor(Math.random() * WIN_LEAD_TOASTS.length)], "🏆", "win");
+      grantXP(25);
+      checkAchievements(updated);
+    }
   };
 
   const handleBulkMove = () => {
@@ -745,6 +1262,13 @@ export default function LeadsTab({ viewMode, search }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0 }}>
 
 
+      {/* ── Fun layer: Vibe bar + XP + Achievements ── */}
+      <div style={{ display: "grid", gridTemplateColumns: isPhone ? "1fr" : "1fr auto auto", gap: 10, alignItems: "stretch" }}>
+        <LeadDailyVibeBar />
+        <LeadXPBar xp={xp} />
+        <LeadAchievementShelf leads={leads} newlyUnlocked={newlyUnlocked} />
+      </div>
+
       {/* ── Stats row ── */}
       <div style={{ display: "grid", gridTemplateColumns: isPhone ? "repeat(2,1fr)" : isTablet ? "repeat(4,1fr)" : "repeat(7,1fr)", gap: isPhone ? 8 : 10 }} className="stat-grid-6">
         {pipelineStats.slice(0, 5).map((s) => (
@@ -894,6 +1418,27 @@ export default function LeadsTab({ viewMode, search }) {
         </div>
       </div>
 
+      {/* Search + suggestions */}
+      <div style={{ position:"relative" }}>
+        <input
+          value={localSearch}
+          onChange={e => setLocalSearch(e.target.value)}
+          placeholder="Search leads… (e.g. status:Won priority:High source:Referral)"
+          style={{ width:"100%", padding:"7px 12px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:6, outline:"none", boxSizing:"border-box" }}
+        />
+        {showSuggestions && suggestions.length > 0 && (
+          <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:400, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, boxShadow:"0 4px 16px rgba(0,0,0,0.10)", maxHeight:200, overflowY:"auto" }}>
+            {suggestions.map((s, i) => (
+              <div key={i} onClick={() => onSuggestionSelect(s)} style={{ padding:"7px 12px", fontSize:12, cursor:"pointer", borderBottom:`1px solid ${B.border}` }}
+                onMouseEnter={e=>e.currentTarget.style.background=B.light}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                {s}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* ── Content ── */}
       {displayMode === "kanban" ? (
         <KanbanBoard
@@ -917,14 +1462,14 @@ export default function LeadsTab({ viewMode, search }) {
             <>
               <div className="excel-mobile-warning"><span style={{fontSize:24}}>🖥️</span><span>Excel view is only available on desktop</span></div>
               <div className="excel-table-wrap">
-                <ExcelTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} />
+                <ExcelTable cols={cols} rows={leadPageData} onChange={handleChange} onDelete={handleDelete} />
               </div>
             </>
           ) : isPhone ? (
             /* ── Mobile card list ── */
             <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, padding: "8px 4px" }}>
               {rows.length === 0 && <div style={{ color: B.muted, textAlign: "center", padding: 32, fontSize: 13 }}>No leads found</div>}
-              {rows.map((r, ri) => {
+              {leadPageData.map((r, ri) => {
                 const fu = getFollowUpStatus(r.followUpDate);
                 const sc = scoreLead(r); const sl = scoreLabel(sc);
                 const na = getNextAction(r);
@@ -966,10 +1511,30 @@ export default function LeadsTab({ viewMode, search }) {
                   </div>
                 );
               })}
+              {/* Mobile pagination */}
+              {leadPageCount > 1 && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 0", fontSize:12, color:B.muted, justifyContent:"center" }}>
+                  <button onClick={() => setLeadPage(p => Math.max(0,p-1))} disabled={leadPage===0} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>‹</button>
+                  <span>Page {leadPage+1} / {leadPageCount}</span>
+                  <button onClick={() => setLeadPage(p => Math.min(leadPageCount-1,p+1))} disabled={leadPage===leadPageCount-1} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>›</button>
+                </div>
+              )}
             </div>
           ) : (
             /* NTable — desktop/tablet */
-            <NTable cols={cols} rows={rows} onChange={handleChange} onDelete={handleDelete} dense maxHeight="calc(100vh - 380px)" />
+            <>
+              <NTable cols={cols} rows={leadPageData} onChange={handleChange} onDelete={handleDelete} dense maxHeight="calc(100vh - 380px)" />
+              {leadPageCount > 1 && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 0", fontSize:12, color:B.muted }}>
+                  <button onClick={() => setLeadPage(p => Math.max(0,p-1))} disabled={leadPage===0} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>‹</button>
+                  <span>Page {leadPage+1} / {leadPageCount}</span>
+                  <button onClick={() => setLeadPage(p => Math.min(leadPageCount-1,p+1))} disabled={leadPage===leadPageCount-1} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>›</button>
+                  <select value={leadPageSize} onChange={e=>{ setLeadPageSize(Number(e.target.value)); setLeadPage(0); }} style={{ marginLeft:"auto", padding:"3px 6px", fontSize:11, border:`1px solid ${B.border}`, borderRadius:5 }}>
+                    {[10,25,50,100].map(n=><option key={n} value={n}>{n} / page</option>)}
+                  </select>
+                </div>
+              )}
+            </>
           )}
         </SectionCard>
       )}
@@ -1005,11 +1570,9 @@ export default function LeadsTab({ viewMode, search }) {
         </div>
       )}
 
-      {/* ── Add Modal ── */}
+      {/* ── Add Modal (3-step) ── */}
       {addModal && (
-        <FormModal
-          title="Add New Lead"
-          fields={ADD_FIELDS}
+        <AddLeadModal
           onSave={handleAdd}
           onClose={() => setAddModal(false)}
         />
@@ -1089,6 +1652,9 @@ export default function LeadsTab({ viewMode, search }) {
       {showAIAssist && (
         <AIAssistModal lead={showAIAssist} onClose={() => setShowAIAssist(null)} />
       )}
+
+      {/* ── Toast stack ── */}
+      <LeadToastStack toasts={toasts} />
     </div>
   );
 }

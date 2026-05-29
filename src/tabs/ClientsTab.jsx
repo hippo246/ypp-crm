@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { B } from "../constants";
-import { aed, filterSearch, nextId } from "../helpers";
+import { aed, filterSearch, nextId, parseOperatorQuery } from "../helpers";
+import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
 import { useAppData } from "../context/AppContext";
 import Badge from "../components/Badge";
 import SectionCard from "../components/SectionCard";
@@ -39,8 +40,6 @@ export default function ClientsTab({ viewMode, search }) {
   const [editModal, setEditModal] = useState(null);
   const [profileId, setProfileId] = useState(null);
   const [localView, setLocalView] = useState("table"); // "table" | "kanban" | "cards"
-  const [sortKey, setSortKey] = useState(null);
-  const [sortDir, setSortDir] = useState("asc");
   const [selected, setSelected] = useState(new Set());
   const [dragKanban, setDragKanban] = useState(null);
   const [serviceFilter, setServiceFilter] = useState("All");
@@ -50,18 +49,68 @@ export default function ClientsTab({ viewMode, search }) {
   const [showColPicker, setShowColPicker] = useState(false);
   const [showValueFilter, setShowValueFilter] = useState(false);
   const [showForecast, setShowForecast] = useState(true);
+  // Fun layer state
+  const [xp, setXp] = useState(() => { try { return Number(localStorage.getItem("xp_clients")||0); } catch { return 0; } });
+  const [achievements, setAchievements] = useState(() => { try { return JSON.parse(localStorage.getItem("achievements_clients")||"[]"); } catch { return []; } });
+  const [toasts, setToasts] = useState([]);
+  const [confetti, setConfetti] = useState(false);
+  const [stepModal, setStepModal] = useState(false);
+  const [stepData, setStepData] = useState({});
+  const [step, setStep] = useState(1);
   const statuses = ["All", "Active", "Pending", "Expired"];
   const allServices = useMemo(() => ["All", ...new Set(data.clients.map(c => c.service).filter(Boolean))], [data.clients]);
+  const [localSearch, setLocalSearch] = useState(search || "");
+  const searchRef = useRef(null);
+  const parsedQuery = useMemo(() => parseOperatorQuery(localSearch || search || ""), [localSearch, search]);
+  const CLIENT_SUGGESTION_FIELDS = ["status", "service", "name", "contact"];
+  const { suggestions, showSuggestions, onSuggestionSelect } = useSearchSuggestions(localSearch, CLIENT_SUGGESTION_FIELDS, setLocalSearch);
 
-  let rows = filter === "All" ? data.clients : data.clients.filter((c) => c.status === filter);
-  rows = filterSearch(rows, search, ["name", "contact", "email", "phone", "service", "licenseNumber"]);
-  if (sortKey) {
-    rows = [...rows].sort((a, b) => {
-      const av = a[sortKey] ?? "", bv = b[sortKey] ?? "";
-      const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
-      return sortDir === "asc" ? cmp : -cmp;
+  // Fun helpers
+  const addToast = (msg, color = "#3B82F6") => {
+    const id = Date.now();
+    setToasts(t => [...t, { id, msg, color }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
+  };
+
+  const gainXp = (amount) => {
+    setXp(prev => {
+      const next = prev + amount;
+      try { localStorage.setItem("xp_clients", String(next)); } catch {}
+      return next;
     });
-  }
+  };
+
+  const unlockAchievement = (key, label, emoji) => {
+    setAchievements(prev => {
+      if (prev.includes(key)) return prev;
+      const next = [...prev, key];
+      try { localStorage.setItem("achievements_clients", JSON.stringify(next)); } catch {}
+      addToast(`${emoji} Achievement unlocked: ${label}`, "#8B5CF6");
+      return next;
+    });
+  };
+
+  const fireConfetti = () => {
+    setConfetti(true);
+    setTimeout(() => setConfetti(false), 2200);
+  };
+
+  const checkAchievements = (clients) => {
+    const total = clients.length;
+    if (total >= 1) unlockAchievement("first_client", "First Client", "🎉");
+    if (total >= 5) unlockAchievement("five_clients", "5 Clients", "⭐");
+    if (total >= 10) unlockAchievement("ten_clients", "10 Clients", "🏆");
+    if (clients.some(c => (c.progress||0) === 100)) unlockAchievement("full_progress", "100% Progress", "💯");
+    if (clients.some(c => (c.value||0) >= 100000)) unlockAchievement("big_contract", "Big Contract (100K+)", "💰");
+    if (clients.length > 0 && clients.every(c => c.status === "Active")) unlockAchievement("all_active", "All Active", "✅");
+    const renewalClients = clients.filter(c => c.renewal);
+    if (renewalClients.length >= 3 && renewalClients.every(c => { const s = getRenewalStatus(c.renewal); return s && s.label !== "Expired"; })) unlockAchievement("renewal_master", "Renewal Master", "📅");
+    if (clients.length >= 5 && clients.every(c => c.contact && c.email && c.phone)) unlockAchievement("clean_sheet", "Clean Sheet", "🌟");
+  };
+
+  const baseRows = filter === "All" ? data.clients : data.clients.filter((c) => c.status === filter);
+  const filteredBySearch = useTableFilterV2(baseRows, parsedQuery, ["name", "contact", "email", "phone", "service", "licenseNumber"]);
+  let rows = filteredBySearch;
 
   // Feature 1: service + value range + stale filters applied to rows
   if (serviceFilter !== "All") rows = rows.filter(c => c.service === serviceFilter);
@@ -69,6 +118,10 @@ export default function ClientsTab({ viewMode, search }) {
   if (valueMax !== "") rows = rows.filter(c => (c.value||0) <= Number(valueMax));
   // Feature 2: pinned clients float to top
   rows = [...rows].sort((a,b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || 0);
+
+  const { sortedData: sortedRows, sortKey, sortDir, toggleSort: toggleSortKey } = useSortedData(rows);
+  rows = sortedRows;
+  const { page, setPage, pageSize, setPageSize, pageData, pageCount } = usePagination(rows);
 
   // Feature 3: stale clients (no invoice in 60 days)
   const today = new Date().toISOString().slice(0,10);
@@ -92,10 +145,7 @@ export default function ClientsTab({ viewMode, search }) {
     return dups;
   }, [data.clients]);
 
-  const toggleSort = (key) => {
-    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortKey(key); setSortDir("asc"); }
-  };
+  const toggleSort = toggleSortKey;
 
   const toggleSelect = (id) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAll = () => setSelected(s => s.size === rows.length ? new Set() : new Set(rows.map(r => r.id)));
@@ -223,17 +273,25 @@ export default function ClientsTab({ viewMode, search }) {
   };
 
   const handleAdd = (vals) => {
-    setData({
-      ...data,
-      clients: [...data.clients, {
-        id: nextId("C"),
-        ...vals,
-        value: Number(vals.value) || 0,
-        progress: Number(vals.progress) || 0,
-        started: new Date().toISOString().slice(0, 10),
-      }],
-    });
+    const newClient = {
+      id: nextId("C"),
+      ...vals,
+      value: Number(vals.value) || 0,
+      progress: Number(vals.progress) || 0,
+      started: new Date().toISOString().slice(0, 10),
+    };
+    const updated = [...data.clients, newClient];
+    setData({ ...data, clients: updated });
+    gainXp(50);
+    addToast(`✅ ${newClient.name} added! +50 XP`);
+    if (newClient.status === "Active" || (newClient.progress||0) === 100) fireConfetti();
+    checkAchievements(updated);
+    setStepModal(false);
+    setStepData({});
+    setStep(1);
   };
+
+  const openAddModal = () => { setStepData({}); setStep(1); setStepModal(true); };
 
   const handleEdit = (vals) => {
     const updated = data.clients.map(c =>
@@ -298,7 +356,7 @@ export default function ClientsTab({ viewMode, search }) {
           <button onClick={exportCSV} style={{ padding:"5px 12px", fontSize:11, fontWeight:600, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", color:B.muted, display:"flex", alignItems:"center", gap:4 }}>
             ↓ CSV
           </button>
-          <button onClick={() => setModal(true)} style={{ padding:"6px 14px", background:B.blue, color:"#fff", border:"none", borderRadius:6, fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Client</button>
+          <button onClick={openAddModal} style={{ padding:"6px 14px", background:B.blue, color:"#fff", border:"none", borderRadius:6, fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Client</button>
         </div>
       </div>
 
@@ -361,6 +419,28 @@ export default function ClientsTab({ viewMode, search }) {
         </div>
       )}
 
+      {/* Search + suggestions */}
+      <div style={{ position:"relative" }}>
+        <input
+          ref={searchRef}
+          value={localSearch}
+          onChange={e => setLocalSearch(e.target.value)}
+          placeholder="Search clients… (e.g. status:Active service:Visa)"
+          style={{ width:"100%", padding:"7px 12px", fontSize:12, border:`1px solid ${B.border}`, borderRadius:6, outline:"none", boxSizing:"border-box" }}
+        />
+        {showSuggestions && suggestions.length > 0 && (
+          <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:400, background:"#fff", border:`1px solid ${B.border}`, borderRadius:6, boxShadow:"0 4px 16px rgba(0,0,0,0.10)", maxHeight:200, overflowY:"auto" }}>
+            {suggestions.map((s, i) => (
+              <div key={i} onClick={() => onSuggestionSelect(s)} style={{ padding:"7px 12px", fontSize:12, cursor:"pointer", borderBottom:`1px solid ${B.border}` }}
+                onMouseEnter={e=>e.currentTarget.style.background=B.light}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                {s}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Table */}
       {localView === "table" && (
       <SectionCard title={`Clients — ${rows.length} records${sortKey ? ` · sorted by ${sortKey} ${sortDir==="asc"?"↑":"↓"}` : ""}`} style={viewMode === "excel" ? { flex: 1, minHeight: 0 } : {}}>
@@ -383,7 +463,7 @@ export default function ClientsTab({ viewMode, search }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => {
+                  {pageData.map((r) => {
                     const health = getHealthScore(r);
                     const rs = getRenewalStatus(r.renewal);
                     return (
@@ -432,6 +512,17 @@ export default function ClientsTab({ viewMode, search }) {
                   {rows.length === 0 && <tr><td colSpan={9} style={{ padding:"24px", textAlign:"center", color:B.muted, fontSize:12 }}>No clients found</td></tr>}
                 </tbody>
               </table>
+              {/* Pagination */}
+              {pageCount > 1 && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 0", fontSize:12, color:B.muted }}>
+                  <button onClick={() => setPage(p => Math.max(0,p-1))} disabled={page===0} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>‹</button>
+                  <span>Page {page+1} / {pageCount}</span>
+                  <button onClick={() => setPage(p => Math.min(pageCount-1,p+1))} disabled={page===pageCount-1} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>›</button>
+                  <select value={pageSize} onChange={e=>{ setPageSize(Number(e.target.value)); setPage(0); }} style={{ marginLeft:"auto", padding:"3px 6px", fontSize:11, border:`1px solid ${B.border}`, borderRadius:5 }}>
+                    {[10,25,50,100].map(n=><option key={n} value={n}>{n} / page</option>)}
+                  </select>
+                </div>
+              )}
             </div>
           )}
       </SectionCard>
@@ -534,7 +625,24 @@ export default function ClientsTab({ viewMode, search }) {
           tasks={linkedTasks}
           onClose={() => setProfileId(null)}
           onUpdate={(updated) => {
+            const prev = data.clients.find(c => c.id === updated.id);
             setData(d => ({ ...d, clients: d.clients.map(c => c.id === updated.id ? updated : c) }));
+            if (prev && prev.status !== updated.status) {
+              addToast(`🔄 ${updated.name} → ${updated.status}`);
+              if (updated.status === "Active") fireConfetti();
+              gainXp(10);
+              checkAchievements(data.clients.map(c => c.id === updated.id ? updated : c));
+            }
+            if (prev && prev.renewal !== updated.renewal && updated.renewal) {
+              addToast(`📅 Renewal set for ${updated.name}`, "#F59E0B");
+              gainXp(5);
+            }
+            if (prev && prev.progress !== updated.progress && (updated.progress||0) === 100) {
+              fireConfetti();
+              addToast(`💯 ${updated.name} hit 100%!`, "#10B981");
+              gainXp(25);
+              checkAchievements(data.clients.map(c => c.id === updated.id ? updated : c));
+            }
           }}
         />
       )}
@@ -549,6 +657,165 @@ export default function ClientsTab({ viewMode, search }) {
           onClose={() => setEditModal(null)}
         />
       )}
+
+      {/* 3-step Add Client Modal */}
+      {stepModal && <StepAddModal stepData={stepData} setStepData={setStepData} step={step} setStep={setStep} onSave={handleAdd} onClose={() => { setStepModal(false); setStep(1); setStepData({}); }} />}
+
+      {/* Vibe Bar */}
+      <VibeBar xp={xp} achievements={achievements} />
+
+      {/* Toast stack */}
+      <div style={{ position:"fixed", bottom:24, right:24, zIndex:9999, display:"flex", flexDirection:"column", gap:8, pointerEvents:"none" }}>
+        {toasts.map(t => (
+          <div key={t.id} style={{ padding:"10px 16px", background:t.color, color:"#fff", borderRadius:10, fontSize:13, fontWeight:600, boxShadow:"0 4px 20px rgba(0,0,0,0.18)", animation:"toast-in 0.3s ease", whiteSpace:"nowrap" }}>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+      <style>{`@keyframes toast-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+      {/* Confetti */}
+      {confetti && <ConfettiPop />}
+    </div>
+  );
+}
+
+// ─── 3-Step Add Client Modal ──────────────────────────────────────────────────
+const STEP_LABELS = ["Company Info", "Service Details", "Review"];
+const STEP1_KEYS = ["name","contact","email","phone"];
+const STEP2_KEYS = ["service","licenseNumber","status","value","renewal","progress"];
+const fieldMap = Object.fromEntries(FIELDS.map(f => [f.key, f]));
+
+function StepAddModal({ stepData, setStepData, step, setStep, onSave, onClose }) {
+  const keys = step === 1 ? STEP1_KEYS : step === 2 ? STEP2_KEYS : [];
+  const iStyle = { width:"100%", padding:"8px 10px", fontSize:13, border:`1px solid ${B.border}`, borderRadius:7, fontFamily:"inherit", outline:"none", boxSizing:"border-box" };
+  const canNext = step === 1 ? !!(stepData.name) : true;
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center" }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:14, padding:28, width:"min(480px,95vw)", boxShadow:"0 8px 40px rgba(0,0,0,0.18)", display:"flex", flexDirection:"column", gap:20 }}>
+        {/* Progress stepper */}
+        <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+          {STEP_LABELS.map((l,i) => (
+            <div key={i} style={{ display:"flex", alignItems:"center", flex:1 }}>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                <div style={{ width:28, height:28, borderRadius:"50%", background:step>i?B.blue:step===i+1?B.blue:B.border, color:step>i||step===i+1?"#fff":B.muted, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, transition:"background 0.3s" }}>{step>i+1?"✓":i+1}</div>
+                <span style={{ fontSize:10, fontWeight:600, color:step===i+1?B.blue:B.muted, whiteSpace:"nowrap" }}>{l}</span>
+              </div>
+              {i<2 && <div style={{ flex:1, height:2, background:step>i+1?B.blue:B.border, margin:"0 6px", marginBottom:18, transition:"background 0.3s" }} />}
+            </div>
+          ))}
+        </div>
+
+        {/* Fields */}
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {step < 3 && keys.map(k => {
+            const f = fieldMap[k];
+            if (!f) return null;
+            return (
+              <div key={k}>
+                <label style={{ fontSize:11, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:0.5, display:"block", marginBottom:5 }}>{f.label}{k==="name"&&<span style={{color:B.red}}>*</span>}</label>
+                {f.type === "select"
+                  ? <select value={stepData[k]||""} onChange={e=>setStepData(d=>({...d,[k]:e.target.value}))} style={iStyle}>
+                      <option value="">Select…</option>
+                      {f.options.map(o=><option key={o}>{o}</option>)}
+                    </select>
+                  : <input type={f.type||"text"} placeholder={f.placeholder||f.label} value={stepData[k]||""} onChange={e=>setStepData(d=>({...d,[k]:e.target.value}))} style={iStyle} />
+                }
+              </div>
+            );
+          })}
+          {step === 3 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:B.text, marginBottom:4 }}>Ready to create this client?</div>
+              {FIELDS.filter(f=>stepData[f.key]).map(f=>(
+                <div key={f.key} style={{ display:"flex", justifyContent:"space-between", padding:"7px 12px", background:B.light, borderRadius:7, fontSize:12 }}>
+                  <span style={{ color:B.muted, fontWeight:600 }}>{f.label}</span>
+                  <span style={{ fontWeight:700 }}>{stepData[f.key]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+          <button onClick={step>1?()=>setStep(s=>s-1):onClose} style={{ padding:"8px 18px", fontSize:12, fontWeight:600, border:`1px solid ${B.border}`, borderRadius:7, background:"#fff", cursor:"pointer", color:B.muted }}>
+            {step>1?"← Back":"Cancel"}
+          </button>
+          {step<3
+            ? <button disabled={!canNext} onClick={()=>setStep(s=>s+1)} style={{ padding:"8px 20px", fontSize:12, fontWeight:700, background:canNext?B.blue:"#ccc", color:"#fff", border:"none", borderRadius:7, cursor:canNext?"pointer":"default" }}>
+                Next →
+              </button>
+            : <button onClick={()=>onSave(stepData)} style={{ padding:"8px 20px", fontSize:12, fontWeight:700, background:B.green, color:"#fff", border:"none", borderRadius:7, cursor:"pointer" }}>
+                ✓ Create Client
+              </button>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Vibe Bar ─────────────────────────────────────────────────────────────────
+const ACHIEVEMENTS_META = {
+  first_client:   { emoji:"🎉", label:"First Client" },
+  five_clients:   { emoji:"⭐", label:"5 Clients" },
+  ten_clients:    { emoji:"🏆", label:"10 Clients" },
+  full_progress:  { emoji:"💯", label:"100% Progress" },
+  big_contract:   { emoji:"💰", label:"Big Contract" },
+  all_active:     { emoji:"✅", label:"All Active" },
+  renewal_master: { emoji:"📅", label:"Renewal Master" },
+  clean_sheet:    { emoji:"🌟", label:"Clean Sheet" },
+};
+const ALL_ACH_KEYS = Object.keys(ACHIEVEMENTS_META);
+
+function VibeBar({ xp, achievements }) {
+  const [open, setOpen] = useState(false);
+  const level = Math.floor(xp / 100) + 1;
+  const levelXp = xp % 100;
+  return (
+    <div style={{ marginTop:6 }}>
+      <div onClick={()=>setOpen(o=>!o)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", background:"linear-gradient(90deg,#8B5CF608,#3B82F608)", border:`1px solid ${B.blue}20`, borderRadius:8, cursor:"pointer", userSelect:"none" }}>
+        <span style={{ fontSize:14 }}>⚡</span>
+        <span style={{ fontSize:12, fontWeight:700, color:B.blue }}>Level {level}</span>
+        <div style={{ flex:1, height:6, background:B.border, borderRadius:3, maxWidth:120 }}>
+          <div style={{ height:"100%", width:`${levelXp}%`, background:`linear-gradient(90deg,${B.blue},#8B5CF6)`, borderRadius:3, transition:"width 0.5s" }} />
+        </div>
+        <span style={{ fontSize:11, color:B.muted }}>{xp} XP</span>
+        <span style={{ fontSize:11, color:B.blue, fontWeight:600 }}>{achievements.length}/{ALL_ACH_KEYS.length} 🏅</span>
+        <span style={{ fontSize:10, color:B.muted, marginLeft:"auto" }}>{open?"▲":"▼"}</span>
+      </div>
+      {open && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, padding:"12px 14px", background:"#fff", border:`1px solid ${B.border}`, borderTop:"none", borderRadius:"0 0 8px 8px" }}>
+          {ALL_ACH_KEYS.map(k => {
+            const meta = ACHIEVEMENTS_META[k];
+            const unlocked = achievements.includes(k);
+            return (
+              <div key={k} title={meta.label} style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", borderRadius:20, background:unlocked?"#8B5CF618":B.light, border:`1px solid ${unlocked?"#8B5CF640":B.border}`, opacity:unlocked?1:0.45 }}>
+                <span style={{ fontSize:14 }}>{meta.emoji}</span>
+                <span style={{ fontSize:11, fontWeight:600, color:unlocked?"#8B5CF6":B.muted }}>{meta.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Confetti ─────────────────────────────────────────────────────────────────
+function ConfettiPop() {
+  const pieces = Array.from({length:36},(_,i)=>({
+    id:i, x:10+Math.random()*80, delay:Math.random()*0.5,
+    color:["#3B82F6","#10B981","#F59E0B","#8B5CF6","#EF4444","#06B6D4"][i%6],
+    rot:Math.random()*360, size:6+Math.random()*6,
+  }));
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:9998, pointerEvents:"none", overflow:"hidden" }}>
+      <style>{`@keyframes confetti-fall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}`}</style>
+      {pieces.map(p=>(
+        <div key={p.id} style={{ position:"absolute", left:`${p.x}%`, top:"-10px", width:p.size, height:p.size, background:p.color, borderRadius:p.id%3===0?"50%":2, animation:`confetti-fall ${1.5+Math.random()*0.8}s ${p.delay}s ease-in forwards` }} />
+      ))}
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
+import { parseOperatorQuery } from "../helpers";
+import { useSearchSuggestions } from "../hooks";
 
 // ─── Inlined engine constants (mirrors automationEngine.js exports) ────────────
 const TRIGGERS = {
@@ -672,6 +674,9 @@ export default function AutomationsTab({ dark = false }) {
   const [runLog, setRunLog] = useState(SEED_RUN_LOG);
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState("");
+  const parsedAutoQuery = useMemo(() => parseOperatorQuery(search), [search]);
+  const AUTO_SUGGESTION_FIELDS = ["status", "category", "trigger", "name"];
+  const { suggestions: autoSuggestions, showSuggestions: autoShowSuggestions, onSuggestionSelect: autoOnSuggestionSelect } = useSearchSuggestions(search, AUTO_SUGGESTION_FIELDS, setSearch);
   const [filterTrigger, setFilterTrigger] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
@@ -690,13 +695,19 @@ export default function AutomationsTab({ dark = false }) {
 
   // ── Derived ──
   const filtered = useMemo(() => rules.filter(r => {
-    if (search && !r.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (parsedAutoQuery) {
+      const { terms, operators } = parsedAutoQuery;
+      if (operators.status && r.active !== (operators.status === "active")) return false;
+      if (operators.category && r.category !== operators.category) return false;
+      if (operators.trigger && r.trigger !== operators.trigger) return false;
+      if (terms.length && !terms.every(t => r.name.toLowerCase().includes(t.toLowerCase()))) return false;
+    } else if (search && !r.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterTrigger !== "all" && r.trigger !== filterTrigger) return false;
     if (filterStatus === "active" && !r.active) return false;
     if (filterStatus === "inactive" && r.active) return false;
     if (filterCategory !== "all" && r.category !== filterCategory) return false;
     return true;
-  }), [rules, search, filterTrigger, filterStatus, filterCategory]);
+  }), [rules, search, parsedAutoQuery, filterTrigger, filterStatus, filterCategory]);
 
   const scheduledRules = useMemo(() => rules.filter(r => r.trigger === TRIGGERS.SCHEDULED), [rules]);
 
@@ -862,9 +873,23 @@ export default function AutomationsTab({ dark = false }) {
       {activeTab === "rules" && (
         <>
           {/* Filters */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="🔍  Search rules…" style={{ ...inputStyle, width: 200 }} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div style={{ position: "relative" }}>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="🔍  Search rules… (e.g. status:active category:Finance)" style={{ ...inputStyle, width: 260 }} />
+              {autoShowSuggestions && autoSuggestions.length > 0 && (
+                <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:400, background:"#1f2937", border:"1px solid #374151", borderRadius:6, boxShadow:"0 4px 16px rgba(0,0,0,0.4)", maxHeight:180, overflowY:"auto" }}>
+                  {autoSuggestions.map((s, i) => (
+                    <div key={i} onClick={() => autoOnSuggestionSelect(s)} style={{ padding:"7px 12px", fontSize:12, cursor:"pointer", color:"#e2e8f0", borderBottom:"1px solid #374151" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="#374151"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      {s}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            </div>
             <select value={filterTrigger} onChange={e => setFilterTrigger(e.target.value)} style={{ ...selectStyle, width: 170 }}>
               <option value="all">All triggers</option>
               {Object.entries(TRIGGERS).map(([k, v]) => (
