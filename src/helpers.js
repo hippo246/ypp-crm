@@ -17,3 +17,18 @@ export const filterSearch = (rows, search, keys) => {
 };
 
 export const nextId = (prefix) => prefix + String(Date.now()).slice(-4);
+
+/**
+ * parseOperatorQuery — parses a search string into free text + field:value filters.
+ * e.g. "status:active John" → { free: "John", filters: [{ field: "status", value: "active" }] }
+ */
+export function parseOperatorQuery(query = "") {
+  const filters = [];
+  const free = query
+    .replace(/(\w+):(\S+)/g, (_, field, value) => {
+      filters.push({ field, value });
+      return "";
+    })
+    .trim();
+  return { free, filters };
+}
