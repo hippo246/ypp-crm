@@ -774,6 +774,15 @@ function useSortable(rows) {
 
 export default function AccountingTab({ viewMode, search }) {
   const { data, setData } = useAppData();
+  // Safe array refs — guard against undefined on first render
+  data = { ...data };
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.accounting = data.accounting || [];
+  data.inventory  = data.inventory  || [];
+  data.suppliers  = data.suppliers  || [];
+
   const invoices    = data.accounting;
 
   const [modal,        setModal]        = useState(false);

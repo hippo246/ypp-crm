@@ -230,7 +230,17 @@ const FIELDS = [
   { key: "balance", label: "Balance (AED)", type: "number", default: "0" },
 ];
 
-const SuppliersTab = ({ data, setData, viewMode, search }) => {
+const SuppliersTab = ({ data, setData, viewMode, search }) =>
+  data = data || {};
+  // Safe array refs — guard against undefined on first render
+  data = { ...data };
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.accounting = data.accounting || [];
+  data.inventory  = data.inventory  || [];
+  data.suppliers  = data.suppliers  || [];
+ {
   const [modal, setModal] = useState(false);
   const [editModal, setEditModal] = useState(null); // supplier to edit
   const [payModal, setPayModal] = useState(null); // supplier row index

@@ -1096,6 +1096,14 @@ const FilterBar = ({ activeTypes, toggleType, filters, setFilters }) => {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const CalendarTab = ({ data, setData }) => {
+  // Safe array refs — guard against undefined on first render
+  data = { ...(data || {}) };
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.accounting = data.accounting || [];
+  data.inventory  = data.inventory  || [];
+  data.suppliers  = data.suppliers  || [];
   const today = new Date();
   const todayStr = today.toISOString().split("T")[0];
 

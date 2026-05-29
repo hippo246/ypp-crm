@@ -342,7 +342,17 @@ function PivotTable({ rows, groupBy, valueField, aggFn = "count" }) {
 
 const SUBTABS = [["overview","Overview"],["charts","Charts"],["workload","Workload"],["team","Team"],["trends","Trends"],["heatmap","Heatmap"],["forecast","Forecast"]];
 
-const AnalyticsTab = ({ data }) => {
+const AnalyticsTab = ({ data }) =>
+  data = data || {};
+  // Safe array refs — guard against undefined on first render
+  data = { ...data };
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.accounting = data.accounting || [];
+  data.inventory  = data.inventory  || [];
+  data.suppliers  = data.suppliers  || [];
+ {
   const [range, setRange] = useState("all");
   const [subTab, setSubTab] = useState("overview");
   const [chartType, setChartType] = useState("bar");

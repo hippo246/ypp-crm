@@ -44,6 +44,12 @@ function exportPDF(title, rows) {
 // ─── Print Full Report ────────────────────────────────────────────────────────
 
 function printFullReport(data, goalAmount) {
+  data = { ...(data || {}) };
+  data.accounting = data.accounting || [];
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.inventory  = data.inventory  || [];
   const now      = new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"long", year:"numeric" });
   const totalRev = data.accounting.reduce((s,i) => s + i.paid, 0);
   const totalInv = data.accounting.reduce((s,i) => s + i.amount, 0);
@@ -891,6 +897,14 @@ function SummaryCard({ report, data, compData }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const ReportsTab = ({ data }) => {
+  // Safe array refs — guard against undefined on first render
+  data = { ...(data || {}) };
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.accounting = data.accounting || [];
+  data.inventory  = data.inventory  || [];
+  data.suppliers  = data.suppliers  || [];
   const refreshedAt = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
   const totalRevenue = data.accounting.reduce((s, i) => s + i.paid, 0);

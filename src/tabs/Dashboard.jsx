@@ -17,6 +17,15 @@ import NTable from "../components/NTable";
 
 export default function Dashboard() {
   const { data, setData } = useAppData();
+  // Safe array refs — guard against undefined on first render
+  data = { ...data };
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.tasks      = data.tasks      || [];
+  data.accounting = data.accounting || [];
+  data.inventory  = data.inventory  || [];
+  data.suppliers  = data.suppliers  || [];
+
   const { accounting = [], clients = [], leads = [], tasks = [], inventory = [] } = data;
 
   const kpis = useMemo(() => getDashboardKPIs(data), [data]);
