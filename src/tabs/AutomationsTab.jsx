@@ -889,7 +889,6 @@ export default function AutomationsTab({ dark = false }) {
                 </div>
               )}
             </div>
-            </div>
             <select value={filterTrigger} onChange={e => setFilterTrigger(e.target.value)} style={{ ...selectStyle, width: 170 }}>
               <option value="all">All triggers</option>
               {Object.entries(TRIGGERS).map(([k, v]) => (
