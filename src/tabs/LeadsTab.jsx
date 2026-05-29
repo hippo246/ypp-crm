@@ -636,6 +636,10 @@ const actionBtn = (color, bg) => ({
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function LeadsTab({ viewMode, search }) {
   const { data, setData } = useAppData();
+  // Safe array refs
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.accounting = data.accounting || [];
 
   const [filter,         setFilter]         = useState("All");
   const [staffFilter,    setStaffFilter]    = useState("All");
@@ -706,7 +710,7 @@ export default function LeadsTab({ viewMode, search }) {
   const isPhone      = winW < 640;
   const isTablet     = winW >= 640 && winW < 1100;
 
-  const leads        = data.leads;
+  const leads        = data.leads || [];
   const statuses     = ["All", ...PIPELINE_STAGES];
   const dupeIds      = useMemo(() => findDuplicates(leads),    [leads]);
   const staleLeads   = useMemo(() => getStaleLeads(leads),     [leads]);

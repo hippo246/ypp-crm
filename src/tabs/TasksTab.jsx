@@ -991,6 +991,12 @@ const FIELDS = [
 ];
 
 const TasksTab = ({ data, setData, viewMode, search }) => {
+  // Safe array refs — guard against undefined during first render
+  data = data || {};
+  data.tasks      = data.tasks      || [];
+  data.leads      = data.leads      || [];
+  data.clients    = data.clients    || [];
+  data.accounting = data.accounting || [];
   const [filter, setFilter] = useState("All");
   const [taskView, setTaskView] = useState("list"); // list | kanban | gantt | calendar
   const [modal, setModal] = useState(false);

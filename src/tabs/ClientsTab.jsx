@@ -35,6 +35,11 @@ function getRenewalStatus(renewal) {
 
 export default function ClientsTab({ viewMode, search }) {
   const { data, setData } = useAppData();
+  // Safe array refs — guard against undefined during first render
+  data.clients    = data.clients    || [];
+  data.accounting = data.accounting || [];
+  data.tasks      = data.tasks      || [];
+  data.leads      = data.leads      || [];
   const [filter, setFilter] = useState("All");
   const [modal, setModal] = useState(false);
   const [editModal, setEditModal] = useState(null);
