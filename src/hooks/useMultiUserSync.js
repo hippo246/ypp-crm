@@ -72,11 +72,17 @@ export function useMultiUserSync(userId, userName, userRole) {
       // Start heartbeat
       heartbeatRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
       
-      // Cleanup on unmount
+      // Cleanup on unmount — announce leave BEFORE closing the channel
       return () => {
-        channelRef.current?.close();
         clearInterval(heartbeatRef.current);
-        announceLeave();
+        try {
+          channelRef.current?.postMessage({
+            type: "USER_LEAVE",
+            payload: { userId },
+          });
+        } catch (_) {}
+        channelRef.current?.close();
+        channelRef.current = null;
       };
     } catch (error) {
       console.error("BroadcastChannel not supported:", error);
@@ -112,14 +118,15 @@ export function useMultiUserSync(userId, userName, userRole) {
   // Send heartbeat
   const sendHeartbeat = useCallback(() => {
     if (!channelRef.current) return;
-    
-    channelRef.current.postMessage({
-      type: "HEARTBEAT",
-      payload: {
-        userId,
-        timestamp: Date.now(),
-      },
-    });
+    try {
+      channelRef.current.postMessage({
+        type: "HEARTBEAT",
+        payload: {
+          userId,
+          timestamp: Date.now(),
+        },
+      });
+    } catch (_) {}
   }, [userId]);
 
   // Handle user joining
