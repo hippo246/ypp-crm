@@ -18,6 +18,10 @@
 import { useState, useRef, useCallback, useEffect, memo, Suspense, lazy } from "react";
 import { B } from "../constants";
 import { useTabSync } from "../hooks/useTabSync";
+// Bug 1 note: LoginScreen lives in the same directory as AppShell (both are components/).
+// The import below is correct for that structure. If you move either file, update this path.
+import LoginScreen from "./LoginScreen";
+import SettingsTab, { DEFAULT_LOGIN_CONFIG } from "../tabs/SettingsTab";
 
 // ── Lazy tab imports (code-split for perf) ────────────────────────────────────
 const Dashboard      = lazy(() => import("../tabs/Dashboard"));
@@ -45,15 +49,23 @@ const TABS = [
   { id: "analytics",   label: "Analytics",   icon: "📊", short: "Stats" },
   { id: "reports",     label: "Reports",     icon: "📋", short: "Rep"   },
   { id: "automations", label: "Automations", icon: "⚡", short: "Auto"  },
+  { id: "settings",    label: "Settings",    icon: "⚙️", short: "Setup" },
 ];
 
 // Mobile bottom nav shows only the 5 most used — rest accessible via "More"
 const MOBILE_PRIMARY = ["dashboard","leads","tasks","accounting","clients"];
 
 // ── Memoized tab content (avoids re-rendering inactive tabs) ──────────────────
-const TabContent = memo(function TabContent({ tabId, active, search, viewMode }) {
-  // We render all tabs but hide inactive ones via CSS display:none.
-  // This preserves component state (scroll, open modals, etc.) without unmounting.
+const TabContent = memo(function TabContent({
+  tabId, active, search, viewMode,
+  // Settings-specific props
+  dark, setDark, compact, setCompact, highContrast, setHighContrast,
+  density, setDensity, fontSize, setFontSize,
+  sidebarCollapsed, setSidebarCollapsed, sidebarAccent, setSidebarAccent,
+  focusMode, setFocusMode, splitView, setSplitView, setViewMode,
+  currentUser, onRoleChange, data, setData, navigateTo,
+  loginConfig, setLoginConfig,
+}) {
   const style = active ? {} : { display: "none" };
 
   const inner = (() => {
@@ -69,6 +81,24 @@ const TabContent = memo(function TabContent({ tabId, active, search, viewMode })
       case "analytics":   return <AnalyticsTab />;
       case "reports":     return <ReportsTab />;
       case "automations": return <AutomationsTab />;
+      case "settings":    return (
+        <SettingsTab
+          dark={dark} setDark={setDark}
+          compact={compact} setCompact={setCompact}
+          highContrast={highContrast} setHighContrast={setHighContrast}
+          density={density} setDensity={setDensity}
+          fontSize={fontSize} setFontSize={setFontSize}
+          sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed}
+          sidebarAccent={sidebarAccent} setSidebarAccent={setSidebarAccent}
+          focusMode={focusMode} setFocusMode={setFocusMode}
+          splitView={splitView} setSplitView={setSplitView}
+          viewMode={viewMode} setViewMode={setViewMode}
+          currentUser={currentUser} onRoleChange={onRoleChange}
+          data={data} setData={setData}
+          navigateTo={navigateTo}
+          loginConfig={loginConfig} setLoginConfig={setLoginConfig}
+        />
+      );
       default: return null;
     }
   })();
@@ -97,14 +127,62 @@ function TabSkeleton() {
 
 // ── Main AppShell ──────────────────────────────────────────────────────────────
 export default function AppShell() {
+  // ── Auth / Login ─────────────────────────────────────────────────────────────
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("yp_current_user")) || null; } catch { return null; }
+  });
+
+  // ── Login Screen Config ───────────────────────────────────────────────────────
+  const [loginConfig, setLoginConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("crm_login_config")) || DEFAULT_LOGIN_CONFIG; } catch { return DEFAULT_LOGIN_CONFIG; }
+  });
+
+  // Persist loginConfig whenever it changes
+  useEffect(() => {
+    try { localStorage.setItem("crm_login_config", JSON.stringify(loginConfig)); } catch {}
+  }, [loginConfig]);
+
+  // Persist sidebarAccent
+  useEffect(() => {
+    try {
+      if (sidebarAccent) localStorage.setItem("crm_sidebar_accent", sidebarAccent);
+      else localStorage.removeItem("crm_sidebar_accent");
+    } catch {}
+  }, [sidebarAccent]);
+
+  // ── Preferences ───────────────────────────────────────────────────────────────
+  const [dark,             setDark]             = useState(false);
+  const [compact,          setCompact]          = useState(false);
+  const [highContrast,     setHighContrast]     = useState(false);
+  const [density,          setDensity]          = useState(1);
+  const [fontSize,         setFontSize]         = useState(0);
+  const [sidebarAccent,    setSidebarAccent]    = useState(() => {
+    try { return localStorage.getItem("crm_sidebar_accent") || null; } catch { return null; }
+  });
+  const [focusMode,        setFocusMode]        = useState(false);
+  const [splitView,        setSplitView]        = useState(false);
+
+  // ── Navigation & UI ───────────────────────────────────────────────────────────
   const { activeTab, setActiveTab } = useTabSync("dashboard");
   const [search, setSearch]         = useState("");
-  const [viewMode, setViewMode]     = useState("table"); // "table" | "excel"
+  const [viewMode, setViewMode]     = useState("table");
   const [moreOpen, setMoreOpen]     = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mounted, setMounted]       = useState(new Set(["dashboard"])); // track which tabs have ever been shown
+  const [mounted, setMounted]       = useState(new Set(["dashboard", "settings"]));
   const touchStartX = useRef(null);
   const searchRef   = useRef(null);
+
+  // ── Data (stub — replace with useAppData if wired) ───────────────────────────
+  const [data, setData] = useState({ leads: [], clients: [], tasks: [], accounting: [], inventory: [], suppliers: [] });
+
+  const handleLogin  = (user) => { setCurrentUser(user); try { localStorage.setItem("yp_current_user", JSON.stringify(user)); } catch {} };
+  const handleLogout     = ()     => { setCurrentUser(null); try { localStorage.removeItem("yp_current_user"); } catch {} };
+  // Bug 8 fix: useCallback so TabContent (which is memo'd) doesn't re-render on every AppShell render
+  const handleRoleChange = useCallback((role) => setCurrentUser(u => ({ ...u, role })), []);
+  const navigateTo = useCallback((tabId) => setActiveTab(tabId), [setActiveTab]);
+
+  // ── Sidebar background: sidebarAccent from settings ──────────────────────────
+  const sidebarBg = sidebarAccent || "#0F172A";
 
   // Mark tab as mounted when first visited
   useEffect(() => {
@@ -140,13 +218,21 @@ export default function AppShell() {
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     if (Math.abs(dx) < 60) return; // ignore small swipes
-    const allIds = TABS.map(t => t.id);
-    const cur = allIds.indexOf(activeTab);
-    if (dx < 0 && cur < allIds.length - 1) setActiveTab(allIds[cur + 1]);
-    if (dx > 0 && cur > 0) setActiveTab(allIds[cur - 1]);
+    // Bug 6 fix: exclude "settings" from swipe navigation — it's an overlay destination,
+    // not part of the main tab sequence users swipe through.
+    const swipeableIds = TABS.filter(t => t.id !== "settings").map(t => t.id);
+    const cur = swipeableIds.indexOf(activeTab);
+    if (cur === -1) return; // currently on settings — don't swipe away
+    if (dx < 0 && cur < swipeableIds.length - 1) setActiveTab(swipeableIds[cur + 1]);
+    if (dx > 0 && cur > 0) setActiveTab(swipeableIds[cur - 1]);
   }, [activeTab, setActiveTab]);
 
   const tabDef = TABS.find(t => t.id === activeTab) || TABS[0];
+
+  // ── Show login screen if not authenticated ───────────────────────────────────
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} loginConfig={loginConfig} />;
+  }
 
   return (
     <>
@@ -166,7 +252,7 @@ export default function AppShell() {
         .app-sidebar {
           width: 220px;
           min-width: 220px;
-          background: #0F172A;
+          background: ${sidebarBg};
           display: flex;
           flex-direction: column;
           transition: width 0.22s ease, min-width 0.22s ease;
@@ -369,7 +455,13 @@ export default function AppShell() {
         {/* ── Desktop sidebar ── */}
         <aside className={`app-sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
           <div className="sidebar-logo">
-            <span className="lbl">⚡ AppName</span>
+            <span className="lbl" style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              {loginConfig?.logoUrl
+                ? <img src={loginConfig.logoUrl} alt={loginConfig.appName || "logo"} style={{ width: 22, height: 22, objectFit: "contain", borderRadius: 5, flexShrink: 0 }} />
+                : <span>{loginConfig?.logoEmoji || "⚡"}</span>
+              }
+              {!sidebarCollapsed && (loginConfig?.appName || "AppName")}
+            </span>
             <button
               onClick={() => setSidebarCollapsed(c => !c)}
               style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: 14, padding: "2px 4px", flexShrink: 0 }}
@@ -379,7 +471,7 @@ export default function AppShell() {
             </button>
           </div>
           <nav className="sidebar-nav">
-            {TABS.map(tab => (
+            {TABS.filter(t => t.id !== "settings").map(tab => (
               <button
                 key={tab.id}
                 className={`sidebar-item${activeTab === tab.id ? " active" : ""}`}
@@ -390,7 +482,41 @@ export default function AppShell() {
                 <span className="lbl">{tab.label}</span>
               </button>
             ))}
+            {/* Settings at bottom, separated */}
+            <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "6px 0" }} />
+            <button
+              className={`sidebar-item${activeTab === "settings" ? " active" : ""}`}
+              onClick={() => setActiveTab("settings")}
+              title={sidebarCollapsed ? "Settings" : undefined}
+            >
+              <span className="icon">⚙️</span>
+              <span className="lbl">Settings</span>
+            </button>
           </nav>
+          <div style={{ padding: "12px 8px", borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: "auto" }}>
+            {/* Current user pill */}
+            {!sidebarCollapsed && (
+              <div style={{ padding: "8px 10px", marginBottom: 6, borderRadius: 8, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 26, height: 26, borderRadius: 6, background: "rgba(59,130,246,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
+                  {currentUser?.name?.split(" ").map(n => n[0]).join("").slice(0,2) || "??"}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "User"}</div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{currentUser?.role || ""}</div>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={handleLogout}
+              style={{ width: "100%", padding: sidebarCollapsed ? "8px 0" : "8px 10px", background: "none", border: "none", borderRadius: 7, cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 8, transition: "background 0.12s, color 0.12s", textAlign: "left", fontFamily: "inherit" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(239,68,68,0.15)"; e.currentTarget.style.color = "#f87171"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}
+              title={sidebarCollapsed ? "Sign out" : undefined}
+            >
+              <span style={{ fontSize: 14 }}>🚪</span>
+              {!sidebarCollapsed && "Sign out"}
+            </button>
+          </div>
         </aside>
 
         {/* ── Main area ── */}
@@ -436,6 +562,21 @@ export default function AppShell() {
                     active={tab.id === activeTab}
                     search={search}
                     viewMode={viewMode}
+                    // Settings props
+                    dark={dark} setDark={setDark}
+                    compact={compact} setCompact={setCompact}
+                    highContrast={highContrast} setHighContrast={setHighContrast}
+                    density={density} setDensity={setDensity}
+                    fontSize={fontSize} setFontSize={setFontSize}
+                    sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed}
+                    sidebarAccent={sidebarAccent} setSidebarAccent={setSidebarAccent}
+                    focusMode={focusMode} setFocusMode={setFocusMode}
+                    splitView={splitView} setSplitView={setSplitView}
+                    setViewMode={setViewMode}
+                    currentUser={currentUser} onRoleChange={handleRoleChange}
+                    data={data} setData={setData}
+                    navigateTo={navigateTo}
+                    loginConfig={loginConfig} setLoginConfig={setLoginConfig}
                   />
                 )
               ))}

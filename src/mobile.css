@@ -1,170 +1,610 @@
 /*
- * mobile.css — Global mobile responsiveness patch
- * Append to your index.css or App.css
- * Covers all tabs at ≤768px (phone) and ≤1024px (tablet)
+ * mobile.css — Yes Pinoy Pro · Advanced Mobile & UX Patch  v3.0
+ * ──────────────────────────────────────────────────────────────
+ * Drop-in: import AFTER all other CSS (App.css, index.css).
+ * No JSX changes required — targets class names + inline-style
+ * attribute selectors that React writes to the DOM.
+ *
+ * Breakpoints used:
+ *   Phone  ≤ 640px
+ *   Tablet 641–1024px
+ *   Touch  coarse pointer (any size)
+ *   Safe   env(safe-area-inset-*) — notch / home bar
  */
 
-/* ── Base reset for small screens ───────────────────────────────────────────── */
-@media (max-width: 768px) {
+/* ══════════════════════════════════════════════════════════════════
+   §0  GLOBAL BASELINE  (all screen sizes)
+══════════════════════════════════════════════════════════════════ */
 
-  /* ── KPI stat grids → 2 columns ─────────────────────────────── */
-  .kpi-grid-5,
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { overscroll-behavior: none; -webkit-overflow-scrolling: touch; }
+
+/* Crisp rendering for icon glyphs */
+.yp-logo-mark,
+.ls-logo-mark,
+[class*="logo-mark"] { image-rendering: crisp-edges; }
+
+/* Prevent double-tap zoom on interactive elements */
+button, [role="button"], a, label, select {
+  touch-action: manipulation;
+}
+
+/* Remove iOS tap highlight */
+* { -webkit-tap-highlight-color: transparent; }
+
+/* Scrollbar polish (Webkit) */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   §1  TABLE ROW COMPACTNESS  (all sizes — kill excessive row height)
+══════════════════════════════════════════════════════════════════ */
+
+.ntable-row td,
+.ntable-row th {
+  padding: 5px 8px !important;
+  height: auto !important;
+  min-height: unset !important;
+  max-height: none !important;
+  line-height: 1.3 !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+.ntable-row {
+  height: auto !important;
+  min-height: unset !important;
+  max-height: none !important;
+}
+.ntable-row td select {
+  padding: 2px 5px !important;
+  font-size: 11px !important;
+  height: auto !important;
+  min-height: unset !important;
+  line-height: 1.3 !important;
+}
+.ntable-row td input[type="date"],
+.ntable-row td input[type="text"],
+.ntable-row td input[type="checkbox"] {
+  height: auto !important;
+  min-height: unset !important;
+  padding: 2px 4px !important;
+  font-size: 10px !important;
+  line-height: 1.3 !important;
+}
+.ntable-row td > div {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 3px !important;
+  align-items: center !important;
+}
+.ntable-row td button {
+  padding: 3px 7px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  height: auto !important;
+  min-height: unset !important;
+  white-space: nowrap !important;
+}
+.ntable-row td > div[style*="flex-wrap: wrap"] { flex-wrap: wrap !important; }
+.ntable-row th,
+thead th {
+  padding: 5px 8px !important;
+  font-size: 11px !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   §2  PHONE  ≤ 640px
+══════════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+  /* ─── Layout shells ─────────────────────────────────────────── */
+  .app-content {
+    padding: 10px 10px calc(68px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .page-pad { padding: 8px !important; }
+
+  /* ─── Top bar ───────────────────────────────────────────────── */
+  .topbar,
+  [class*="topbar"] {
+    padding: 0 10px !important;
+    height: 52px !important;
+  }
+  .app-search,
+  [class*="app-search"] {
+    max-width: none !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+  /* hide topbar breadcrumbs on small screens */
+  .topbar-breadcrumb { display: none !important; }
+
+  /* ─── Sidebar ───────────────────────────────────────────────── */
+  .sidebar,
+  [class*="sidebar"] {
+    position: fixed !important;
+    left: -100% !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: 280px !important;
+    z-index: 1000 !important;
+    transition: left 0.28s cubic-bezier(0.4,0,0.2,1) !important;
+  }
+  .sidebar.open,
+  [class*="sidebar"].open { left: 0 !important; }
+
+  /* ─── Stat / KPI grids → 2 columns ─────────────────────────── */
   .stat-grid-6,
+  .kpi-grid-5,
+  .kpi-grid-3,
   [class*="kpi-grid"],
   [class*="stat-grid"] {
     grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
   }
+  .stat-card-value { font-size: 18px !important; }
 
-  /* ── Mid/bottom dashboard rows → 1 column ───────────────────── */
+  /* ─── Dashboard mid/bottom rows → single column ─────────────── */
   .dash-mid-row,
-  .dash-bottom-row,
-  .kpi-grid-3 {
+  .dash-bottom-row {
     grid-template-columns: 1fr !important;
+    gap: 10px !important;
   }
 
-  /* ── Tables: enable horizontal scroll, no overflow clip ─────── */
+  /* ─── Analytics chart grids ─────────────────────────────────── */
+  .chart-grid-2,
+  .chart-grid-3 { grid-template-columns: 1fr !important; }
+
+  /* ─── Aging buckets (AccountingTab) ─────────────────────────── */
+  .aging-buckets { grid-template-columns: 1fr !important; }
+
+  /* ─── Tables → scrollable ────────────────────────────────────── */
   .section-card,
-  [class*="SectionCard"],
+  [class*="section-card"],
   .ntable-wrap {
     overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
+    -webkit-overflow-scrolling: touch !important;
   }
+  table { min-width: 680px !important; }
 
-  /* ── Toolbar rows: stack on mobile ──────────────────────────── */
-  .toolbar-row {
-    flex-wrap: wrap !important;
+  /* ─── Main toolbar outer wrapper → column ───────────────────── */
+  [style*="justify-content: space-between"][style*="flex-wrap: wrap"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
     gap: 8px !important;
   }
 
-  /* ── Filter pill rows: allow wrap ───────────────────────────── */
+  /* ─── Filter pill rows → wrap ───────────────────────────────── */
+  [style*="gap: 6px"][style*="flex-wrap: wrap"][style*="align-items: center"],
   .filter-row {
     flex-wrap: wrap !important;
     gap: 6px !important;
   }
 
-  /* ── Side panel drawers: full-screen on mobile ───────────────── */
-  .profile-drawer,
-  .task-detail-panel,
-  .detail-drawer {
-    width: 100% !important;
-    max-width: 100% !important;
-    border-radius: 16px 16px 0 0 !important;
-    bottom: 0 !important;
-    top: auto !important;
-    height: 85dvh !important;
+  /* ─── Right-side action row → wrap ──────────────────────────── */
+  [style*="gap: 8px"][style*="align-items: center"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
   }
 
-  /* ── Kanban: horizontal scroll ───────────────────────────────── */
+  /* ─── Vertical divider bars between filter groups → hide ─────── */
+  [style*="width: 1px"][style*="height: 20px"] { display: none !important; }
+
+  /* ─── Primary CTA buttons (Add Lead / Add Invoice …) → full width */
+  [style*="padding: 6px 16px"][style*="border-radius: 7px"][style*="font-weight: 700"] {
+    width: 100% !important;
+    justify-content: center !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ─── Bulk action bar → wrap ─────────────────────────────────── */
+  [style*="border-radius: 8px"][style*="padding: 4px 10px"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ─── Kanban board → horizontal scroll ──────────────────────── */
+  [style*="grid-template-columns"][style*="overflow: auto"] {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 10px !important;
+    gap: 10px !important;
+    scroll-snap-type: x mandatory;
+  }
   .kanban-board {
     overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-  .kanban-col {
-    min-width: 240px !important;
-    flex-shrink: 0 !important;
+    -webkit-overflow-scrolling: touch !important;
+    scroll-snap-type: x mandatory;
   }
 
-  /* ── Modals: full-width bottom sheet on mobile ───────────────── */
+  /* Kanban columns */
+  [style*="min-width: 150px"][style*="flex-direction: column"],
+  .kanban-col {
+    min-width: 230px !important;
+    flex-shrink: 0 !important;
+    width: 230px !important;
+    scroll-snap-align: start;
+  }
+
+  /* ─── Modals → bottom sheet ──────────────────────────────────── */
+  [style*="position: fixed"][style*="inset: 0"][style*="align-items: center"][style*="justify-content: center"],
   .form-modal-overlay {
     align-items: flex-end !important;
   }
+  [style*="z-index: 1"][style*="background: rgb(255, 255, 255)"][style*="border-radius: 14px"],
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"],
   .form-modal-box {
     width: 100% !important;
     max-width: 100% !important;
-    border-radius: 16px 16px 0 0 !important;
+    border-radius: 18px 18px 0 0 !important;
+    max-height: 92dvh !important;
+    overflow-y: auto !important;
+    padding-bottom: max(28px, env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Modal drag handle hint */
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"]::before,
+  .form-modal-box::before {
+    content: '';
+    display: block;
+    width: 36px; height: 4px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.15);
+    margin: -8px auto 16px;
+  }
+
+  /* Modal form grids → single column */
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns: repeat(4"] {
+    grid-template-columns: 1fr !important;
+  }
+  [style*="grid-template-columns: repeat(4,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ─── Side drawers → full-width bottom sheet ─────────────────── */
+  [style*="justify-content: flex-end"] > [style*="width: 400px"],
+  [style*="justify-content: flex-end"] > [style*="width: 420px"],
+  [style*="justify-content: flex-end"] > [style*="width: 380px"],
+  .profile-drawer,
+  .task-detail-panel,
+  .detail-drawer {
+    position: fixed !important;
+    left: 0 !important; right: 0 !important;
+    bottom: 0 !important; top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 92dvh !important;
+    border-radius: 18px 18px 0 0 !important;
+    box-shadow: 0 -4px 40px rgba(0,0,0,0.22) !important;
+    padding-bottom: max(20px, env(safe-area-inset-bottom)) !important;
+  }
+
+  /* ─── Hover cards → hide (useless on touch) ──────────────────── */
+  [style*="z-index: 9998"],
+  [class*="hover-card"],
+  [class*="HoverCard"] { display: none !important; }
+
+  /* ─── Input zoom prevention (iOS ≥ 16px) ────────────────────── */
+  input:not(td input):not(th input),
+  select:not(td select):not(th select),
+  textarea { font-size: 16px !important; }
+
+  /* ─── NTable row tap targets ─────────────────────────────────── */
+  .ntable-row td { padding: 8px !important; }
+  .ntable-row td button {
+    min-width: 28px !important;
+    min-height: 28px !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+  }
+
+  /* ─── Detail drawer action row → wrap ───────────────────────── */
+  [style*="display: flex"][style*="gap: 8px"][style*="padding-top: 14px"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* ─── Snooze / reminder row → wrap ──────────────────────────── */
+  [style*="align-items: center"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ─── Lost reasons footer → wrap ────────────────────────────── */
+  [style*="gap: 12px"][style*="padding: 8px 14px"][style*="flex-wrap: wrap"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* ─── Excel mobile warning ───────────────────────────────────── */
+  .excel-mobile-warning { display: flex !important; }
+  .excel-table-wrap { display: none !important; }
+
+  /* ─── Gantt → horizontal scroll ─────────────────────────────── */
+  .gantt-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* ─── Reports / analytics section cards ─────────────────────── */
+  .report-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ─── Mobile bottom nav extra safe area ─────────────────────── */
+  .mobile-nav,
+  [class*="mobile-nav"],
+  [class*="MobileBottomNav"] {
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  /* ─── Tab bar hidden tabs on small screens ───────────────────── */
+  .col-hide-mobile { display: none !important; }
+
+  /* ─── Stacked card view (used in some tabs as mobile fallback) ── */
+  .mobile-card-view { display: flex !important; flex-direction: column; gap: 10px; }
+  .mobile-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px; padding: 14px;
+  }
+
+  /* ─── Settings tab panels → full width ──────────────────────── */
+  .settings-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .settings-sidebar {
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+    padding-bottom: 12px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* ─── Calendar: week/day view → full width ───────────────────── */
+  .cal-week-grid { min-width: 520px !important; }
+  .cal-wrap { overflow-x: auto !important; }
+
+  /* ─── Inventory / Suppliers cards ───────────────────────────── */
+  .product-grid,
+  .supplier-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ─── Task board columns ─────────────────────────────────────── */
+  .task-board {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 10px !important;
+    scroll-snap-type: x mandatory;
+  }
+  .task-col {
+    min-width: 240px !important;
+    flex-shrink: 0 !important;
+    scroll-snap-align: start;
+  }
+
+  /* ─── Command palette → full screen ─────────────────────────── */
+  [style*="position: fixed"][style*="inset: 0"][style*="z-index: 9"] > [style*="max-width"] {
+    width: calc(100vw - 24px) !important;
+    max-width: none !important;
+    top: 12px !important;
+    max-height: calc(100dvh - 24px) !important;
+  }
+
+  /* ─── Topbar action icons: more generous tap area ────────────── */
+  .topbar button, .topbar [role="button"] {
+    min-width: 36px !important;
+    min-height: 36px !important;
+  }
+
+  /* ─── Toast notifications: full-width on mobile ─────────────── */
+  [style*="position: fixed"][style*="bottom: 24px"][style*="right: 24px"] {
+    right: 12px !important;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 12px !important;
+    align-items: stretch !important;
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   §3  TABLET  641px – 1024px
+══════════════════════════════════════════════════════════════════ */
+@media (min-width: 641px) and (max-width: 1024px) {
+
+  .kpi-grid-5,
+  .stat-grid-6 { grid-template-columns: repeat(3, 1fr) !important; }
+  .kpi-grid-3  { grid-template-columns: repeat(3, 1fr) !important; }
+
+  .dash-mid-row { grid-template-columns: 1fr 1fr !important; }
+  .chart-grid-3 { grid-template-columns: 1fr 1fr !important; }
+
+  .section-card { overflow-x: auto !important; }
+  table { min-width: 780px !important; }
+
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"] {
+    max-width: 92vw !important;
     max-height: 90dvh !important;
     overflow-y: auto !important;
   }
 
-  /* ── Excel mobile warning ────────────────────────────────────── */
-  .excel-mobile-warning {
-    display: flex !important;
-  }
-  .excel-table-wrap {
-    display: none !important;
-  }
-
-  /* ── Gantt: horizontal scroll ────────────────────────────────── */
-  .gantt-wrap {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* ── Analytics charts: full width ───────────────────────────── */
-  .chart-grid-2,
-  .chart-grid-3 {
-    grid-template-columns: 1fr !important;
+  /* Narrow tablet: kanban horizontal scroll */
+  @media (max-width: 860px) {
+    [style*="grid-template-columns"][style*="overflow: auto"] {
+      display: flex !important;
+      flex-direction: row !important;
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      gap: 10px !important;
+    }
+    [style*="min-width: 150px"][style*="flex-direction: column"] {
+      min-width: 210px !important;
+      flex-shrink: 0 !important;
+    }
   }
 
-  /* ── Aging buckets (AccountingTab) ──────────────────────────── */
-  .aging-buckets {
-    grid-template-columns: 1fr !important;
-  }
-
-  /* ── StatCard: smaller font on mobile ───────────────────────── */
-  .stat-card-value {
-    font-size: 18px !important;
-  }
-
-  /* ── Hide secondary table columns (handled by NTable) ───────── */
-  .col-hide-mobile {
-    display: none !important;
-  }
-
-  /* ── Topbar search: full width ───────────────────────────────── */
-  .app-search {
-    max-width: none !important;
-    flex: 1 !important;
-  }
-
-  /* ── Tab content padding ─────────────────────────────────────── */
-  .app-content {
-    padding: 10px 10px 72px !important;
+  /* Side drawers: constrained, not full width */
+  .profile-drawer,
+  .task-detail-panel,
+  .detail-drawer {
+    max-width: 420px !important;
   }
 }
 
-/* ── Tablet (769–1024px): sidebar + 3-col grids ─────────────────────────────── */
-@media (min-width: 769px) and (max-width: 1024px) {
-  .kpi-grid-5,
-  .stat-grid-6 {
-    grid-template-columns: repeat(3, 1fr) !important;
+
+/* ══════════════════════════════════════════════════════════════════
+   §4  TOUCH TARGETS  — coarse pointer (any screen size)
+══════════════════════════════════════════════════════════════════ */
+@media (hover: none) and (pointer: coarse) {
+
+  /* General interactive elements */
+  button:not(td button):not(th button),
+  [role="button"]:not(td [role="button"]) {
+    min-height: 38px;
   }
-  .dash-mid-row {
-    grid-template-columns: 1fr 1fr !important;
+  .sidebar-item { min-height: 46px !important; }
+
+  /* Filter pills */
+  button[style*="border-radius: 20px"] {
+    padding: 7px 15px !important;
+    font-size: 12px !important;
+  }
+
+  /* Inline selects in table cells */
+  .ntable-row td select {
+    min-height: 32px !important;
+    padding: 5px 8px !important;
+  }
+
+  /* Swipeable areas */
+  .swipeable { touch-action: pan-y; }
+
+  /* Active state feedback for buttons */
+  button:active:not(:disabled) {
+    opacity: 0.75;
+    transform: scale(0.97);
+    transition: opacity 0.08s, transform 0.08s !important;
   }
 }
 
-/* ── Touch-friendly tap targets ─────────────────────────────────────────────── */
-@media (hover: none) {
-  button:not(td button):not(th button), [role="button"] {
-    min-height: 36px;
-  }
-  .sidebar-item {
-    min-height: 44px;
-  }
-  input:not(td input):not(th input),
-  select:not(td select):not(th select),
-  textarea {
-    font-size: 16px !important; /* prevents iOS zoom on focus */
-  }
-}
 
-/* ── Safe area (notch phones) ───────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   §5  SAFE AREA — notch / home bar / dynamic island
+══════════════════════════════════════════════════════════════════ */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .mobile-nav {
-    padding-bottom: env(safe-area-inset-bottom);
+
+  /* Bottom sheets */
+  [style*="justify-content: flex-end"] > [style*="width: 400px"],
+  [style*="justify-content: flex-end"] > [style*="width: 420px"],
+  [style*="justify-content: flex-end"] > [style*="width: 380px"],
+  [style*="z-index: 1"][style*="border-radius: 14px"][style*="padding: 28px"],
+  .form-modal-box {
+    padding-bottom: max(28px, env(safe-area-inset-bottom)) !important;
   }
+
+  /* App content area */
   .app-content {
-    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+    padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Mobile nav */
+  .mobile-nav,
+  [class*="mobile-nav"],
+  [class*="MobileBottomNav"] {
+    padding-bottom: env(safe-area-inset-bottom) !important;
+    height: calc(58px + env(safe-area-inset-bottom)) !important;
   }
 }
 
-/* ── Smooth scroll everywhere ───────────────────────────────────────────────── */
-html {
-  scroll-behavior: smooth;
+
+/* ══════════════════════════════════════════════════════════════════
+   §6  DARK MODE  — enhanced contrast polish
+══════════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  /* Ensure cards pop from background */
+  .section-card,
+  .yp-stat-card {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+  }
 }
 
-/* ── Prevent overscroll bounce on iOS ───────────────────────────────────────── */
-body {
-  overscroll-behavior: none;
+
+/* ══════════════════════════════════════════════════════════════════
+   §7  REDUCED MOTION
+══════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   §8  HIGH CONTRAST (accessibility)
+══════════════════════════════════════════════════════════════════ */
+@media (forced-colors: active) {
+  .yp-status-dot,
+  .ls-secure-dot,
+  .ls-status-dot { forced-color-adjust: none; }
+  button, [role="button"] { border: 2px solid ButtonText !important; }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   §9  PRINT  — clean output
+══════════════════════════════════════════════════════════════════ */
+@media print {
+  .sidebar, .topbar, .mobile-nav,
+  [class*="mobile-nav"], [class*="CommandPalette"],
+  [class*="NotifPanel"], .ls-canvas { display: none !important; }
+  .app-content { padding: 0 !important; }
+  table { min-width: unset !important; }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   §10  GLOBAL POLISH  (all screen sizes)
+══════════════════════════════════════════════════════════════════ */
+
+/* Subtle focus ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid rgba(192,132,252,0.65) !important;
+  outline-offset: 2px !important;
+}
+
+/* Remove focus ring from mouse/touch */
+:focus:not(:focus-visible) { outline: none !important; }
+
+/* Fieldset / form groups — consistent */
+fieldset { border: none; padding: 0; margin: 0; }
+
+/* Selection color */
+::selection {
+  background: rgba(192,132,252,0.28);
+  color: inherit;
+}
+
+/* Smooth font rendering */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Prevent content jump from scrollbar appearance */
+html { scrollbar-gutter: stable; }

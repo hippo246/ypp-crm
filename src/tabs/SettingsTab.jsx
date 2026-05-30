@@ -7,10 +7,12 @@
  *  - Preferences section initializes from live props, not hardcoded defaults
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { B } from "../constants";
 import { useAppData } from "../context/AppContext";
 import { toast } from "../App";
+// Live preview in the Login Screen settings section
+import LoginScreen from "../LoginScreen";
 
 const ROLE_COLORS = {
   Admin: "#1D3557",
@@ -29,6 +31,7 @@ const SECTIONS = [
   { id: "security",     label: "Security",       icon: "🔒" },
   { id: "data",         label: "Data & Export",  icon: "💾" },
   { id: "team",         label: "Team Management",icon: "👥" },
+  { id: "loginscreen",  label: "Login Screen",   icon: "🔑" },
   { id: "system",       label: "System",         icon: "🖥️" },
 ];
 
@@ -48,8 +51,22 @@ export default function SettingsTab({
   onRoleChange,
   data, setData,
   navigateTo,
+  loginConfig, setLoginConfig,
 }) {
-  const { dispatch } = useAppData();
+// Bug 9 fix: useAppData() crashes if no AppContext provider wraps this component
+// (e.g. when SettingsTab is rendered in tests or outside the main app tree).
+// The fix lives in AppContext.js — useAppData should return a fallback when context
+// is undefined rather than throwing. Add this to your AppContext.js:
+//
+//   export function useAppData() {
+//     const ctx = useContext(AppContext);
+//     if (!ctx) return { dispatch: () => {}, data: {} };   // ← safe fallback
+//     return ctx;
+//   }
+//
+// Until that change lands, we guard the destructure so SettingsTab doesn't white-screen.
+const _appCtx = useAppData();
+const dispatch = _appCtx?.dispatch ?? (() => {});
   const [activeSection, setActiveSection] = useState("profile");
   const [saving, setSaving] = useState(false);
 
@@ -110,6 +127,7 @@ export default function SettingsTab({
     localStorage.setItem("crm_settings_profile", JSON.stringify(profile));
     localStorage.setItem("crm_settings_workflows", JSON.stringify(workflows));
     localStorage.setItem("crm_settings_notifications", JSON.stringify(notifPrefs));
+    if (loginConfig) localStorage.setItem("crm_login_config", JSON.stringify(loginConfig));
 
     // ── Apply preferences to live app ──────────────────────────────────────
     if (setDark)            setDark(preferences.theme === "dark");
@@ -132,7 +150,7 @@ export default function SettingsTab({
 
     setSaving(false);
     toast("Settings saved — changes applied!", "success");
-  }, [profile, preferences, workflows, notifPrefs,
+  }, [profile, preferences, workflows, notifPrefs, loginConfig,
       setDark, setHighContrast, setCompact, setSidebarCollapsed,
       setSidebarAccent, setFocusMode, setSplitView, setDensity,
       setFontSize, setViewMode, viewMode]);
@@ -154,6 +172,7 @@ export default function SettingsTab({
   useEffect(() => { if (setFocusMode) setFocusMode(preferences.focusMode); }, [preferences.focusMode]);
   useEffect(() => { if (setSplitView) setSplitView(preferences.splitView); }, [preferences.splitView]);
   useEffect(() => { if (setDensity) { const m = { dense: 0, compact: 1, comfortable: 2 }; setDensity(m[preferences.density] ?? 1); } }, [preferences.density]);
+  useEffect(() => { if (setSidebarAccent) setSidebarAccent(preferences.sidebarAccent); }, [preferences.sidebarAccent]);
 
   return (
     <div style={{ display: "flex", height: "100%", background: "#F8FAFC" }}>
@@ -210,6 +229,7 @@ export default function SettingsTab({
           {activeSection === "security"      && <SecuritySection />}
           {activeSection === "data"          && <DataSection data={data} />}
           {activeSection === "team"          && <TeamSection currentUser={currentUser} onRoleChange={onRoleChange} />}
+          {activeSection === "loginscreen"   && <LoginScreenSection loginConfig={loginConfig} setLoginConfig={setLoginConfig} />}
           {activeSection === "system"        && <SystemSection dark={dark} />}
         </div>
       </div>
@@ -818,7 +838,532 @@ function SystemSection({ dark }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared UI primitives
+// Login Screen Section — full control over LoginScreen.jsx config
+// ─────────────────────────────────────────────────────────────────────────────
+export const DEFAULT_LOGIN_CONFIG = {
+  // ── Branding ──────────────────────────────────────────────────────────────
+  appName:          "Yes Pinoy Pro",
+  appSubtitle:      "Business CRM · Dubai, UAE",
+  logoEmoji:        "🌞",
+  logoUrl:          "",   // if set, renders an <img> instead of the emoji mark
+  // ── Welcome copy ─────────────────────────────────────────────────────────
+  welcomeTitle:     "Welcome back",
+  welcomeSub:       "Sign in to your workspace to continue.",
+  emailPlaceholder: "you@yespinoy.ae",
+  // ── Button & action copy ─────────────────────────────────────────────────
+  signInBtnText:    "Sign in →",
+  signingInText:    "Signing in…",
+  forgotPwText:     "Forgot password?",
+  rememberMeText:   "Remember this device",
+  secureBadgeText:  "Secure · End-to-end encrypted",
+  quickAccessLabel: "quick access",
+  teamMembersLabel: "Team members",
+  biometricText:    "Use Face ID / Touch ID / Biometric to sign in",
+  clockTimezone:    "GST",
+  // ── Colors ───────────────────────────────────────────────────────────────
+  primaryColor:     "#E8392E",
+  secondaryColor:   "#1A44C2",
+  bgColor:          "#07090F",
+  cardBg:           "rgba(13,13,28,0.82)",
+  // ── Background FX ────────────────────────────────────────────────────────
+  showGrid:         true,
+  showGrain:        true,
+  showOrbs:         true,
+  // ── Feature toggles ──────────────────────────────────────────────────────
+  showPasskey:      true,
+  showGoogle:       true,
+  showMicrosoft:    true,
+  showBiometric:    true,
+  showQuickAccess:  true,
+  showSecureBadge:  true,
+  showRememberMe:   true,
+  showClock:        true,
+  showForgotPw:     true,
+  // ── Footer ───────────────────────────────────────────────────────────────
+  footerCopyright:  "© 2025 Yes Pinoy Pro",
+  privacyUrl:       "https://www.yespinoypro.com/ypp-privacy-policy",
+  termsUrl:         "https://www.yespinoypro.com/ypp-terms-conditions",
+  websiteUrl:       "https://www.yespinoypro.com/",
+  // ── Users (quick-access team) ─────────────────────────────────────────────
+  users: [
+    { id: 1, name: "Alex Reyes",    role: "Admin",      avatar: "AR", email: "alex@yespinoy.ae",  password: "admin123" },
+    { id: 2, name: "Sarah Mendoza", role: "Sales",      avatar: "SM", email: "sarah@yespinoy.ae", password: "sales123" },
+    { id: 3, name: "Mike Tan",      role: "Accountant", avatar: "MT", email: "mike@yespinoy.ae",  password: "acct123"  },
+    { id: 4, name: "Lena Cruz",     role: "Operations", avatar: "LC", email: "lena@yespinoy.ae",  password: "ops123"   },
+  ],
+};
+
+const ROLES = ["Admin", "Sales", "Accountant", "Operations", "Manager"];
+
+function LoginScreenSection({ loginConfig, setLoginConfig }) {
+  const [cfg, setCfg] = useState(() => {
+    if (loginConfig) return loginConfig;
+    try { return JSON.parse(localStorage.getItem("crm_login_config")) || DEFAULT_LOGIN_CONFIG; } catch { return DEFAULT_LOGIN_CONFIG; }
+  });
+
+  useEffect(() => {
+    if (typeof setLoginConfig === "function") setLoginConfig(cfg);
+    try { localStorage.setItem("crm_login_config", JSON.stringify(cfg)); } catch {}
+  }, [cfg]);
+
+  const set = (key, val) => setCfg(prev => ({ ...prev, [key]: val }));
+
+  const [newUser, setNewUser] = useState({ name: "", role: "Sales", email: "", password: "", avatar: "" });
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [lsSection, setLsSection] = useState("branding");
+
+  const lsSections = [
+    { id: "branding",   label: "Branding" },
+    { id: "copy",       label: "Text & Copy" },
+    { id: "colors",     label: "Colors" },
+    { id: "background", label: "Background FX" },
+    { id: "features",   label: "Show / Hide" },
+    { id: "footer",     label: "Footer" },
+    { id: "users",      label: "Team Members" },
+  ];
+
+  const saveToStorage = () => {
+    try { localStorage.setItem("crm_login_config", JSON.stringify(cfg)); } catch {}
+    toast("Login screen config saved!", "success");
+  };
+
+  // Derive initials from name
+  const initials = (name) => name.split(" ").map(n => n[0]).filter(Boolean).join("").toUpperCase().slice(0, 2);
+
+  return (
+    <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+
+      {/* ── LEFT: editor controls ───────────────────────────────────────── */}
+      <div style={{ flex: 1, minWidth: 300, display: "flex", flexDirection: "column", gap: 20 }}>
+
+        {/* Sub-nav + save */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {lsSections.map(s => (
+            <button key={s.id} onClick={() => setLsSection(s.id)}
+              style={{
+                padding: "7px 16px", borderRadius: 20, fontSize: 12, fontWeight: lsSection === s.id ? 700 : 500,
+                background: lsSection === s.id ? "#2563EB" : "#F1F5F9",
+                color: lsSection === s.id ? "#fff" : "#475569",
+                border: lsSection === s.id ? "none" : "1px solid #E2E8F0",
+                cursor: "pointer", transition: "all 0.12s",
+              }}
+            >{s.label}</button>
+          ))}
+          <button onClick={saveToStorage}
+            style={{ marginLeft: "auto", padding: "7px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: "#16A34A", color: "#fff", border: "none", cursor: "pointer" }}>
+            💾 Save Config
+          </button>
+        </div>
+
+      {/* ── BRANDING ── */}
+      {lsSection === "branding" && (
+        <>
+          <Card title="Branding">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {[
+                { label: "App Name",     key: "appName" },
+                { label: "App Subtitle", key: "appSubtitle" },
+                { label: "Logo Emoji",   key: "logoEmoji", hint: "Used when no logo image is set" },
+              ].map(({ label, key, hint }) => (
+                <div key={key}>
+                  <label style={labelStyle}>{label}</label>
+                  <input style={inputStyle} value={cfg[key] || ""} onChange={e => set(key, e.target.value)} />
+                  {hint && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 3 }}>{hint}</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Logo image upload */}
+            <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid #E2E8F0" }}>
+              <div style={labelStyle}>Logo Image</div>
+              <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 12px" }}>
+                Upload an image or paste a URL. When set, replaces the emoji mark. Transparent PNG or SVG recommended.
+              </p>
+              <LogoUpload cfg={cfg} set={set} />
+            </div>
+
+            {/* Logo mark preview */}
+            <div style={{ marginTop: 14, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 11, overflow: "hidden", flexShrink: 0,
+                background: cfg.logoUrl ? "transparent" : `linear-gradient(135deg, ${cfg.primaryColor || "#E8392E"}, ${cfg.secondaryColor || "#1A44C2"})`,
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+              }}>
+                {cfg.logoUrl
+                  ? <img src={cfg.logoUrl} alt="logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                  : (cfg.logoEmoji || "🌞")}
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{cfg.appName || "Yes Pinoy Pro"}</div>
+                <div style={{ fontSize: 11, color: "#64748B" }}>{cfg.appSubtitle || ""}</div>
+              </div>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* ── TEXT & COPY ── */}
+      {lsSection === "copy" && (
+        <>
+          <Card title="Welcome Screen">
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {[
+                { label: "Welcome Title",    key: "welcomeTitle",    placeholder: "Welcome back" },
+                { label: "Welcome Subtitle", key: "welcomeSub",      placeholder: "Sign in to your workspace to continue." },
+                { label: "Email Placeholder",key: "emailPlaceholder",placeholder: "you@company.com" },
+              ].map(({ label, key, placeholder }) => (
+                <div key={key}>
+                  <label style={labelStyle}>{label}</label>
+                  <input style={inputStyle} value={cfg[key] || ""} onChange={e => set(key, e.target.value)} placeholder={placeholder} />
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="Button & Action Labels">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {[
+                { label: "Sign In Button",      key: "signInBtnText",    placeholder: "Sign in →" },
+                { label: "Signing In (loading)", key: "signingInText",   placeholder: "Signing in…" },
+                { label: "Forgot Password Link", key: "forgotPwText",    placeholder: "Forgot password?" },
+                { label: "Remember Me Label",    key: "rememberMeText",  placeholder: "Remember this device" },
+                { label: "Secure Badge Text",    key: "secureBadgeText", placeholder: "Secure · End-to-end encrypted" },
+                { label: "Biometric Button Text",key: "biometricText",   placeholder: "Use Face ID / Touch ID / Biometric to sign in" },
+              ].map(({ label, key, placeholder }) => (
+                <div key={key}>
+                  <label style={labelStyle}>{label}</label>
+                  <input style={inputStyle} value={cfg[key] || ""} onChange={e => set(key, e.target.value)} placeholder={placeholder} />
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="Quick Access Section Labels">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {[
+                { label: "Divider Label",   key: "quickAccessLabel",  placeholder: "quick access" },
+                { label: "Grid Heading",    key: "teamMembersLabel",  placeholder: "Team members" },
+                { label: "Clock Timezone",  key: "clockTimezone",     placeholder: "GST" },
+              ].map(({ label, key, placeholder }) => (
+                <div key={key}>
+                  <label style={labelStyle}>{label}</label>
+                  <input style={inputStyle} value={cfg[key] || ""} onChange={e => set(key, e.target.value)} placeholder={placeholder} />
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* ── COLORS ── */}
+      {lsSection === "colors" && (
+        <>
+        <Card title="Color Palette">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            {[
+              { label: "Primary Accent",   key: "primaryColor",   hint: "Button, focus rings, orb A, caret" },
+              { label: "Secondary Accent", key: "secondaryColor",  hint: "Gradient endpoint, orb B" },
+              { label: "Background",       key: "bgColor",         hint: "Full-page background color" },
+            ].map(({ label, key, hint }) => (
+              <div key={key}>
+                <label style={labelStyle}>{label}</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input type="color" value={cfg[key] || "#000000"} onChange={e => set(key, e.target.value)}
+                    style={{ width: 44, height: 44, border: "1px solid #E2E8F0", borderRadius: 8, cursor: "pointer", padding: 2 }} />
+                  <div>
+                    <input style={{ ...inputStyle, width: 120, fontFamily: "monospace", fontSize: 12 }} value={cfg[key] || ""} onChange={e => set(key, e.target.value)} />
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 3 }}>{hint}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Preview swatch */}
+          <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: cfg.bgColor || "#07090F", border: "1px solid rgba(255,255,255,0.1)" }}>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Preview</div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button style={{ padding: "10px 24px", borderRadius: 10, background: `linear-gradient(135deg, ${cfg.primaryColor || "#E8392E"}, ${cfg.secondaryColor || "#1A44C2"})`, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "default" }}>{cfg.signInBtnText || "Sign in →"}</button>
+              <div style={{ width: 38, height: 38, borderRadius: 9, background: `linear-gradient(135deg, ${cfg.primaryColor || "#E8392E"}, ${cfg.secondaryColor || "#1A44C2"})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{cfg.logoEmoji || "🌞"}</div>
+              <div style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${cfg.primaryColor || "#E8392E"}44`, background: `${cfg.primaryColor || "#E8392E"}12`, fontSize: 11, color: `${cfg.primaryColor || "#E8392E"}cc` }}>Face ID / Biometric</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Card Appearance">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Card Background (CSS color or rgba)</label>
+              <input style={{ ...inputStyle, fontFamily: "monospace", fontSize: 12 }}
+                value={cfg.cardBg || "rgba(13,13,28,0.82)"}
+                onChange={e => set("cardBg", e.target.value)}
+                placeholder="rgba(13,13,28,0.82)" />
+              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}>Use rgba() for glassmorphic transparency. The backdrop-filter blur is always on.</div>
+            </div>
+            {/* Live card preview */}
+            <div style={{ padding: 16, borderRadius: 12, background: cfg.bgColor || "#07090F", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ padding: "16px 20px", borderRadius: 14, background: cfg.cardBg || "rgba(13,13,28,0.82)", border: "1px solid rgba(255,255,255,0.08)", fontSize: 12, color: "rgba(255,255,255,0.7)", maxWidth: 240 }}>
+                Card preview — {cfg.appName || "Your App"}
+              </div>
+            </div>
+          </div>
+        </Card>
+        </>
+      )}
+
+      {/* ── BACKGROUND FX ── */}
+      {lsSection === "background" && (
+        <Card title="Background Effects">
+          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 16px" }}>Control the animated background layers rendered behind the login card.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+            {[
+              ["showGrid",  "Grid Lines",     "Subtle grid overlay on background"],
+              ["showGrain", "Film Grain",     "Animated noise texture overlay"],
+              ["showOrbs",  "Floating Orbs",  "Blurred color orbs that float and pulse"],
+            ].map(([key, label, desc]) => (
+              <Toggle key={key} label={label} desc={desc} checked={cfg[key] !== false} onChange={v => set(key, v)} />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── FEATURE TOGGLES ── */}
+      {lsSection === "features" && (
+        <Card title="Show / Hide Elements">
+          <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 16px" }}>Toggle which elements appear on the login screen.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+            {[
+              ["showPasskey",      "Passkey Button",          "Sign in with Passkey option"],
+              ["showGoogle",       "Google SSO Button",       "Google OAuth sign-in"],
+              ["showMicrosoft",    "Microsoft SSO Button",    "Microsoft OAuth sign-in"],
+              ["showBiometric",    "Biometric Hint Bar",      "Face ID / Touch ID prompt"],
+              ["showQuickAccess",  "Quick Access Grid",       "One-tap team member login"],
+              ["showSecureBadge",  "Secure Badge",            "End-to-end encrypted badge"],
+              ["showRememberMe",   "Remember Me Checkbox",    "Remember this device option"],
+              ["showClock",        "Live Clock",              "Date/time pill in header"],
+              ["showForgotPw",     "Forgot Password Link",   "Link under password field"],
+            ].map(([key, label, desc]) => (
+              <Toggle key={key} label={label} desc={desc} checked={cfg[key] !== false} onChange={v => set(key, v)} />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── FOOTER & LINKS ── */}
+      {lsSection === "footer" && (
+        <Card title="Footer Text & Links">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Copyright Text</label>
+              <input style={inputStyle} value={cfg.footerCopyright || ""} onChange={e => set("footerCopyright", e.target.value)} />
+            </div>
+            <div>
+              <label style={labelStyle}>Privacy Policy URL</label>
+              <input style={inputStyle} type="url" value={cfg.privacyUrl || ""} onChange={e => set("privacyUrl", e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <label style={labelStyle}>Terms & Conditions URL</label>
+              <input style={inputStyle} type="url" value={cfg.termsUrl || ""} onChange={e => set("termsUrl", e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <label style={labelStyle}>Our Website URL</label>
+              <input style={inputStyle} type="url" value={cfg.websiteUrl || ""} onChange={e => set("websiteUrl", e.target.value)} placeholder="https://..." />
+            </div>
+          </div>
+          <div style={{ marginTop: 16, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Preview</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#94A3B8" }}>{cfg.footerCopyright || "© 2025 Yes Pinoy Pro"}</span>
+              <div style={{ display: "flex", gap: 12 }}>
+                {[["Privacy", cfg.privacyUrl], ["Terms & Conditions", cfg.termsUrl], ["Our Website", cfg.websiteUrl]].map(([lbl, url]) => (
+                  <a key={lbl} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#3B82F6", textDecoration: "none" }}>{lbl}</a>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ── USERS / QUICK ACCESS ── */}
+      {lsSection === "users" && (
+        <>
+          <Card title="Quick-Access Team Members">
+            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 16px" }}>These appear in the "Quick Access" grid on the login screen. Editing credentials here updates login too.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {(cfg.users || []).map(u => (
+                <div key={u.id}>
+                  {editingUserId === u.id ? (
+                    <div style={{ padding: 14, background: "#EFF6FF", borderRadius: 10, border: "1px solid #BFDBFE" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        {[
+                          { label: "Full Name", key: "name" },
+                          { label: "Email",     key: "email", type: "email" },
+                          { label: "Password",  key: "password", type: "password" },
+                          { label: "Avatar Initials", key: "avatar", placeholder: "e.g. AR" },
+                        ].map(({ label, key, type = "text", placeholder }) => (
+                          <div key={key}>
+                            <label style={labelStyle}>{label}</label>
+                            <input type={type} placeholder={placeholder}
+                              style={inputStyle}
+                              value={cfg.users.find(x => x.id === u.id)?.[key] || ""}
+                              onChange={e => set("users", cfg.users.map(x => x.id === u.id ? { ...x, [key]: e.target.value, avatar: key === "name" ? initials(e.target.value) : x.avatar } : x))}
+                            />
+                          </div>
+                        ))}
+                        <div>
+                          <label style={labelStyle}>Role</label>
+                          <select style={{ ...inputStyle }}
+                            value={cfg.users.find(x => x.id === u.id)?.role || "Sales"}
+                            onChange={e => set("users", cfg.users.map(x => x.id === u.id ? { ...x, role: e.target.value } : x))}>
+                            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setEditingUserId(null)}
+                          style={{ padding: "6px 16px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Done</button>
+                        <button onClick={() => { set("users", cfg.users.filter(x => x.id !== u.id)); setEditingUserId(null); }}
+                          style={{ padding: "6px 16px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>Delete</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: "#1D3557", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{u.avatar || initials(u.name)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{u.name}</div>
+                        <div style={{ fontSize: 11, color: "#64748B" }}>{u.email} · <span style={{ color: ROLE_COLORS[u.role] || "#3B82F6", fontWeight: 600 }}>{u.role}</span></div>
+                      </div>
+                      <button onClick={() => setEditingUserId(u.id)}
+                        style={{ padding: "5px 12px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", color: "#475569" }}>Edit</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="Add New Team Member">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              {[
+                { label: "Full Name", key: "name" },
+                { label: "Email",     key: "email", type: "email" },
+                { label: "Password",  key: "password", type: "password" },
+              ].map(({ label, key, type = "text" }) => (
+                <div key={key}>
+                  <label style={labelStyle}>{label}</label>
+                  <input type={type} style={inputStyle} value={newUser[key]}
+                    onChange={e => setNewUser(p => ({ ...p, [key]: e.target.value, avatar: key === "name" ? initials(e.target.value) : p.avatar }))} />
+                </div>
+              ))}
+              <div>
+                <label style={labelStyle}>Role</label>
+                <select style={inputStyle} value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}>
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (!newUser.name || !newUser.email || !newUser.password) return toast("Fill in all fields", "error");
+                const user = { ...newUser, id: Date.now(), avatar: newUser.avatar || initials(newUser.name) };
+                set("users", [...(cfg.users || []), user]);
+                setNewUser({ name: "", role: "Sales", email: "", password: "", avatar: "" });
+                toast(`${user.name} added to login screen`, "success");
+              }}
+              style={{ padding: "8px 20px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              + Add Member
+            </button>
+          </Card>
+        </>
+      )}
+      </div>{/* end left editor column */}
+
+      {/* ── RIGHT: live preview ─────────────────────────────────────────── */}
+      <div style={{
+        width: 320,
+        minWidth: 260,
+        flexShrink: 1,
+        position: "sticky",
+        top: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>Live Preview</span>
+          <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>Updates as you type</span>
+        </div>
+
+        {/* Scaled viewport — renders the real LoginScreen at 55% scale */}
+        <div style={{
+          width: 320,
+          height: 500,
+          borderRadius: 14,
+          border: "1px solid #E2E8F0",
+          overflow: "hidden",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+          position: "relative",
+          background: cfg.bgColor || "#07090F",
+        }}>
+          <div style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: 582,
+            height: 909,
+            transformOrigin: "top left",
+            transform: "scale(0.55)",
+            pointerEvents: "none",   // read-only — prevent interactions in preview
+            userSelect: "none",
+          }}>
+            <LoginScreen loginConfig={cfg} onLogin={() => {}} />
+          </div>
+        </div>
+
+        <p style={{ fontSize: 11, color: "#94A3B8", margin: 0, lineHeight: 1.5 }}>
+          Real login screen at 55% scale. Changes appear instantly. Press <strong style={{ color: "#64748B" }}>Save Config</strong> to persist.
+        </p>
+      </div>
+
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+function LogoUpload({ cfg, set }) {
+  const fileRef = useRef(null);
+  function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast("Image too large — max 2 MB", "error"); return; }
+    const reader = new FileReader();
+    reader.onload = ev => set("logoUrl", ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ width: 64, height: 64, borderRadius: 12, flexShrink: 0, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: 26, background: cfg.logoUrl ? "transparent" : `linear-gradient(135deg, ${cfg.primaryColor || "#E8392E"}, ${cfg.secondaryColor || "#1A44C2"})` }}>
+        {cfg.logoUrl ? <img src={cfg.logoUrl} alt="logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : (cfg.logoEmoji || "🌞")}
+      </div>
+      <div style={{ flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 8 }}>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
+        <button type="button" onClick={() => fileRef.current && fileRef.current.click()}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 7, cursor: "pointer", background: "#F1F5F9", border: "1px solid #E2E8F0", fontSize: 12, fontWeight: 600, color: "#475569", width: "fit-content" }}>
+          📁 Upload image
+        </button>
+        <input style={{ ...inputStyle, fontSize: 12 }} placeholder="…or paste image URL (https://...)"
+          value={cfg.logoUrl && cfg.logoUrl.startsWith("data:") ? "" : (cfg.logoUrl || "")}
+          onChange={e => set("logoUrl", e.target.value)} />
+        {cfg.logoUrl && (
+          <button type="button" onClick={() => set("logoUrl", "")}
+            style={{ padding: "5px 12px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 11, cursor: "pointer", width: "fit-content" }}>
+            ✕ Remove logo
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 function Card({ title, children }) {
   return (
