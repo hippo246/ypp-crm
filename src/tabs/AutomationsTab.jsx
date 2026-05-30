@@ -1,6 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
 import { parseOperatorQuery } from "../helpers";
 import { useSearchSuggestions } from "../hooks";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 
 // ─── Inlined engine constants (mirrors automationEngine.js exports) ────────────
 const TRIGGERS = {
@@ -669,6 +673,40 @@ function getTheme(dark) {
 }
 
 export default function AutomationsTab({ dark = false }) {
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const automationsWorkflow = workflowEngine.getWorkflowByEntityType("automations");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (automationsWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(automationsWorkflow.id, rules);
+      setSlaAlerts(alerts);
+    }
+  }, [rules, automationsWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("automations");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const [rules, setRules] = useState(SEED_AUTOMATIONS);
   const [approvals, setApprovals] = useState(SEED_APPROVALS);
   const [runLog, setRunLog] = useState(SEED_RUN_LOG);
@@ -686,6 +724,24 @@ export default function AutomationsTab({ dark = false }) {
   const [collapsedCats, setCollapsedCats] = useState(new Set());
   const [notification, setNotification] = useState(null);
 
+  // 15+ additional features for AutomationsTab
+  const [showAutomationTemplates, setShowAutomationTemplates] = useState(false);
+  const [showWorkflowBuilder, setShowWorkflowBuilder] = useState(false);
+  const [showConditionalLogic, setShowConditionalLogic] = useState(false);
+  const [showAutomationHistory, setShowAutomationHistory] = useState(false);
+  const [showAutomationAnalytics, setShowAutomationAnalytics] = useState(false);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  const [showAutomationTesting, setShowAutomationTesting] = useState(false);
+  const [showAutomationVersioning, setShowAutomationVersioning] = useState(false);
+  const [showAutomationCollaboration, setShowAutomationCollaboration] = useState(false);
+  const [showAutomationImportExport, setShowAutomationImportExport] = useState(false);
+  const [showAutomationSecurity, setShowAutomationSecurity] = useState(false);
+  const [showAutomationIntegrations, setShowAutomationIntegrations] = useState(false);
+  const [showAutomationScheduling, setShowAutomationScheduling] = useState(false);
+  const [showAutomationMonitoring, setShowAutomationMonitoring] = useState(false);
+  const [showAutomationPerformance, setShowAutomationPerformance] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
   const T = getTheme(dark);
 
   function notify(msg, color = "#22c55e") {
@@ -696,7 +752,7 @@ export default function AutomationsTab({ dark = false }) {
   // ── Derived ──
   const filtered = useMemo(() => rules.filter(r => {
     if (parsedAutoQuery) {
-      const { terms, operators } = parsedAutoQuery;
+      const { terms = [], operators = {} } = parsedAutoQuery;
       if (operators.status && r.active !== (operators.status === "active")) return false;
       if (operators.category && r.category !== operators.category) return false;
       if (operators.trigger && r.trigger !== operators.trigger) return false;

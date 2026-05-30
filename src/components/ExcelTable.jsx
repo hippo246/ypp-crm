@@ -884,15 +884,15 @@ const isMergeOrigin = (merges, ri, ci) => {
 
 // ─── Ribbon Tab Button ────────────────────────────────────────────────────────
 const RibbonTab = ({ label, active, onClick }) => (
-  <button onClick={onClick} style={{padding:"4px 14px",fontSize:12,borderTop:"none",borderLeft:"none",borderRight:"none",borderBottom:active?"2px solid #1a73e8":"2px solid transparent",background:"transparent",cursor:"pointer",color:active?"#1a73e8":"#444",fontWeight:active?600:400,fontFamily:"'Segoe UI',sans-serif",marginBottom:-1,transition:"color 0.15s"}}>
+  <button onClick={onClick} style={{padding:"4px 14px",fontSize:12,borderWidth:"0 0 2px 0",borderStyle:"solid",borderColor:active?"#1a73e8":"transparent",background:"transparent",cursor:"pointer",color:active?"#1a73e8":"#444",fontWeight:active?600:400,fontFamily:"'Segoe UI',sans-serif",marginBottom:-1,transition:"color 0.15s"}}>
     {label}
   </button>
 );
 
 // ─── Ribbon Group ─────────────────────────────────────────────────────────────
 const RibbonGroup = ({ label, children }) => (
-  <div style={{display:"flex",flexDirection:"column",alignItems:"center",borderRight:`1px solid ${BORDER}`,paddingRight:8,marginRight:4,minWidth:0}}>
-    <div style={{display:"flex",alignItems:"center",gap:3,flexWrap:"wrap",justifyContent:"center"}}>{children}</div>
+  <div style={{display:"flex",flexDirection:"column",alignItems:"center",borderRight:`1px solid ${BORDER}`,paddingRight:12,paddingLeft:4,marginRight:4,minWidth:0}}>
+    <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",justifyContent:"center"}}>{children}</div>
     <div style={{fontSize:9,color:"#888",marginTop:2,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
   </div>
 );
@@ -900,7 +900,7 @@ const RibbonGroup = ({ label, children }) => (
 // ─── Icon Btn ─────────────────────────────────────────────────────────────────
 const IBtn = ({ icon, label, onClick, active, disabled, title }) => (
   <button onClick={onClick} disabled={disabled} title={title||label}
-    style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minWidth:32,padding:"2px 4px",border:"1px solid transparent",borderRadius:4,background:active?"#e8f0fe":"transparent",cursor:disabled?"default":"pointer",opacity:disabled?0.4:1,fontSize:typeof icon==="string"?16:14,lineHeight:1,transition:"background 0.1s"}}
+    style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minWidth:26,padding:"3px 6px",border:"1px solid transparent",borderRadius:3,background:active?"#e8f0fe":"transparent",cursor:disabled?"default":"pointer",opacity:disabled?0.4:1,fontSize:typeof icon==="string"?16:14,lineHeight:1,transition:"background 0.1s"}}
     onMouseEnter={e=>{if(!disabled&&!active)e.currentTarget.style.background="#f3f4f6";}}
     onMouseLeave={e=>{e.currentTarget.style.background=active?"#e8f0fe":"transparent";}}>
     <span>{icon}</span>
@@ -1479,6 +1479,131 @@ const StatusPill = ({ value, onClick }) => {
 };
 
 // ─── Main ExcelTable Component ────────────────────────────────────────────────
+// ─── Insert Image Modal ───────────────────────────────────────────────────────
+const InsertImageModal = ({ onInsert, onClose }) => {
+  const [src, setSrc] = useState("");
+  const [alt, setAlt] = useState("");
+  const [tab, setTab] = useState("url"); // "url" | "file"
+  const overlay = { position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center" };
+  const box = { background:"#fff",borderRadius:10,padding:24,width:420,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",fontFamily:"sans-serif" };
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setSrc(ev.target.result);
+    reader.readAsDataURL(file);
+    setAlt(file.name);
+  };
+  return (
+    <div style={overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={box}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>🖼️ Insert Image</div>
+        <div style={{display:"flex",gap:8,marginBottom:14}}>
+          {["url","file"].map(t=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{padding:"4px 12px",fontSize:12,border:"1px solid #d0d0d0",borderRadius:6,background:tab===t?"#1a73e8":"#e8eaed",color:tab===t?"#fff":"#333",cursor:"pointer"}}>
+              {t==="url"?"🌐 URL":"📁 Upload"}
+            </button>
+          ))}
+        </div>
+        {tab==="url" ? (
+          <input value={src} onChange={e=>setSrc(e.target.value)} placeholder="https://example.com/image.png"
+            style={{width:"100%",padding:"8px 10px",border:"1px solid #d0d0d0",borderRadius:6,fontSize:13,marginBottom:10,boxSizing:"border-box"}}/>
+        ) : (
+          <input type="file" accept="image/*" onChange={handleFile}
+            style={{width:"100%",marginBottom:10,fontSize:12}}/>
+        )}
+        <input value={alt} onChange={e=>setAlt(e.target.value)} placeholder="Alt text (optional)"
+          style={{width:"100%",padding:"8px 10px",border:"1px solid #d0d0d0",borderRadius:6,fontSize:13,marginBottom:14,boxSizing:"border-box"}}/>
+        {src && <img src={src} alt={alt} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:12,border:"1px solid #e0e0e0"}} onError={e=>e.target.style.display="none"}/>}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={onClose} style={{padding:"6px 16px",fontSize:13,border:"1px solid #d0d0d0",borderRadius:6,background:"#e8eaed",cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>src&&onInsert(src,alt)} disabled={!src}
+            style={{padding:"6px 16px",fontSize:13,border:"none",borderRadius:6,background:src?"#1a73e8":"#a0c0f0",color:"#fff",cursor:src?"pointer":"not-allowed"}}>Insert</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Insert Hyperlink Modal ───────────────────────────────────────────────────
+const InsertHyperlinkModal = ({ existing, onInsert, onClose }) => {
+  const [url,   setUrl]   = useState(existing?.url   || "");
+  const [label, setLabel] = useState(existing?.label || "");
+  const overlay = { position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center" };
+  const box = { background:"#fff",borderRadius:10,padding:24,width:400,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",fontFamily:"sans-serif" };
+  return (
+    <div style={overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={box}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>🔗 Insert Hyperlink</div>
+        <label style={{fontSize:12,fontWeight:600,color:"#555",display:"block",marginBottom:4}}>URL</label>
+        <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://example.com"
+          style={{width:"100%",padding:"8px 10px",border:"1px solid #d0d0d0",borderRadius:6,fontSize:13,marginBottom:10,boxSizing:"border-box"}}/>
+        <label style={{fontSize:12,fontWeight:600,color:"#555",display:"block",marginBottom:4}}>Display text (optional)</label>
+        <input value={label} onChange={e=>setLabel(e.target.value)} placeholder="Click here"
+          style={{width:"100%",padding:"8px 10px",border:"1px solid #d0d0d0",borderRadius:6,fontSize:13,marginBottom:18,boxSizing:"border-box"}}/>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={onClose} style={{padding:"6px 16px",fontSize:13,border:"1px solid #d0d0d0",borderRadius:6,background:"#e8eaed",cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>url&&onInsert(url,label)} disabled={!url}
+            style={{padding:"6px 16px",fontSize:13,border:"none",borderRadius:6,background:url?"#1a73e8":"#a0c0f0",color:"#fff",cursor:url?"pointer":"not-allowed"}}>Insert</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── QR Code Modal ────────────────────────────────────────────────────────────
+const QRCodeModal = ({ value, onClose }) => {
+  const size = 200;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value||"(empty)")}`;
+  const overlay = { position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center" };
+  const box = { background:"#fff",borderRadius:10,padding:24,width:320,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",fontFamily:"sans-serif",textAlign:"center" };
+  return (
+    <div style={overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={box}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>📷 QR Code</div>
+        <div style={{fontSize:11,color:"#888",marginBottom:14,wordBreak:"break-all"}}>{value||"(empty cell)"}</div>
+        <img src={qrUrl} alt="QR Code" style={{width:size,height:size,border:"1px solid #eee",borderRadius:6,marginBottom:14}}/>
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+          <a href={qrUrl} download="qrcode.png"
+            style={{padding:"6px 16px",fontSize:13,border:"1px solid #1a73e8",borderRadius:6,color:"#1a73e8",textDecoration:"none",display:"inline-block"}}>⬇ Download</a>
+          <button onClick={onClose} style={{padding:"6px 16px",fontSize:13,border:"1px solid #d0d0d0",borderRadius:6,background:"#e8eaed",cursor:"pointer"}}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Insert Dropdown Modal ────────────────────────────────────────────────────
+const InsertDropdownModal = ({ existing, onInsert, onClose }) => {
+  const [rawOpts, setRawOpts] = useState(existing?.options?.join("\n") || "Option 1\nOption 2\nOption 3");
+  const [val, setVal] = useState(existing?.value || "");
+  const opts = rawOpts.split("\n").map(s=>s.trim()).filter(Boolean);
+  const overlay = { position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center" };
+  const box = { background:"#fff",borderRadius:10,padding:24,width:380,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",fontFamily:"sans-serif" };
+  return (
+    <div style={overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={box}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>🔽 Insert Dropdown</div>
+        <div style={{fontSize:11,color:"#888",marginBottom:12}}>One option per line</div>
+        <textarea value={rawOpts} onChange={e=>setRawOpts(e.target.value)} rows={6}
+          style={{width:"100%",padding:"8px 10px",border:"1px solid #d0d0d0",borderRadius:6,fontSize:13,marginBottom:10,boxSizing:"border-box",resize:"vertical"}}/>
+        <label style={{fontSize:12,fontWeight:600,color:"#555",display:"block",marginBottom:4}}>Default value</label>
+        <select value={val} onChange={e=>setVal(e.target.value)}
+          style={{width:"100%",padding:"6px 8px",border:"1px solid #d0d0d0",borderRadius:6,fontSize:13,marginBottom:18}}>
+          {opts.map(o=><option key={o} value={o}>{o}</option>)}
+        </select>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={onClose} style={{padding:"6px 16px",fontSize:13,border:"1px solid #d0d0d0",borderRadius:6,background:"#e8eaed",cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>opts.length&&onInsert(opts,val||opts[0])} disabled={!opts.length}
+            style={{padding:"6px 16px",fontSize:13,border:"none",borderRadius:6,background:opts.length?"#1a73e8":"#a0c0f0",color:"#fff",cursor:opts.length?"pointer":"not-allowed"}}>Insert</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, currentUser: extUser }) => {
   // ── Sheet state ────────────────────────────────────────────────────────────
   const [sheets, setSheets] = useState([
@@ -1559,6 +1684,12 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   // Phase 5: comments: { "ri-ci": "text" }
   const [comments, setComments]             = useState({});
   const [commentPopover, setCommentPopover] = useState(null);
+  // Insert extras: images, hyperlinks, cell dropdowns, cell checkboxes
+  const [cellImages,    setCellImages]      = useState({}); // { "ri-ci": { src, alt } }
+  const [cellLinks,     setCellLinks]       = useState({}); // { "ri-ci": { url, label } }
+  const [cellDropdowns, setCellDropdowns]   = useState({}); // { "ri-ci": { options:[], value } }
+  const [cellCheckboxes,setCellCheckboxes]  = useState({}); // { "ri-ci": boolean }
+  const [insertModal,   setInsertModal]     = useState(null); // "image"|"hyperlink"|"qr"|"dropdown"|"comment-ins"
 
   // Reset per-sheet state when active sheet changes
   const prevSheetRef = useRef(activeSheet);
@@ -1693,6 +1824,33 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   // ── UPGRADE 8: Heatmap ────────────────────────────────────────────────────
   const [heatmapOn, setHeatmapOn]           = useState(false);
   const [zoomLevel, setZoomLevel]           = useState(100);
+  const [isFullscreen, setIsFullscreen]     = useState(false);
+
+  // Fullscreen effect — hides everything outside the spreadsheet
+  const fsRef = useRef(null);
+  useEffect(()=>{
+    if(!fsRef.current) return;
+    if(isFullscreen){
+      // hide siblings and ancestors up to body
+      const el = fsRef.current;
+      el.setAttribute("data-xl-fs","1");
+      if(!document.getElementById("xl-fs-style")){
+        const s=document.createElement("style");
+        s.id="xl-fs-style";
+        s.textContent=`
+          [data-xl-fs="1"]{position:fixed!important;inset:0!important;z-index:99990!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;border-radius:0!important;margin:0!important;padding:0!important;background:#fff!important;visibility:visible!important;}
+          [data-xl-fs="1"] *{visibility:visible!important;pointer-events:auto!important;}
+          body.xl-fs-active>*:not([data-xl-fs]):not(script):not(style){visibility:hidden!important;pointer-events:none!important;}
+        `;
+        document.head.appendChild(s);
+      }
+      document.body.classList.add("xl-fs-active");
+    } else {
+      document.body.classList.remove("xl-fs-active");
+      if(fsRef.current) fsRef.current.removeAttribute("data-xl-fs");
+    }
+    return()=>{document.body.classList.remove("xl-fs-active");};
+  },[isFullscreen]);
 
   // ── Undo/Redo ──────────────────────────────────────────────────────────────
   const pushHistory = useCallback(snap=>dispatchHistory({type:"PUSH",snapshot:snap}),[]);
@@ -2555,7 +2713,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   useEffect(()=>{const h=e=>{if(!e.target.closest?.(".xl-filter-anchor"))setOpenFilter(null);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   useEffect(()=>{
     const h=e=>{
-      if(e.key==="Escape"){setContextMenu(null);setCommentPopover(null);}
+      if(e.key==="Escape"){setContextMenu(null);setCommentPopover(null);if(isFullscreen)setIsFullscreen(false);}
       if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undo();}
       if((e.ctrlKey||e.metaKey)&&(e.key==="y"||(e.key==="z"&&e.shiftKey))){e.preventDefault();redo();}
       if((e.ctrlKey||e.metaKey)&&e.key==="k"){e.preventDefault();setShowQuickSearch(s=>!s);}
@@ -2784,20 +2942,20 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
       </RibbonGroup>
       <RibbonGroup label="Font">
         <select value={selectedFmt.fontFamily||"Courier New"} onChange={e=>applyFmt("fontFamily",e.target.value)}
-          style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:24,cursor:"pointer",maxWidth:140}}>
+          style={{fontSize:12,padding:"2px 8px 2px 6px",border:"1px solid #c0c0c0",borderRadius:2,height:26,cursor:"pointer",width:160,background:"#fff",fontFamily:selectedFmt.fontFamily||"Courier New"}}>
           {[
             "── System ──","Courier New","Arial","Arial Black","Arial Narrow","Calibri","Cambria","Candara","Century Gothic","Comic Sans MS","Consolas","Constantia","Corbel","Franklin Gothic Medium","Garamond","Georgia","Gill Sans","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","Microsoft Sans Serif","Palatino Linotype","Segoe UI","Tahoma","Times New Roman","Trebuchet MS","Ubuntu","Verdana","Futura","Baskerville","Didot","Optima","Rockwell","Copperplate",
             "── Google Fonts ──","Roboto","Open Sans","Lato","Montserrat","Raleway","Poppins","Inter","Playfair Display","Merriweather","Source Code Pro","Fira Code","Space Mono","Nunito","Quicksand","Dancing Script","Pacifico","Ubuntu Mono","JetBrains Mono","Crimson Text","EB Garamond",
           ].map(f=>f.startsWith("──")?<option key={f} disabled style={{color:"#999",fontStyle:"italic"}}>{f}</option>:<option key={f} value={f} style={{fontFamily:f}}>{f}</option>)}
         </select>
-        <select value={selectedFmt.fontSize||12} onChange={e=>applyFmt("fontSize",Number(e.target.value))}
-          style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:24,cursor:"pointer"}}>
-          {fontSizes.map(s=><option key={s} value={s}>{s}</option>)}
-        </select>
-        <IBtn icon="𝐁" label="Bold" onClick={()=>toggleFmt("bold")} active={!!selectedFmt.bold} title="Bold (Ctrl+B)"/>
-        <IBtn icon="𝐼" label="Italic" onClick={()=>toggleFmt("italic")} active={!!selectedFmt.italic} title="Italic"/>
-        <IBtn icon="<u>U</u>" label="Uline" onClick={()=>toggleFmt("underline")} active={!!selectedFmt.underline} title="Underline"/>
-        <IBtn icon="S̶" label="Strike" onClick={()=>toggleFmt("strikethrough")} active={!!selectedFmt.strikethrough} title="Strikethrough"/>
+        <input type="number" min="6" max="409" value={selectedFmt.fontSize||12}
+          onChange={e=>applyFmt("fontSize",Number(e.target.value))}
+          style={{width:40,fontSize:12,border:"1px solid #c0c0c0",borderRadius:2,padding:"0 4px",textAlign:"center",height:26,outline:"none",background:"#fff"}}
+          title="Font Size"/>
+        <IBtn icon={<svg width="13" height="13" viewBox="0 0 13 13"><text x="1" y="11" fontFamily="Georgia,serif" fontSize="13" fontWeight="900" fill="currentColor">B</text></svg>} onClick={()=>toggleFmt("bold")} active={!!selectedFmt.bold} title="Bold (Ctrl+B)"/>
+        <IBtn icon={<svg width="13" height="13" viewBox="0 0 13 13"><text x="3" y="11" fontFamily="Georgia,serif" fontSize="13" fontStyle="italic" fontWeight="600" fill="currentColor">I</text></svg>} onClick={()=>toggleFmt("italic")} active={!!selectedFmt.italic} title="Italic"/>
+        <IBtn icon={<svg width="13" height="14" viewBox="0 0 13 14"><text x="1" y="10" fontFamily="Arial,sans-serif" fontSize="12" fontWeight="600" fill="currentColor">U</text><line x1="1" y1="13" x2="12" y2="13" stroke="currentColor" strokeWidth="1.5"/></svg>} onClick={()=>toggleFmt("underline")} active={!!selectedFmt.underline} title="Underline"/>
+        <IBtn icon={<svg width="13" height="13" viewBox="0 0 13 13"><text x="1" y="11" fontFamily="Arial,sans-serif" fontSize="12" fontWeight="600" fill="currentColor">S</text><line x1="0" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1.5"/></svg>} onClick={()=>toggleFmt("strikethrough")} active={!!selectedFmt.strikethrough} title="Strikethrough"/>
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
           <label style={{fontSize:9,color:"#888"}}>Fill</label>
           <input type="color" value={selectedFmt.fillColor||"#ffffff"} onChange={e=>applyFmt("fillColor",e.target.value)} title="Fill Color" style={{width:24,height:18,border:"1px solid #ddd",borderRadius:2,cursor:"pointer",padding:0}}/>
@@ -2810,22 +2968,22 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
       <RibbonGroup label="Alignment">
         <div style={{display:"flex",flexDirection:"column",gap:2}}>
           <div style={{display:"flex",gap:2}}>
-            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="9" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="12" x2="7" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} label="Left" onClick={()=>applyFmt("align","left")} active={selectedFmt.align==="left"||!selectedFmt.align} title="Align Left"/>
-            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="3" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="2" y1="9" x2="12" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="4" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} label="Ctr" onClick={()=>applyFmt("align","center")} active={selectedFmt.align==="center"} title="Align Center"/>
-            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="5" y1="6" x2="13" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="3" y1="9" x2="13" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="7" y1="12" x2="13" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} label="Right" onClick={()=>applyFmt("align","right")} active={selectedFmt.align==="right"} title="Align Right"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="6" x2="9" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="12" x2="7" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} onClick={()=>applyFmt("align","left")} active={selectedFmt.align==="left"||!selectedFmt.align} title="Align Left"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="3" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="2" y1="9" x2="12" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="4" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} onClick={()=>applyFmt("align","center")} active={selectedFmt.align==="center"} title="Align Center"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="5" y1="6" x2="13" y2="6" stroke="currentColor" strokeWidth="1.5"/><line x1="3" y1="9" x2="13" y2="9" stroke="currentColor" strokeWidth="1.5"/><line x1="7" y1="12" x2="13" y2="12" stroke="currentColor" strokeWidth="1.5"/></svg>} onClick={()=>applyFmt("align","right")} active={selectedFmt.align==="right"} title="Align Right"/>
           </div>
           <div style={{display:"flex",gap:2}}>
-            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="1" stroke="currentColor" strokeWidth="2"/><rect x="3" y="3" width="8" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} label="Top" onClick={()=>applyFmt("valign","top")} active={selectedFmt.valign==="top"} title="Align Top"/>
-            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="7" x2="3" y2="7" stroke="currentColor" strokeWidth="2"/><line x1="11" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="2"/><rect x="3" y="4" width="8" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} label="Mid" onClick={()=>applyFmt("valign","middle")} active={selectedFmt.valign==="middle"||!selectedFmt.valign} title="Align Middle"/>
-            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="13" x2="13" y2="13" stroke="currentColor" strokeWidth="2"/><rect x="3" y="7" width="8" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} label="Bot" onClick={()=>applyFmt("valign","bottom")} active={selectedFmt.valign==="bottom"} title="Align Bottom"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="1" x2="13" y2="1" stroke="currentColor" strokeWidth="2"/><rect x="3" y="3" width="8" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} onClick={()=>applyFmt("valign","top")} active={selectedFmt.valign==="top"} title="Align Top"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="7" x2="3" y2="7" stroke="currentColor" strokeWidth="2"/><line x1="11" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="2"/><rect x="3" y="4" width="8" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} onClick={()=>applyFmt("valign","middle")} active={selectedFmt.valign==="middle"||!selectedFmt.valign} title="Align Middle"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="13" x2="13" y2="13" stroke="currentColor" strokeWidth="2"/><rect x="3" y="7" width="8" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2"/></svg>} onClick={()=>applyFmt("valign","bottom")} active={selectedFmt.valign==="bottom"} title="Align Bottom"/>
           </div>
         </div>
         <div style={{width:1,height:36,background:"#e2e8f0",margin:"0 2px"}}/>
         <div style={{display:"flex",flexDirection:"column",gap:2}}>
-          <IBtn icon="↵" label="Wrap" onClick={()=>applyFmt("wrapText",!selectedFmt.wrapText)} active={!!selectedFmt.wrapText} title="Wrap Text"/>
+          <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><polyline points="10,2 10,8 2,8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><polyline points="4,5 2,8 4,11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>} onClick={()=>applyFmt("wrapText",!selectedFmt.wrapText)} active={!!selectedFmt.wrapText} title="Wrap Text"/>
           <div style={{display:"flex",gap:2}}>
-            <IBtn icon="→|" label="Indent+" onClick={()=>applyFmt("indent",(selectedFmt.indent||0)+1)} title="Increase Indent"/>
-            <IBtn icon="|←" label="Indent-" onClick={()=>applyFmt("indent",Math.max(0,(selectedFmt.indent||0)-1))} title="Decrease Indent"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="1" y1="3" x2="8" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="11" x2="8" y2="11" stroke="currentColor" strokeWidth="1.5"/><polyline points="10,5 13,7 10,9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>} onClick={()=>applyFmt("indent",(selectedFmt.indent||0)+1)} title="Increase Indent"/>
+            <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><line x1="4" y1="3" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1.5"/><line x1="4" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.5"/><polyline points="3,5 0,7 3,9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>} onClick={()=>applyFmt("indent",Math.max(0,(selectedFmt.indent||0)-1))} title="Decrease Indent"/>
           </div>
         </div>
         <div style={{width:1,height:36,background:"#e2e8f0",margin:"0 2px"}}/>
@@ -2888,7 +3046,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         <IBtn icon="🔗" label="Merge" onClick={mergeCells} title="Merge Cells"/>
         <IBtn icon="⊠" label="Unmerge" onClick={unmergeCells} title="Unmerge Cells"/>
         <IBtn icon="💬" label="Comment" onClick={()=>{if(!selection.start)return;const row=processedRows[selection.start.ri];const col=visibleCols[selection.start.ci];const k=`${row?.__origIdx}-${col?.key}`;const rect=document.getElementById(cellId(selection.start.ri,selection.start.ci))?.getBoundingClientRect();setCommentPopover({x:(rect?.right||400)+4,y:rect?.top||200,cellKey:k});}} title="Add/Edit Comment"/>
-        <IBtn icon="↵" label="Wrap" onClick={()=>applyFmt("wrapText",!selectedFmt.wrapText)} active={!!selectedFmt.wrapText} title="Toggle Wrap Text"/>
+        <IBtn icon={<svg width="14" height="14" viewBox="0 0 14 14"><polyline points="10,2 10,8 2,8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><polyline points="4,5 2,8 4,11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>} label="Wrap" onClick={()=>applyFmt("wrapText",!selectedFmt.wrapText)} active={!!selectedFmt.wrapText} title="Toggle Wrap Text"/>
         <IBtn icon="⬡" label="Clear Fmt" onClick={()=>{if(!selection.start||!onChange)return;const{start,end}=selection,e=end||start;for(let r=Math.min(start.ri,e.ri);r<=Math.max(start.ri,e.ri);r++)for(let c=Math.min(start.ci,e.ci);c<=Math.max(start.ci,e.ci);c++){const key=`${activeSheet}-${r}-${c}`;setCellFmts(f=>{const n={...f};delete n[key];return n;});}}} title="Clear Formatting"/>
       </RibbonGroup>
       <RibbonGroup label="Format">
@@ -2903,21 +3061,73 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
     </div>
   );
 
-  const renderRibbonInsert = () => (
+  const renderRibbonInsert = () => {
+    const selKey = selection.start ? `${selection.start.ri}-${selection.start.ci}` : null;
+    const selRow = selection.start ? processedRows[selection.start.ri] : null;
+    const selCol = selection.start ? visibleCols[selection.start.ci] : null;
+
+    // helpers
+    const insertToday = () => { if (selRow && selCol && onChange) onChange(selRow.__origIdx, selCol.key, new Date().toLocaleDateString()); };
+    const insertTimestamp = () => { if (selRow && selCol && onChange) onChange(selRow.__origIdx, selCol.key, new Date().toLocaleString()); };
+    const clearContents = () => { if (selRow && selCol && onChange) { pushHistory([{ri:selRow.__origIdx,key:selCol.key,val:selRow[selCol.key]}]); onChange(selRow.__origIdx, selCol.key, ""); } };
+    const clearFormats  = () => { if (selKey) setCellFmt(f => { const n={...f}; delete n[selKey]; return n; }); };
+    const toggleCheckbox = () => {
+      if (!selKey) return;
+      setCellCheckboxes(c => ({ ...c, [selKey]: !c[selKey] }));
+    };
+    const openInsertDropdown = () => {
+      if (!selKey) return;
+      setInsertModal("dropdown");
+    };
+    const openInsertComment = () => {
+      if (!selKey || !selection.start) return;
+      const rect = document.getElementById(`cell-${selKey}`)?.getBoundingClientRect();
+      setCommentPopover({ x: rect?.right ?? 200, y: rect?.top ?? 100, cellKey: selKey });
+    };
+
+    return (
     <div style={{display:"flex",alignItems:"flex-start",gap:0,padding:"4px 8px 0",flexWrap:"wrap"}}>
-      <RibbonGroup label="Rows & Cols">
+
+      {/* ── Cells ── */}
+      <RibbonGroup label="Cells">
         <IBtn icon="⬆" label="Row ↑" onClick={()=>{if(selection.start)insertRowAbove(selection.start.ri);}} title="Insert Row Above"/>
         <IBtn icon="⬇" label="Row ↓" onClick={()=>{if(selection.start)insertRowBelow(selection.start.ri);}} title="Insert Row Below"/>
         <IBtn icon="⬅" label="Col ←" onClick={()=>{if(selection.start)insertColLeft(selection.start.ci);}} title="Insert Column Left"/>
         <IBtn icon="➡" label="Col →" onClick={()=>{if(selection.start)insertColRight(selection.start.ci);}} title="Insert Column Right"/>
         <IBtn icon="🗑" label="Del Row" onClick={()=>{if(selection.start)deleteRow(selection.start.ri);}} title="Delete Row"/>
         <IBtn icon="🗑" label="Del Col" onClick={()=>{if(selection.start)deleteCol(selection.start.ci);}} title="Delete Column"/>
+        <IBtn icon="🧹" label="Clear ✎" onClick={clearContents} title="Clear cell contents"/>
+        <IBtn icon="🎨" label="Clear 🎨" onClick={clearFormats} title="Clear cell formatting"/>
       </RibbonGroup>
+
+      {/* ── Media ── */}
+      <RibbonGroup label="Media">
+        <IBtn icon="🖼️" label="Image" onClick={()=>setInsertModal("image")} title="Insert image into selected cell"/>
+        <IBtn icon="🔗" label="Hyperlink" onClick={()=>setInsertModal("hyperlink")} title="Insert hyperlink into selected cell"/>
+        <IBtn icon="📷" label="QR Code" onClick={()=>setInsertModal("qr")} title="Generate QR code from cell value"/>
+      </RibbonGroup>
+
+      {/* ── Date/Time ── */}
+      <RibbonGroup label="Date / Time">
+        <IBtn icon="📅" label="Today" onClick={insertToday} title="Insert today's date"/>
+        <IBtn icon="🕐" label="Timestamp" onClick={insertTimestamp} title="Insert current date & time"/>
+      </RibbonGroup>
+
+      {/* ── Special ── */}
+      <RibbonGroup label="Special">
+        <IBtn icon="☑️" label="Checkbox" onClick={toggleCheckbox} title="Toggle checkbox in selected cell"/>
+        <IBtn icon="🔽" label="Dropdown" onClick={openInsertDropdown} title="Insert custom dropdown into selected cell"/>
+        <IBtn icon="💬" label="Comment" onClick={openInsertComment} title="Insert / edit comment on selected cell"/>
+      </RibbonGroup>
+
+      {/* ── Charts ── */}
       <RibbonGroup label="Charts">
         <IBtn icon="📊" label="Bar" onClick={()=>setModal("chart")} title="Insert Bar Chart"/>
         <IBtn icon="📈" label="Line" onClick={()=>setModal("chart")} title="Insert Line Chart"/>
         <IBtn icon="🥧" label="Pie" onClick={()=>setModal("chart")} title="Insert Pie Chart"/>
       </RibbonGroup>
+
+      {/* ── Sparklines ── */}
       <RibbonGroup label="Sparklines">
         <select value={sparkType} onChange={e=>setSparkType(e.target.value)} style={{fontSize:11,padding:"2px 4px",border:"1px solid #ddd",borderRadius:4,height:24}}>
           <option value="line">Line</option><option value="bar">Bar</option>
@@ -2929,15 +3139,19 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
           </button>
         ))}
       </RibbonGroup>
+
+      {/* ── Export ── */}
       <RibbonGroup label="Export">
         <IBtn icon="⬇️" label="CSV" onClick={exportCSV} title="Export as CSV"/>
-        <IBtn icon="📗" label="XLSX" onClick={exportXLSX} title="Export as Excel XLSX (UPGRADE 4)"/>
-        <IBtn icon="📋" label="JSON" onClick={exportJSON} title="Export as JSON (UPGRADE 4)"/>
-        <IBtn icon="🖨️" label="PDF" onClick={exportPDF} title="Export/Print as PDF (UPGRADE 4)"/>
+        <IBtn icon="📗" label="XLSX" onClick={exportXLSX} title="Export as Excel XLSX"/>
+        <IBtn icon="📋" label="JSON" onClick={exportJSON} title="Export as JSON"/>
+        <IBtn icon="🖨️" label="PDF" onClick={exportPDF} title="Export/Print as PDF"/>
         <label style={{display:"flex",alignItems:"center",gap:3,fontSize:9,cursor:"pointer",color:"#555"}}>
           <input type="checkbox" checked={exportAllSheets} onChange={e=>setExportAllSheets(e.target.checked)}/> All sheets
         </label>
       </RibbonGroup>
+
+      {/* ── Import ── */}
       <RibbonGroup label="Import">
         <label style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1,cursor:"pointer",padding:"2px 6px",border:"1px solid #d0d0d0",borderRadius:4,background:"#e8eaed",fontSize:11,color:"#333"}}>
           <span style={{fontSize:16}}>📤</span>
@@ -2945,8 +3159,52 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
           <input type="file" accept=".csv,.json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)handleImportFile(f);e.target.value="";}}/>
         </label>
       </RibbonGroup>
+
+      {/* ── Insert Modals ── */}
+      {insertModal==="image" && (
+        <InsertImageModal
+          onInsert={(src,alt)=>{
+            if (selKey) setCellImages(m=>({...m,[selKey]:{src,alt}}));
+            setInsertModal(null);
+          }}
+          onClose={()=>setInsertModal(null)}
+        />
+      )}
+      {insertModal==="hyperlink" && (
+        <InsertHyperlinkModal
+          existing={selKey ? cellLinks[selKey] : null}
+          onInsert={(url,label)=>{
+            if (selKey) {
+              setCellLinks(m=>({...m,[selKey]:{url,label}}));
+              if (selRow && selCol && onChange) onChange(selRow.__origIdx, selCol.key, label||url);
+            }
+            setInsertModal(null);
+          }}
+          onClose={()=>setInsertModal(null)}
+        />
+      )}
+      {insertModal==="qr" && (
+        <QRCodeModal
+          value={selRow && selCol ? String(selRow[selCol.key]??selKey??"") : ""}
+          onClose={()=>setInsertModal(null)}
+        />
+      )}
+      {insertModal==="dropdown" && (
+        <InsertDropdownModal
+          existing={selKey ? cellDropdowns[selKey] : null}
+          onInsert={(opts,val)=>{
+            if (selKey) {
+              setCellDropdowns(m=>({...m,[selKey]:{options:opts,value:val||opts[0]||""}}));
+              if (selRow && selCol && onChange) onChange(selRow.__origIdx, selCol.key, val||opts[0]||"");
+            }
+            setInsertModal(null);
+          }}
+          onClose={()=>setInsertModal(null)}
+        />
+      )}
     </div>
-  );
+    );
+  };
 
   const renderRibbonFormulas = () => (
     <div style={{display:"flex",alignItems:"flex-start",gap:0,padding:"4px 8px 0",flexWrap:"wrap"}}>
@@ -3294,7 +3552,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,flex:1,background:"#fff",fontFamily:"'Segoe UI',system-ui,sans-serif",zoom:zoomLevel!==100?`${zoomLevel}%`:undefined}}
+    <div ref={fsRef} style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,flex:1,background:"#fff",fontFamily:"'Segoe UI',system-ui,sans-serif",zoom:zoomLevel!==100?`${zoomLevel}%`:undefined}}
       onKeyDown={e=>{
         if((e.ctrlKey||e.metaKey)&&e.key==="a"){e.preventDefault();if(visibleProcessedRows.length&&visibleCols.length)setSelection({start:{ri:0,ci:0},end:{ri:visibleProcessedRows.length-1,ci:visibleCols.length-1}});}
         // UPGRADE 7: Command Palette
@@ -3343,6 +3601,15 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         ))}
         <div style={{marginLeft:"auto",padding:"0 8px",display:"flex",gap:6,alignItems:"center"}}>
           <span style={{fontSize:10,color:"#6366f1",background:"#eef2ff",padding:"1px 6px",borderRadius:3,cursor:"pointer"}} title="Command Palette (Ctrl+P)" onClick={()=>{setCmdPaletteOpen(true);setTimeout(()=>cmdInputRef.current?.focus(),50);}}>⌨️ Ctrl+P</span>
+          <button
+            onClick={()=>setIsFullscreen(f=>!f)}
+            title={isFullscreen?"Exit fullscreen (Esc)":"Fullscreen — hide dashboard & expand"}
+            style={{display:"flex",alignItems:"center",gap:4,fontSize:11,padding:"2px 8px",border:"1px solid #d1d5db",borderRadius:4,background:isFullscreen?"#1a73e8":"#f8f9fa",color:isFullscreen?"#fff":"#374151",cursor:"pointer",fontWeight:500,transition:"all 0.15s"}}>
+            {isFullscreen
+              ? <><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 4H4V1M7 1V4H10M10 7H7V10M4 10V7H1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> Exit</>
+              : <><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 4V1H4M7 1H10V4M10 7V10H7M4 10H1V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> Full</>
+            }
+          </button>
           <span style={{fontSize:10,color:"#aaa"}}>ExcelTable Pro</span>
         </div>
       </div>
@@ -3598,12 +3865,12 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
         <table style={{borderCollapse:"collapse",tableLayout:"fixed",fontSize:12,fontFamily:"'Courier New',monospace",minWidth:"100%"}}>
           <thead>
             <tr>
-              <th style={{background:"#D8DCE2",width:44,minWidth:44,position:"sticky",left:0,top:0,zIndex:40,textAlign:"center",border:showGridLines?`1px solid ${BORDER}`:"none",fontSize:11,color:"#888",fontWeight:600,height:28,userSelect:"none"}}>#</th>
-              {onDelete&&<th style={{background:"#D8DCE2",width:28,minWidth:28,position:"sticky",left:44,top:0,zIndex:40,border:showGridLines?`1px solid ${BORDER}`:"none"}}/>}
+              <th style={{background:"#D8DCE2",width:44,minWidth:44,position:"sticky",left:0,top:0,zIndex:40,textAlign:"center",borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER,fontSize:11,color:"#888",fontWeight:600,height:28,userSelect:"none"}}>#</th>
+              {onDelete&&<th style={{background:"#D8DCE2",width:28,minWidth:28,position:"sticky",left:44,top:0,zIndex:40,borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER}}/>}
               {visibleCols.map((c,ci)=>{
                 const isFrozen=ci<frozenCols,hasFilter=filters[c.key]?.size>0,isSorted=sortConfig.some(s=>s.key===c.key),vRule=validation[c.key];
                 return (
-                  <th key={ci} className="xl-filter-anchor" draggable onDragStart={()=>setColDrag(ci)} onDragOver={e=>{e.preventDefault();setColDragOver(ci);}} onDrop={handleColDragEnd} style={{background:colDragOver===ci?"#c7d2fe":HEADER_BG,padding:"0 4px",textAlign:"left",fontWeight:600,fontSize:11,color:"#555",border:showGridLines?`1px solid ${BORDER}`:"none",whiteSpace:"nowrap",position:"sticky",top:0,left:isFrozen?frozenLeft(ci):undefined,zIndex:isFrozen?30:10,userSelect:"none",height:28,minWidth:colW(ci),width:colW(ci),cursor:"grab"}}>
+                  <th key={ci} className="xl-filter-anchor" draggable onDragStart={()=>setColDrag(ci)} onDragOver={e=>{e.preventDefault();setColDragOver(ci);}} onDrop={handleColDragEnd} style={{background:colDragOver===ci?"#c7d2fe":HEADER_BG,padding:"0 4px",textAlign:"left",fontWeight:600,fontSize:11,color:"#555",borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER,whiteSpace:"nowrap",position:"sticky",top:0,left:isFrozen?frozenLeft(ci):undefined,zIndex:isFrozen?30:10,userSelect:"none",height:28,minWidth:colW(ci),width:colW(ci),cursor:"grab"}}>
                     <div style={{display:"flex",alignItems:"center",gap:3,height:"100%",position:"relative"}}>
                       <span style={{color:"#bbb",fontSize:10}}>{colLetter(ci)}</span>
                       <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}} onClick={e=>{const key=c.key;if(e.shiftKey){setSortConfig(sc=>{const idx=sc.findIndex(s=>s.key===key);if(idx>=0){const n=[...sc];n[idx]={key,dir:n[idx].dir==="asc"?"desc":"asc"};return n;}return [...sc,{key,dir:"asc"}];});}else{setSortConfig(sc=>{const existing=sc.find(s=>s.key===key);return [{key,dir:existing?.dir==="asc"?"desc":"asc"}];});}}}>
@@ -3624,7 +3891,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                   </th>
                 );
               })}
-              {hasSparklines&&<th style={{background:HEADER_BG,border:showGridLines?`1px solid ${BORDER}`:"none",fontSize:11,color:"#555",fontWeight:600,position:"sticky",top:0,zIndex:10,minWidth:100,width:100,padding:"0 6px"}}>Trend</th>}
+              {hasSparklines&&<th style={{background:HEADER_BG,borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER,fontSize:11,color:"#555",fontWeight:600,position:"sticky",top:0,zIndex:10,minWidth:100,width:100,padding:"0 6px"}}>Trend</th>}
             </tr>
           </thead>
           <tbody>
@@ -3638,7 +3905,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                     onDragOver={e=>{e.preventDefault();setRowDragOver(ri);}}
                     onDrop={handleRowDragEnd}
                     title="Drag to reorder row"
-                    style={{background:rowDragOver===ri?"#c7d2fe":"#E8EAED",textAlign:"center",color:"#888",fontSize:11,fontWeight:600,position:"sticky",left:0,zIndex:isFrozenRow?25:5,border:showGridLines?`1px solid ${BORDER}`:"none",cursor:"grab",height:rowHeights[ri]||26,padding:0,fontFamily:"monospace",width:44,minWidth:44,userSelect:"none"}}
+                    style={{background:rowDragOver===ri?"#c7d2fe":"#E8EAED",textAlign:"center",color:"#888",fontSize:11,fontWeight:600,position:"sticky",left:0,zIndex:isFrozenRow?25:5,borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER,cursor:"grab",height:rowHeights[ri]||26,padding:0,fontFamily:"monospace",width:44,minWidth:44,userSelect:"none"}}
                   >
                     {/* Group toggle indicator */}
                     {rowGroups.map((g,gi)=>g.start===ri?(
@@ -3646,7 +3913,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                     ):null)}
                     {ri+1}
                   </td>
-                  {onDelete&&<td style={{background:"#E8EAED",textAlign:"center",padding:"0 2px",position:"sticky",left:44,zIndex:isFrozenRow?25:5,border:showGridLines?`1px solid ${BORDER}`:"none",width:28,minWidth:28}}><button onClick={()=>onDelete(r.__origIdx)} style={{background:"none",border:"none",cursor:"pointer",color:"#EF4444",fontSize:12,padding:"1px 3px",lineHeight:1}}>✕</button></td>}
+                  {onDelete&&<td style={{background:"#E8EAED",textAlign:"center",padding:"0 2px",position:"sticky",left:44,zIndex:isFrozenRow?25:5,borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER,width:28,minWidth:28}}><button onClick={()=>onDelete(r.__origIdx)} style={{background:"none",border:"none",cursor:"pointer",color:"#EF4444",fontSize:12,padding:"1px 3px",lineHeight:1}}>✕</button></td>}
                   {visibleCols.map((c,ci)=>{
                     const isEd=editing?.ri===ri&&editing?.ci===ci;
                     const isSel=isSelected(ri,ci);
@@ -3676,7 +3943,40 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                         rowSpan={merge?merge.r2-merge.r1+1:1}
                         style={{
                           padding:"0 6px",
-                          border:showGridLines?`1px solid ${hasValError?"#ef4444":BORDER}`:"none",
+                          ...(()=>{
+                            const gc = showGridLines ? `1px solid ${hasValError?"#ef4444":BORDER}` : "none";
+                            const gw = showGridLines ? 1 : 0;
+                            const gs = showGridLines ? "solid" : "none";
+                            const gco = hasValError ? "#ef4444" : BORDER;
+                            if(!fmt.borderStyle||fmt.borderStyle==="none"){
+                              return {borderTopWidth:gw,borderRightWidth:gw,borderBottomWidth:gw,borderLeftWidth:gw,borderTopStyle:gs,borderRightStyle:gs,borderBottomStyle:gs,borderLeftStyle:gs,borderTopColor:gco,borderRightColor:gco,borderBottomColor:gco,borderLeftColor:gco};
+                            }
+                            const bw = fmt.borderWidth||1;
+                            const bc = fmt.borderColor||"#000";
+                            const bs = fmt.borderStyle;
+                            const styleMap = {
+                              all:    {t:bw,r:bw,b:bw,l:bw,ts:"solid",rs:"solid",bs2:"solid",ls:"solid"},
+                              outer:  {t:bw+1,r:bw+1,b:bw+1,l:bw+1,ts:"solid",rs:"solid",bs2:"solid",ls:"solid"},
+                              thick:  {t:bw+2,r:bw+2,b:bw+2,l:bw+2,ts:"solid",rs:"solid",bs2:"solid",ls:"solid"},
+                              medium: {t:bw+1,r:bw+1,b:bw+1,l:bw+1,ts:"solid",rs:"solid",bs2:"solid",ls:"solid"},
+                              dashed: {t:bw,r:bw,b:bw,l:bw,ts:"dashed",rs:"dashed",bs2:"dashed",ls:"dashed"},
+                              dotted: {t:bw,r:bw,b:bw,l:bw,ts:"dotted",rs:"dotted",bs2:"dotted",ls:"dotted"},
+                              bottom: {t:gw,r:gw,b:bw,l:gw,ts:gs,rs:gs,bs2:"solid",ls:gs},
+                              top:    {t:bw,r:gw,b:gw,l:gw,ts:"solid",rs:gs,bs2:gs,ls:gs},
+                              left:   {t:gw,r:gw,b:gw,l:bw,ts:gs,rs:gs,bs2:gs,ls:"solid"},
+                              right:  {t:gw,r:bw,b:gw,l:gw,ts:gs,rs:"solid",bs2:gs,ls:gs},
+                              double: {t:gw,r:gw,b:3,l:gw,ts:gs,rs:gs,bs2:"double",ls:gs},
+                              inner:  {t:gw,r:bw,b:bw,l:gw,ts:gs,rs:"solid",bs2:"solid",ls:gs},
+                              topbottom:{t:bw,r:gw,b:bw,l:gw,ts:"solid",rs:gs,bs2:"solid",ls:gs},
+                            };
+                            const m = styleMap[bs]||styleMap.all;
+                            return {
+                              borderTopWidth:m.t,borderRightWidth:m.r,borderBottomWidth:m.b,borderLeftWidth:m.l,
+                              borderTopStyle:m.ts,borderRightStyle:m.rs,borderBottomStyle:m.bs2,borderLeftStyle:m.ls,
+                              borderTopColor:m.ts===gs?gco:bc,borderRightColor:m.rs===gs?gco:bc,
+                              borderBottomColor:m.bs2===gs?gco:bc,borderLeftColor:m.ls===gs?gco:bc,
+                            };
+                          })(),
                           height:rowHeights[ri]||26,
                           whiteSpace:fmt.wrapText?"normal":"nowrap",cursor:"cell",overflow:"hidden",textOverflow:fmt.wrapText?"clip":"ellipsis",
                           fontSize:fmt.fontSize||12,
@@ -3689,21 +3989,6 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                           verticalAlign:fmt.valign||"middle",
                           paddingLeft:fmt.indent?`${6+fmt.indent*14}px`:"6px",
                           ...(fmt.rotation?{transform:`rotate(${fmt.rotation}deg)`,transformOrigin:"center"}:{}),
-                          ...(fmt.borderStyle&&fmt.borderStyle!=="none"?{
-                            ...(fmt.borderStyle==="all"?{border:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="outer"?{border:`${(fmt.borderWidth||1)+1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="bottom"?{borderBottom:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="top"?{borderTop:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="left"?{borderLeft:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="right"?{borderRight:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="thick"?{border:`${(fmt.borderWidth||1)+2}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="double"?{borderBottom:`3px double ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="dashed"?{border:`${fmt.borderWidth||1}px dashed ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="dotted"?{border:`${fmt.borderWidth||1}px dotted ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="inner"?{borderRight:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`,borderBottom:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="topbottom"?{borderTop:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`,borderBottom:`${fmt.borderWidth||1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                            ...(fmt.borderStyle==="medium"?{border:`${(fmt.borderWidth||1)+1}px solid ${fmt.borderColor||"#000"}`}:{}),
-                          }:{}),
                           outline:isSel?`2px solid ${SEL_COLOR}`:"none",outlineOffset:-2,
                           background:resolvedBg,
                           position:(isFrozenC||isFrozenRow)?"sticky":"relative",
@@ -3721,6 +4006,40 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                       >
                         {/* Comment indicator */}
                         {hasComment&&!isEd&&<div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",borderWidth:"0 6px 6px 0",borderColor:"transparent #f59e0b transparent transparent",pointerEvents:"none"}}/>}
+                        {/* Cell image overlay */}
+                        {cellImages[stableKey]&&!isEd&&(
+                          <img src={cellImages[stableKey].src} alt={cellImages[stableKey].alt||""} title={cellImages[stableKey].alt||""}
+                            style={{maxWidth:"100%",maxHeight:(rowHeights[ri]||26)-2,objectFit:"contain",display:"block",borderRadius:2,pointerEvents:"none"}}/>
+                        )}
+                        {/* Cell hyperlink overlay */}
+                        {cellLinks[stableKey]&&!isEd&&!cellImages[stableKey]&&(
+                          <a href={cellLinks[stableKey].url} target="_blank" rel="noopener noreferrer"
+                            onClick={e=>e.stopPropagation()}
+                            style={{color:"#2563eb",textDecoration:"underline",fontSize:fmt.fontSize||12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            🔗 {cellLinks[stableKey].label||cellLinks[stableKey].url}
+                          </a>
+                        )}
+                        {/* Cell checkbox overlay */}
+                        {cellCheckboxes[stableKey]!==undefined&&!isEd&&!cellImages[stableKey]&&!cellLinks[stableKey]&&(
+                          <span onClick={e=>{e.stopPropagation();setCellCheckboxes(c=>({...c,[stableKey]:!c[stableKey]}));}}
+                            style={{cursor:"pointer",fontSize:15,userSelect:"none"}}>
+                            {cellCheckboxes[stableKey]?"✅":"☐"}
+                          </span>
+                        )}
+                        {/* Cell dropdown overlay */}
+                        {cellDropdowns[stableKey]&&!isEd&&!cellImages[stableKey]&&!cellLinks[stableKey]&&cellCheckboxes[stableKey]===undefined&&(
+                          <select value={cellDropdowns[stableKey].value}
+                            onClick={e=>e.stopPropagation()}
+                            onChange={e=>{
+                              const v=e.target.value;
+                              setCellDropdowns(m=>({...m,[stableKey]:{...m[stableKey],value:v}}));
+                              const row2=processedRows[ri];
+                              if(onChange)onChange(row2.__origIdx,c.key,v);
+                            }}
+                            style={{fontSize:fmt.fontSize||12,border:"none",background:"transparent",width:"100%",cursor:"pointer",outline:"none",fontFamily:"inherit"}}>
+                            {cellDropdowns[stableKey].options.map(o=><option key={o} value={o}>{o}</option>)}
+                          </select>
+                        )}
                         {isEd?(
                           isDropdown?(
                             <SearchableDropdown
@@ -3803,7 +4122,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
                       </td>
                     );
                   })}
-                  {hasSparklines&&<td style={{padding:"0 6px",border:showGridLines?`1px solid ${BORDER}`:"none",height:rowHeights[ri]||26,background:zebra?(ri%2===0?"#fff":"#FAFAFA"):"#fff",width:100,minWidth:100}}><Sparkline type={sparkType} values={Object.entries(sparkCols).filter(([,v])=>v).map(([k])=>Number(r[k])).filter(v=>!isNaN(v))}/></td>}
+                  {hasSparklines&&<td style={{padding:"0 6px",borderTopWidth:showGridLines?1:0,borderRightWidth:showGridLines?1:0,borderBottomWidth:showGridLines?1:0,borderLeftWidth:showGridLines?1:0,borderTopStyle:showGridLines?"solid":"none",borderRightStyle:showGridLines?"solid":"none",borderBottomStyle:showGridLines?"solid":"none",borderLeftStyle:showGridLines?"solid":"none",borderTopColor:BORDER,borderRightColor:BORDER,borderBottomColor:BORDER,borderLeftColor:BORDER,height:rowHeights[ri]||26,background:zebra?(ri%2===0?"#fff":"#FAFAFA"):"#fff",width:100,minWidth:100}}><Sparkline type={sparkType} values={Object.entries(sparkCols).filter(([,v])=>v).map(([k])=>Number(r[k])).filter(v=>!isNaN(v))}/></td>}
                 </tr>
               );
             })}
@@ -3850,7 +4169,7 @@ const ExcelTable = ({ cols: initialCols, rows: initialRows, onChange, onDelete, 
           return (
           <div key={s.id} style={{display:"flex",alignItems:"center",gap:0,marginRight:2,position:"relative"}}>
             <button onClick={()=>setActiveSheet(s.id)} onDoubleClick={()=>renameSheet(s.id)}
-              style={{padding:"3px 12px",fontSize:11,borderTop:`1px solid ${BORDER}`,borderLeft:`1px solid ${BORDER}`,borderRight:`1px solid ${BORDER}`,borderBottom:s.id===activeSheet?`2px solid ${tabColor||"#1a73e8"}`:"1px solid transparent",background:s.id===activeSheet?"#fff":"transparent",cursor:"pointer",borderRadius:"4px 4px 0 0",fontWeight:s.id===activeSheet?600:400,color:s.id===activeSheet?(tabColor||"#1a73e8"):"#555",whiteSpace:"nowrap",paddingLeft:tabColor?20:12,position:"relative"}}>
+              style={{padding:"3px 12px",fontSize:11,borderTopWidth:1,borderLeftWidth:1,borderRightWidth:1,borderBottomWidth:s.id===activeSheet?2:1,borderTopStyle:"solid",borderLeftStyle:"solid",borderRightStyle:"solid",borderBottomStyle:"solid",borderTopColor:BORDER,borderLeftColor:BORDER,borderRightColor:BORDER,borderBottomColor:s.id===activeSheet?(tabColor||"#1a73e8"):"transparent",background:s.id===activeSheet?"#fff":"transparent",cursor:"pointer",borderRadius:"4px 4px 0 0",fontWeight:s.id===activeSheet?600:400,color:s.id===activeSheet?(tabColor||"#1a73e8"):"#555",whiteSpace:"nowrap",paddingLeft:tabColor?20:12,position:"relative"}}>
               {tabColor&&<span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",width:8,height:8,borderRadius:"50%",background:tabColor,display:"inline-block"}}/>}
               {s.name}
             </button>

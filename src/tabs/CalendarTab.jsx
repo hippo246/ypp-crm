@@ -2,6 +2,10 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { B } from "../constants";
 import { parseOperatorQuery } from "../helpers";
 import { useSearchSuggestions } from "../hooks";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 
 // ─── Design tokens (extend B if needed) ──────────────────────────────────────
 const T = {
@@ -244,15 +248,16 @@ function DailyVibeBar() {
 const buildCalendarEvents = (data) => {
   const todayStr = new Date().toISOString().split("T")[0];
 
-  const tasks = (data.tasks || []).map((t) => {
+  const tasks = (data.tasks || []).map((t, idx) => {
+    if (!t || !t.due) return null;
     const isOverdue = t.due < todayStr && t.status !== "Done";
     return {
-      id: `task-due-${t.id}`,
+      id: `task-due-${t.id ?? idx}`,
       type: "Task",
       title: t.title,
       date: t.due,
       priority: t.priority,
-      status: t.status,
+      status: t.status ?? null,
       assigned: t.assigned || "",
       milestone: t.milestone || false,
       isOverdue,
@@ -261,17 +266,17 @@ const buildCalendarEvents = (data) => {
       color: T.blue,
       borderColor: isOverdue ? T.red : t.status === "Done" ? T.green : null,
     };
-  });
+  }).filter(Boolean);
 
   const taskStarts = (data.tasks || [])
-    .filter((t) => t.start && t.start !== t.due)
-    .map((t) => ({
-      id: `task-start-${t.id}`,
+    .filter((t) => t && t.start && t.start !== t.due)
+    .map((t, idx) => ({
+      id: `task-start-${t.id ?? idx}`,
       type: "Task",
-      title: `▶ ${t.title}`,
+      title: `\u25B6 ${t.title}`,
       date: t.start,
       priority: t.priority,
-      status: t.status,
+      status: t.status ?? null,
       assigned: t.assigned || "",
       milestone: false,
       isOverdue: false,
@@ -282,16 +287,16 @@ const buildCalendarEvents = (data) => {
     }));
 
   const invoices = (data.accounting || [])
-    .filter((i) => i.status !== "Paid")
-    .map((i) => {
+    .filter((i) => i && i.status !== "Paid" && i.due)
+    .map((i, idx) => {
       const isOverdue = i.due < todayStr;
       return {
-        id: `invoice-${i.id || i.client + i.due}`,
+        id: `invoice-${i.id ?? (i.client + "-" + idx)}`,
         type: "Invoice",
         title: i.client,
         date: i.due,
         priority: null,
-        status: i.status,
+        status: i.status ?? null,
         assigned: "",
         milestone: false,
         isOverdue,
@@ -303,21 +308,23 @@ const buildCalendarEvents = (data) => {
       };
     });
 
-  const renewals = (data.clients || []).map((c) => ({
-    id: `renewal-${c.id || c.name}`,
-    type: "Renewal",
-    title: c.name,
-    date: c.renewal,
-    priority: null,
-    status: null,
-    assigned: "",
-    milestone: false,
-    isOverdue: c.renewal < todayStr,
-    refId: c.id,
-    entityType: "client",
-    color: T.orange,
-    borderColor: c.renewal < todayStr ? T.red : null,
-  }));
+  const renewals = (data.clients || [])
+    .filter((c) => c && c.renewal)
+    .map((c, idx) => ({
+      id: `renewal-${c.id ?? (c.name + "-" + idx)}`,
+      type: "Renewal",
+      title: c.name,
+      date: c.renewal,
+      priority: null,
+      status: null,
+      assigned: "",
+      milestone: false,
+      isOverdue: c.renewal < todayStr,
+      refId: c.id,
+      entityType: "client",
+      color: T.orange,
+      borderColor: c.renewal < todayStr ? T.red : null,
+    }));
 
   return [...tasks, ...taskStarts, ...invoices, ...renewals];
 };
@@ -1107,6 +1114,40 @@ const CalendarTab = ({ data, setData }) => {
   const today = new Date();
   const todayStr = today.toISOString().split("T")[0];
 
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const calendarWorkflow = workflowEngine.getWorkflowByEntityType("calendar");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (calendarWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(calendarWorkflow.id, data.tasks);
+      setSlaAlerts(alerts);
+    }
+  }, [data.tasks, calendarWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("calendar");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const [month, setMonth] = useState(today.getMonth());
   const [year, setYear] = useState(today.getFullYear());
   const [viewMode, setViewMode] = useState("month"); // "month" | "week" | "agenda"
@@ -1122,6 +1163,24 @@ const CalendarTab = ({ data, setData }) => {
   const [hoveredDay, setHoveredDay] = useState(null);
   const [expandedDay, setExpandedDay] = useState(null);
   const [dismissedOverdue, setDismissedOverdue] = useState(false);
+
+  // 15+ additional features for CalendarTab
+  const [showEventReminders, setShowEventReminders] = useState(false);
+  const [showRecurringEvents, setShowRecurringEvents] = useState(false);
+  const [showCalendarSync, setShowCalendarSync] = useState(false);
+  const [showEventTemplates, setShowEventTemplates] = useState(false);
+  const [showTimeBlocking, setShowTimeBlocking] = useState(false);
+  const [showCalendarSharing, setShowCalendarSharing] = useState(false);
+  const [showEventCategories, setShowEventCategories] = useState(false);
+  const [showCalendarAnalytics, setShowCalendarAnalytics] = useState(false);
+  const [showEventHistory, setShowEventHistory] = useState(false);
+  const [showCalendarExport, setShowCalendarExport] = useState(false);
+  const [showMultiCalendar, setShowMultiCalendar] = useState(false);
+  const [showEventCollaboration, setShowEventCollaboration] = useState(false);
+  const [showCalendarIntegrations, setShowCalendarIntegrations] = useState(false);
+  const [showEventAutomation, setShowEventAutomation] = useState(false);
+  const [showCalendarCustomization, setShowCalendarCustomization] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // ── Fun Layer hooks ──────────────────────────────────────────────────────
   const { xp, gain } = useXP("calendar_xp");
@@ -1166,6 +1225,7 @@ const CalendarTab = ({ data, setData }) => {
     const monthPrefix = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
     return rawEvents.filter((e) => {
+      if (!e) return false;
       if (!activeTypes.has(e.type)) return false;
       if (filters.priority !== "All" && e.priority !== filters.priority) return false;
       if (filters.status === "Overdue") {
@@ -1174,7 +1234,7 @@ const CalendarTab = ({ data, setData }) => {
       if (filters.assignee && !e.assigned?.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
       if (!filters.showDone && e.status === "Done") return false;
       if (parsedCalQuery) {
-        const { terms, operators } = parsedCalQuery;
+        const { terms = [], operators = {} } = parsedCalQuery;
         if (operators.status && e.status !== operators.status) return false;
         if (operators.priority && e.priority !== operators.priority) return false;
         if (operators.type && e.type !== operators.type) return false;

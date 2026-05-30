@@ -1,0 +1,91 @@
+Looking at your codebase, here are 10 high-impact updates I can implement:
+
+Recent & Pinned tabs — Pin your top 3 tabs to the sidebar top, plus a "Recently visited" section that tracks your last 5 tabs with timestamps. One click to jump back.
+Inline record preview on hover — Hovering a search result in the command palette shows a rich popover: full lead/task/client details, all fields, edit button — without leaving the current tab.
+Bulk notifications actions + notification categories — Filter notifications by type (Tasks, Leads, System), bulk-select to dismiss, and a toast system for real-time feedback when you do things like mark all read.
+Global toast / snackbar system — Every action (save, role change, tab switch, setting toggle) fires a small animated toast bottom-right. Currently nothing confirms your actions.
+Keyboard shortcut map — Press ? anywhere to open a full shortcut reference overlay listing every ⌘ combo in the app, per section.
+Command palette recent history — The palette remembers your last 8 searches/commands and shows them instantly on open before you type anything, like a browser address bar.
+Topbar breadcrumb trail — Instead of just a tab title, show a clickable breadcrumb (e.g. CRM › Leads › Active) that doubles as a filter indicator when search/filters are active.
+Per-tab unsaved indicator — Each nav item gets a small dot when that tab has unsaved changes, so you can see across tabs what needs saving — not just the global auto-save status.
+Presence avatar click popover — Click any presence avatar in the topbar to see a card: their name, role, active tab, time online, and a "Jump to their view" button that switches you to whatever tab they're on.
+Smart sidebar badges with sparklines — Each badge number in the sidebar gets a tiny 7-day trend line (up/down arrows + % change) so you can see at a glance if leads are growing or tasks are piling up.
+
+Search & Navigation
+
+Fuzzy search — Typo-tolerant matching in the command palette so "Ahmd" finds "Ahmed", "invice" finds "Invoice". Uses a lightweight Levenshtein distance, no library needed.
+Search filters/chips — After typing in the palette, press Tab to lock in a filter like status:Won or priority:High or due:today — scoped searches without scrolling through everything.
+Tab history back/forward buttons — Two small ← → arrows in the topbar that navigate your tab visit history like a browser, beyond just the URL pushState already in place.
+Spotlight-style top hit — The single best-matched record appears large at the top of palette results with all its key fields visible, like macOS Spotlight's "top result" card.
+
+
+Data & Records
+
+Quick-edit from command palette — Select a record in the palette and press E to get an inline mini-form right in the palette: edit name, status, assigned — save without opening the tab.
+Cross-tab record linking — On a Lead or Client card, show related Tasks, Invoices, and Calendar events inline. Click to jump. Everything that belongs together, together.
+Bulk status update from sidebar — Right-click a nav group (CRM, Finance) to get "Mark all tasks done", "Mark all invoices paid" — bulk ops without opening the tab.
+Record activity timeline — Every lead/client/task gets a hidden changelog: who changed what and when. Access it from the command palette with record name > history.
+Duplicate detection — On save, check for leads/clients with the same name or email and surface a warning badge in the sidebar: "2 possible duplicates in Leads".
+Stale record alerts — Leads untouched for 14+ days, tasks with no update in a week — flagged automatically with an orange "stale" badge, surfaced in the command palette under a "Needs Attention" group.
+
+
+UI & Visual
+
+Animated tab transition — Switching tabs plays a directional slide (left→right or right→left depending on nav order) instead of the current instant cut.
+Density slider — A slider in Settings (3 stops: Comfortable / Compact / Dense) that adjusts row heights, font sizes, and padding globally — more granular than the current binary compact toggle.
+Custom sidebar accent color — A color picker in the sidebar bottom strip to change the sidebar gradient from the default navy to any brand color. Persisted to localStorage.
+Skeleton loading screens — Instead of blank white flashes when tabs load, show animated grey shimmer placeholders in the shape of the actual content.
+Resizable columns memory — If any tab has a table with resizable columns, persist the widths to localStorage per-tab so they're restored on refresh.
+
+
+Productivity
+
+Focus timer (Pomodoro) — In focus mode, a small countdown timer appears in the topbar: 25 min work / 5 min break. Plays a subtle sound and sends a notification when time's up.
+Sticky notes per tab — A small 📌 button in the topbar opens a floating notepad scoped to the current tab. Notes persist in localStorage. Useful for "things to check while in Leads".
+Saved searches — In the command palette, press ⌘S on any search query to save it as a named shortcut. Saved searches appear at the top of the palette on next open.
+Export current view — A ⬇ Export button in the topbar that downloads the current tab's visible/filtered data as CSV. Works off whatever data is already in memory.
+Daily digest on login — After logging in, a one-time modal shows: X overdue tasks, Y hot leads, Z invoices due this week — your day at a glance before you hit the app.
+
+Collaboration & Presence
+
+Live cursor positions — When multiple users are on the same tab, show their avatar floating near the record they're looking at — like Figma's multiplayer cursors, using BroadcastChannel.
+@mention in notes — Type @ in any notes field to get a dropdown of team members. Mentioned users get a notification with a link back to the record.
+Record locking — If someone else is editing a lead/task, it shows a 🔒 with their avatar and "Ahmed is editing this". Prevents overwrite conflicts.
+Shared saved searches — Mark any saved search as "Team" instead of personal. Appears for everyone under a "Shared" section in the palette.
+Typing indicators on records — Small animated dots on a record row when a colleague is actively editing it, like iMessage typing bubbles.
+
+
+Analytics & Insights
+
+Mini dashboard widgets — Drag-and-drop KPI cards on the Dashboard: revenue this month, leads won %, tasks overdue, top client by value. Each widget is toggleable.
+Lead conversion funnel chart — A visual funnel in Analytics showing how many leads move from New → Contacted → Proposal → Won, with drop-off % at each stage.
+Revenue forecast line — In Accounting, a projected revenue line based on open invoice due dates plotted alongside actual paid amounts. Simple extrapolation, no ML needed.
+Task completion heatmap — A GitHub-style contribution grid in Analytics showing task completion by day over the last 90 days. Hover a cell to see what was done.
+Client health score — Each client gets an auto-calculated score (0–100) based on days since last contact, open tasks, overdue invoices, renewal proximity. Shown as a colored ring.
+
+
+Notifications & Alerts
+
+Scheduled reminders — On any task or lead, set a reminder: "Remind me in 2 hours / tomorrow morning / on due date." Fires as an in-app notification.
+Webhook / Zapier-style alerts — A simple rule builder: "When lead status = Won → show confetti + play sound + create a task". Trigger → Action, no code.
+Notification grouping — Instead of 12 individual task notifications, show "12 tasks due today" as one expandable group. Collapse by source.
+Quiet hours — In settings, set a time window (e.g. 6pm–9am) where notifications are suppressed and queued for the next morning.
+Priority inbox — A filtered view of notifications showing only High severity ones, with a one-click "deal with later" snooze to push them 4 hours forward.
+
+
+Data Entry & Forms
+
+Smart date parsing — Type "next friday", "in 2 weeks", "end of month" in any due date field and it resolves to the real date automatically.
+Field templates — Pre-fill a new lead/task/invoice from a saved template. "Enterprise client template" auto-fills industry, tags, default tasks. Accessible from the palette.
+CSV import with field mapping — Drag a CSV onto any tab to import records. A modal shows column→field mapping with a preview of the first 5 rows before committing.
+Inline duplicate merge — When two leads/clients are flagged as duplicates, a side-by-side diff view lets you pick which fields to keep from each before merging into one.
+Undo / redo stack — ⌘Z anywhere undoes the last data change (status update, field edit, delete). ⌘⇧Z redoes it. A small toast shows what was undone.
+
+
+Mobile & Accessibility
+
+Swipe gestures on mobile — Swipe right on a record row to mark done/read. Swipe left to delete or snooze. Swipe left on the main content area to go back a tab.
+Voice search — A microphone button in the command palette. Tap → speak "show overdue invoices" or "open leads" → auto-types and fires the search.
+High contrast mode — A fourth theme beyond light/dark: WCAG AA high-contrast with thick borders, no transparency, larger tap targets. Toggle from settings.
+Font size preference — A small A/A toggle in settings that bumps the base font size up or down by 1px globally. Separate from compact mode.
+Offline queue — When offline, edits are queued locally and shown with a ⏳ badge. When connection restores, they sync automatically and the badge clears.

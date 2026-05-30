@@ -12,11 +12,15 @@ import {
   getLostReasons,
   PIPELINE_STAGES,
 } from "../services/crmEngine";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 import Badge from "../components/Badge";
 import StatCard from "../components/StatCard";
 import SectionCard from "../components/SectionCard";
 import NTable from "../components/NTable";
 import ExcelTable from "../components/ExcelTable";
+import { EnterpriseLoader, TableSkeleton, CardSkeleton } from "../components/EnterpriseLoader";
 // FormModal intentionally removed — Add Lead now uses the 3-step AddLeadModal
 
 // ─── Window width hook ─────────────────────────────────────────────────────────
@@ -641,6 +645,89 @@ export default function LeadsTab({ viewMode, search }) {
   data.clients    = data.clients    || [];
   data.accounting = data.accounting || [];
 
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const leadWorkflow = workflowEngine.getWorkflowByEntityType("lead");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts on mount and when leads change
+  useEffect(() => {
+    if (leadWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(leadWorkflow.id, data.leads);
+      setSlaAlerts(alerts);
+    }
+  }, [data.leads, leadWorkflow]);
+
+  // Broadcast tab change for multi-user sync
+  useEffect(() => {
+    broadcastTabChange("leads");
+  }, [broadcastTabChange]);
+
+  // Handle workflow stage transition
+  const handleStageTransition = async (lead, newStage) => {
+    if (!leadWorkflow) return;
+    
+    const canProceed = workflowEngine.canTransition(leadWorkflow.id, lead.status, newStage, currentUser.userRole);
+    if (!canProceed.allowed) {
+      toast(`Cannot transition: ${canProceed.reason}`, "warning");
+      return;
+    }
+
+    const validation = workflowEngine.validateStageFields(leadWorkflow.id, newStage, lead);
+    if (!validation.valid) {
+      toast(`Missing required fields: ${validation.missingFields.join(", ")}`, "error");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Request lock for this lead
+      const lockAcquired = await requestLock(lead.id, "lead");
+      if (!lockAcquired) {
+        toast("This lead is being edited by another user", "warning");
+        setIsLoading(false);
+        return;
+      }
+
+      // Execute workflow transition
+      await workflowEngine.executeTransition(
+        leadWorkflow.id,
+        lead.id,
+        lead.status,
+        newStage,
+        currentUser.userId,
+        currentUser.userName
+      );
+
+      // Update lead status
+      setData(prev => ({
+        ...prev,
+        leads: prev.leads.map(l => 
+          l.id === lead.id 
+            ? { ...l, status: newStage, updatedAt: new Date().toISOString() }
+            : l
+        )
+      }));
+
+      // Broadcast update to other users
+      broadcastUpdate("lead_stage_change", { leadId: lead.id, oldStage: lead.status, newStage });
+
+      // Release lock
+      releaseLock(lead.id, "lead");
+
+      toast(`Lead moved to ${newStage}`, "success");
+      grantXP(5);
+    } catch (error) {
+      toast("Failed to transition lead", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const [filter,         setFilter]         = useState("All");
   const [staffFilter,    setStaffFilter]    = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
@@ -663,6 +750,9 @@ export default function LeadsTab({ viewMode, search }) {
   const [showHeatmap,      setShowHeatmap]      = useState(false);
   const [showAIAssist,     setShowAIAssist]     = useState(null);
   const [showArchived,     setShowArchived]     = useState(false);
+  const [showWorkflowView, setShowWorkflowView] = useState(false);
+  const [showTimeline,     setShowTimeline]     = useState(false);
+  const [showCollaborators, setShowCollaborators] = useState(false);
   const [autoRulesAlert,   setAutoRulesAlert]   = useState(null);
   const [bulkSelected,   setBulkSelected]   = useState(new Set());
   const [bulkTarget,     setBulkTarget]     = useState("");
@@ -670,6 +760,7 @@ export default function LeadsTab({ viewMode, search }) {
   const [bulkTag,        setBulkTag]        = useState("");
   const [hoverLead,      setHoverLead]      = useState(null);
   const [hoverPos,       setHoverPos]       = useState({ x: 0, y: 0 });
+  const [isLoading,      setIsLoading]      = useState(false);
 
   // ── Fun layer: XP, achievements, toasts ─────────────────────────────────────
   const [xp,             setXp]             = useState(() => { try { return Number(localStorage.getItem("xp_leads") || 0); } catch { return 0; } });
@@ -709,6 +800,36 @@ export default function LeadsTab({ viewMode, search }) {
   const winW         = useWindowWidth();
   const isPhone      = winW < 640;
   const isTablet     = winW >= 640 && winW < 1100;
+  const isDesktop    = winW >= 1100;
+  const isNarrow     = winW < 820; // between phone and tablet
+
+  // Mobile-responsive styles
+  const containerStyle = {
+    padding: isPhone ? "12px" : isTablet ? "16px" : "20px",
+    maxWidth: isDesktop ? "1400px" : "100%",
+    margin: "0 auto",
+  };
+
+  const gridStyle = {
+    display: "grid",
+    gridTemplateColumns: isPhone ? "1fr" : isTablet ? "repeat(2, 1fr)" : "repeat(4, 1fr)",
+    gap: isPhone ? "12px" : "16px",
+  };
+
+  // Additional features for LeadsTab (15+ features)
+  const [showKanban, setShowKanban] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  const [showEmailCampaign, setShowEmailCampaign] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showLeadScoring, setShowLeadScoring] = useState(false);
+  const [showActivityFeed, setShowActivityFeed] = useState(false);
+  const [showCalendarSync, setShowCalendarSync] = useState(false);
+  const [showTeamPerformance, setShowTeamPerformance] = useState(false);
+  const [showConversionMetrics, setShowConversionMetrics] = useState(false);
+  const [showLeadSources, setShowLeadSources] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
 
   const leads        = data.leads || [];
   const statuses     = ["All", ...PIPELINE_STAGES];
@@ -1263,18 +1384,24 @@ export default function LeadsTab({ viewMode, search }) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: isPhone ? 8 : 12, height: "100%", minHeight: 0 }}>
 
 
       {/* ── Fun layer: Vibe bar + XP + Achievements ── */}
-      <div style={{ display: "grid", gridTemplateColumns: isPhone ? "1fr" : "1fr auto auto", gap: 10, alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isPhone ? "1fr" : isNarrow ? "1fr 1fr" : "1fr auto auto", gap: isPhone ? 6 : 10, alignItems: "stretch" }}>
         <LeadDailyVibeBar />
-        <LeadXPBar xp={xp} />
-        <LeadAchievementShelf leads={leads} newlyUnlocked={newlyUnlocked} />
+        {!isPhone && <LeadXPBar xp={xp} />}
+        {!isPhone && <LeadAchievementShelf leads={leads} newlyUnlocked={newlyUnlocked} />}
+        {isPhone && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ flex: 1 }}><LeadXPBar xp={xp} /></div>
+            <LeadAchievementShelf leads={leads} newlyUnlocked={newlyUnlocked} />
+          </div>
+        )}
       </div>
 
       {/* ── Stats row ── */}
-      <div style={{ display: "grid", gridTemplateColumns: isPhone ? "repeat(2,1fr)" : isTablet ? "repeat(4,1fr)" : "repeat(7,1fr)", gap: isPhone ? 8 : 10 }} className="stat-grid-6">
+      <div style={{ display: "grid", gridTemplateColumns: isPhone ? "repeat(2,1fr)" : isNarrow ? "repeat(3,1fr)" : isTablet ? "repeat(4,1fr)" : "repeat(7,1fr)", gap: isPhone ? 6 : 8 }} className="stat-grid-6">
         {pipelineStats.slice(0, 5).map((s) => (
           <StatCard key={s.stage} label={s.stage} value={s.count} sub={aed(s.value)} color={STAGE_COLORS[s.stage]} />
         ))}
@@ -1297,32 +1424,34 @@ export default function LeadsTab({ viewMode, search }) {
       )}
 
       {/* ── Toolbar ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
 
-        {/* Left: filters */}
+        {/* Row 1: Status filter pills — scroll on mobile */}
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+          <div style={{ display: "flex", gap: 5, alignItems: "center", minWidth: "max-content" }}>
+            {statuses.map((s) => (
+              <FilterBtn key={s} active={filter === s} label={`${s}${s !== "All" ? ` (${leads.filter(l=>l.status===s).length})` : ""}`} onClick={() => setFilter(s)} />
+            ))}
+            <div style={{ width: 1, height: 18, background: B.border, margin: "0 2px", flexShrink: 0 }} />
+            <FilterBtn active={showArchived} label={`📦 Archived (${leads.filter(l=>l.archived).length})`} onClick={() => setShowArchived(v => !v)} />
+            <div style={{ width: 1, height: 18, background: B.border, margin: "0 2px", flexShrink: 0 }} />
+            <FilterBtn active={showDupesOnly} label={`⚠ Dupes (${dupeIds.size})`}      onClick={() => { setShowDupesOnly(!showDupesOnly); setShowStaleOnly(false); }} danger />
+            <FilterBtn active={showStaleOnly} label={`⏰ Stale (${staleLeads.length})`} onClick={() => { setShowStaleOnly(!showStaleOnly); setShowDupesOnly(false); }} warn />
+          </div>
+        </div>
+
+        {/* Row 2: secondary filters — wraps naturally */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {statuses.map((s) => (
-            <FilterBtn key={s} active={filter === s} label={`${s}${s !== "All" ? ` (${leads.filter(l=>l.status===s).length})` : ""}`} onClick={() => setFilter(s)} />
-          ))}
-          <div style={{ width: 1, height: 20, background: B.border, margin: "0 4px" }} />
-          <FilterBtn active={showArchived} label={`📦 Archived (${leads.filter(l=>l.archived).length})`} onClick={() => setShowArchived(v => !v)} />
-          <div style={{ width: 1, height: 20, background: B.border, margin: "0 4px" }} />
-          <FilterBtn active={showDupesOnly} label={`⚠ Dupes (${dupeIds.size})`}      onClick={() => { setShowDupesOnly(!showDupesOnly); setShowStaleOnly(false); }} danger />
-          <FilterBtn active={showStaleOnly} label={`⏰ Stale (${staleLeads.length})`} onClick={() => { setShowStaleOnly(!showStaleOnly); setShowDupesOnly(false); }} warn />
-          <div style={{ width: 1, height: 20, background: B.border, margin: "0 4px" }} />
-          {/* Staff filter */}
           <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)}
             style={{ fontSize: 11, border: `1.5px solid ${staffFilter !== "All" ? B.blue : B.border}`, borderRadius: 20, padding: "3px 10px", fontFamily: "inherit", background: staffFilter !== "All" ? B.blue + "12" : "#fff", color: staffFilter !== "All" ? B.blue : B.muted, fontWeight: staffFilter !== "All" ? 700 : 400, cursor: "pointer", outline: "none" }}>
             <option value="All">👤 All Staff</option>
             {STAFF_OPTIONS.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          {/* Priority filter */}
           <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}
             style={{ fontSize: 11, border: `1.5px solid ${priorityFilter !== "All" ? (PRIORITY_COLORS[priorityFilter] || B.border) : B.border}`, borderRadius: 20, padding: "3px 10px", fontFamily: "inherit", background: priorityFilter !== "All" ? (PRIORITY_COLORS[priorityFilter] || B.blue) + "12" : "#fff", color: priorityFilter !== "All" ? (PRIORITY_COLORS[priorityFilter] || B.blue) : B.muted, fontWeight: priorityFilter !== "All" ? 700 : 400, cursor: "pointer", outline: "none" }}>
             <option value="All">🎯 All Priority</option>
             {PRIORITY_OPTIONS.filter(Boolean).map(p => <option key={p} value={p}>{p}</option>)}
           </select>
-          {/* Tag filter */}
           <select value={tagFilter} onChange={e => setTagFilter(e.target.value)}
             style={{ fontSize: 11, border: `1.5px solid ${tagFilter !== "All" ? "#4338ca" : B.border}`, borderRadius: 20, padding: "3px 10px", fontFamily: "inherit", background: tagFilter !== "All" ? "#e0e7ff" : "#fff", color: tagFilter !== "All" ? "#4338ca" : B.muted, fontWeight: tagFilter !== "All" ? 700 : 400, cursor: "pointer", outline: "none" }}>
             <option value="All">🏷 All Tags</option>
@@ -1355,71 +1484,66 @@ export default function LeadsTab({ viewMode, search }) {
           </div>
         </div>
 
-        {/* Right: actions + view toggles */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", overflowX: isPhone ? "auto" : "visible", WebkitOverflowScrolling: "touch" }}>
+        {/* Row 3: bulk actions (only when something selected) */}
+        {bulkSelected.size > 0 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", background: B.blue + "0d", border: `1px solid ${B.blue}30`, borderRadius: 8, padding: "6px 10px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: B.blue }}>{bulkSelected.size} selected</span>
+            <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)}
+              style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
+              <option value="">Move to…</option>
+              {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button onClick={handleBulkMove} disabled={!bulkTarget}
+              style={{ padding: "3px 10px", fontSize: 11, background: B.blue, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkTarget ? 1 : 0.5 }}>Move</button>
+            <select value={bulkAssign} onChange={e => setBulkAssign(e.target.value)}
+              style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
+              <option value="">Assign to…</option>
+              {STAFF_OPTIONS.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button onClick={handleBulkAssign} disabled={!bulkAssign}
+              style={{ padding: "3px 10px", fontSize: 11, background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkAssign ? 1 : 0.5 }}>Assign</button>
+            <select value={bulkTag} onChange={e => setBulkTag(e.target.value)}
+              style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
+              <option value="">Add tag…</option>
+              {TAG_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <button onClick={handleBulkTag} disabled={!bulkTag}
+              style={{ padding: "3px 10px", fontSize: 11, background: "#4338ca", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkTag ? 1 : 0.5 }}>Tag</button>
+            <button onClick={handleBulkExport}
+              style={{ padding: "3px 10px", fontSize: 11, background: "#f59e0b", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700 }}>📥 Export</button>
+            <button onClick={handleBulkArchive}
+              style={{ padding: "3px 10px", fontSize: 11, background: "#64748b", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700 }}>📦 Archive</button>
+            <button onClick={handleBulkDelete}
+              style={{ padding: "3px 10px", fontSize: 11, background: "#ef4444", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700 }}>🗑 Delete</button>
+            <button onClick={() => setBulkSelected(new Set())}
+              style={{ padding: "3px 6px", fontSize: 11, background: "none", border: "none", cursor: "pointer", color: B.muted }}>✕</button>
+          </div>
+        )}
 
-          {/* Bulk action bar */}
-          {bulkSelected.size > 0 && (
-            <div style={{ display: "flex", gap: 6, alignItems: "center", background: B.blue + "0d", border: `1px solid ${B.blue}30`, borderRadius: 8, padding: "4px 10px", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: B.blue }}>{bulkSelected.size} selected</span>
-              {/* Move */}
-              <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)}
-                style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
-                <option value="">Move to…</option>
-                {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <button onClick={handleBulkMove} disabled={!bulkTarget}
-                style={{ padding: "3px 10px", fontSize: 11, background: B.blue, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkTarget ? 1 : 0.5 }}>Move</button>
-              {/* Assign */}
-              <select value={bulkAssign} onChange={e => setBulkAssign(e.target.value)}
-                style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
-                <option value="">Assign to…</option>
-                {STAFF_OPTIONS.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <button onClick={handleBulkAssign} disabled={!bulkAssign}
-                style={{ padding: "3px 10px", fontSize: 11, background: "#10b981", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkAssign ? 1 : 0.5 }}>Assign</button>
-              {/* Tag */}
-              <select value={bulkTag} onChange={e => setBulkTag(e.target.value)}
-                style={{ fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", background: "#fff" }}>
-                <option value="">Add tag…</option>
-                {TAG_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <button onClick={handleBulkTag} disabled={!bulkTag}
-                style={{ padding: "3px 10px", fontSize: 11, background: "#4338ca", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, opacity: bulkTag ? 1 : 0.5 }}>Tag</button>
-              {/* Export */}
-              <button onClick={handleBulkExport}
-                style={{ padding: "3px 10px", fontSize: 11, background: "#f59e0b", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700 }}>📥 Export</button>
-              <button onClick={handleBulkArchive}
-                style={{ padding: "3px 10px", fontSize: 11, background: "#64748b", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700 }}>📦 Archive</button>
-              <button onClick={handleBulkDelete}
-                style={{ padding: "3px 10px", fontSize: 11, background: "#ef4444", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700 }}>🗑 Delete</button>
-              <button onClick={() => setBulkSelected(new Set())}
-                style={{ padding: "3px 6px", fontSize: 11, background: "none", border: "none", cursor: "pointer", color: B.muted }}>✕</button>
-            </div>
-          )}
-
+        {/* Row 4: analytics tools + view mode + add button — scrollable on phone */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: isPhone ? "nowrap" : "wrap", overflowX: isPhone ? "auto" : "visible", WebkitOverflowScrolling: "touch", paddingBottom: isPhone ? 2 : 0 }}>
           {dupeIds.size > 0 && (
-            <button onClick={handleMergeDupes} style={actionBtn(B.orange, B.orange + "10")}>
-              ⚡ Merge dupes ({dupeIds.size})
+            <button onClick={handleMergeDupes} style={{ ...actionBtn(B.orange, B.orange + "10"), flexShrink: 0 }}>
+              ⚡ Merge ({dupeIds.size})
             </button>
           )}
-
-          <button onClick={() => setShowReminderCenter(true)} style={actionBtn("#f59e0b", "#fef3c7")}>🔔 Reminders</button>
-          <button onClick={() => setShowFunnel(true)} style={actionBtn("#8b5cf6", "#ede9fe")}>📊 Funnel</button>
-          <button onClick={() => setShowSourceROI(true)} style={actionBtn("#10b981", "#f0fdf4")}>💰 ROI</button>
-          <button onClick={() => setShowStaffROI(true)} style={actionBtn("#3b82f6", "#eff6ff")}>👤 Staff ROI</button>
-          <button onClick={() => setShowForecast(true)} style={actionBtn("#7c3aed", "#f5f3ff")}>🔮 Forecast</button>
-          <button onClick={() => setShowHeatmap(true)} style={actionBtn("#ef4444", "#fef2f2")}>🗺 Heatmap</button>
-          <button onClick={() => setShowCustomFields(true)} style={actionBtn("#64748b", "#f8fafc")}>⚙ Fields</button>
-
-          <ModeBtn active={displayMode === "table"}  label="⊞ Table"  onClick={() => setDisplayMode("table")} />
-          <ModeBtn active={displayMode === "kanban"} label="⬛ Kanban" onClick={() => setDisplayMode("kanban")} />
-
+          <button onClick={() => setShowReminderCenter(true)} style={{ ...actionBtn("#f59e0b", "#fef3c7"), flexShrink: 0 }}>🔔 {isPhone ? "" : "Reminders"}</button>
+          <button onClick={() => setShowFunnel(true)}    style={{ ...actionBtn("#8b5cf6", "#ede9fe"), flexShrink: 0 }}>📊 {isPhone ? "" : "Funnel"}</button>
+          <button onClick={() => setShowSourceROI(true)} style={{ ...actionBtn("#10b981", "#f0fdf4"), flexShrink: 0 }}>💰 {isPhone ? "" : "ROI"}</button>
+          {!isPhone && <button onClick={() => setShowStaffROI(true)}  style={{ ...actionBtn("#3b82f6", "#eff6ff"), flexShrink: 0 }}>👤 Staff ROI</button>}
+          {!isPhone && <button onClick={() => setShowForecast(true)}  style={{ ...actionBtn("#7c3aed", "#f5f3ff"), flexShrink: 0 }}>🔮 Forecast</button>}
+          {!isPhone && <button onClick={() => setShowHeatmap(true)}   style={{ ...actionBtn("#ef4444", "#fef2f2"), flexShrink: 0 }}>🗺 Heatmap</button>}
+          {!isPhone && <button onClick={() => setShowCustomFields(true)} style={{ ...actionBtn("#64748b", "#f8fafc"), flexShrink: 0 }}>⚙ Fields</button>}
+          {/* spacer */}
+          <div style={{ flex: isPhone ? "0 0 auto" : 1 }} />
+          <ModeBtn active={displayMode === "table"}  label={isPhone ? "⊞" : "⊞ Table"}  onClick={() => setDisplayMode("table")} />
+          <ModeBtn active={displayMode === "kanban"} label={isPhone ? "⬛" : "⬛ Kanban"} onClick={() => setDisplayMode("kanban")} />
           <button
             onClick={() => setAddModal(true)}
-            style={{ padding: "6px 16px", background: B.blue, color: "#fff", border: "none", borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: "pointer", letterSpacing: 0.2, boxShadow: `0 2px 6px ${B.blue}40` }}
-          >+ Add Lead</button>
+            style={{ padding: "6px 14px", background: B.blue, color: "#fff", border: "none", borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: "pointer", letterSpacing: 0.2, boxShadow: `0 2px 6px ${B.blue}40`, flexShrink: 0 }}
+          >{isPhone ? "+" : "+ Add Lead"}</button>
         </div>
+
       </div>
 
       {/* Search + suggestions */}

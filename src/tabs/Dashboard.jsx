@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { B } from "../constants";
 import { aed } from "../helpers";
 import { useAppData } from "../context/AppContext";
@@ -15,16 +15,18 @@ import Badge from "../components/Badge";
 import SectionCard from "../components/SectionCard";
 import NTable from "../components/NTable";
 
-export default function Dashboard() {
-  const { data, setData } = useAppData();
+export default function Dashboard({ dark = false }) {
+  const { data: rawData, setData } = useAppData();
   // Safe array refs — guard against undefined on first render
-  data = { ...data };
-  data.leads      = data.leads      || [];
-  data.clients    = data.clients    || [];
-  data.tasks      = data.tasks      || [];
-  data.accounting = data.accounting || [];
-  data.inventory  = data.inventory  || [];
-  data.suppliers  = data.suppliers  || [];
+  const data = {
+    ...(rawData || {}),
+    leads:      (rawData?.leads      || []),
+    clients:    (rawData?.clients    || []),
+    tasks:      (rawData?.tasks      || []),
+    accounting: (rawData?.accounting || []),
+    inventory:  (rawData?.inventory  || []),
+    suppliers:  (rawData?.suppliers  || []),
+  };
 
   const { accounting = [], clients = [], leads = [], tasks = [], inventory = [] } = data;
 
@@ -52,6 +54,105 @@ export default function Dashboard() {
   const [activeWidgets, setActiveWidgets] = useState(["progress","workload","delay","productivity"]);
 
   const toggleCollapse = (id) => setCollapsed(c => ({ ...c, [id]: !c[id] }));
+
+  // ── UPGRADE 1: Dark mode — driven by App.jsx sidebar toggle, not local state ──
+  const DM = dark ? { bg:"#0F172A", card:"#1E293B", border:"#334155", text:"#F1F5F9", muted:"#94A3B8", light:"#1E293B", input:"#0F172A" } : { bg:"transparent", card:"#fff", border:"#E2E8F0", text:"#1E293B", muted:"#64748B", light:"#F1F5F9", input:"#fff" };
+
+  // ── UPGRADE 2: Global spotlight search (Cmd+K) ─────────────────────────────
+  const [spotlight, setSpotlight] = useState(false);
+  const [spotQ, setSpotQ] = useState("");
+  useEffect(() => {
+    const handler = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setSpotlight(s => !s); setSpotQ(""); } if (e.key === "Escape") setSpotlight(false); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+  const spotResults = useMemo(() => {
+    if (!spotQ.trim()) return [];
+    const q = spotQ.toLowerCase();
+    const results = [];
+    leads.filter(l => l.name?.toLowerCase().includes(q)).slice(0,3).forEach(l => results.push({ icon:"👤", label: l.name, sub: `Lead · ${l.status}`, color: B.blue }));
+    clients.filter(c => c.name?.toLowerCase().includes(q)).slice(0,3).forEach(c => results.push({ icon:"🏢", label: c.name, sub: `Client`, color: B.green }));
+    tasks.filter(t => t.title?.toLowerCase().includes(q)).slice(0,3).forEach(t => results.push({ icon:"📋", label: t.title, sub: `Task · ${t.status}`, color: B.orange }));
+    accounting.filter(i => i.client?.toLowerCase().includes(q)).slice(0,3).forEach(i => results.push({ icon:"💰", label: i.client, sub: `Invoice · ${aed(i.amount)}`, color: B.green }));
+    return results.slice(0, 8);
+  }, [spotQ, leads, clients, tasks, accounting]);
+
+  // ── UPGRADE 3: Date range filter ───────────────────────────────────────────
+  const [dateRange, setDateRange] = useState("month"); // week | month | quarter | all
+  const dateRangeStart = useMemo(() => {
+    const now = new Date(); const d = new Date(now);
+    if (dateRange === "week")    { d.setDate(d.getDate() - 7); }
+    else if (dateRange === "month")   { d.setMonth(d.getMonth() - 1); }
+    else if (dateRange === "quarter") { d.setMonth(d.getMonth() - 3); }
+    else return null;
+    return d.toISOString().slice(0, 10);
+  }, [dateRange]);
+  const filteredAccounting = useMemo(() => dateRangeStart ? accounting.filter(i => (i.date || "") >= dateRangeStart) : accounting, [accounting, dateRangeStart]);
+  const filteredLeads      = useMemo(() => dateRangeStart ? leads.filter(l => (l.date || "") >= dateRangeStart) : leads, [leads, dateRangeStart]);
+
+  // ── UPGRADE 4: Revenue goal tracker ───────────────────────────────────────
+  const [revenueGoal, setRevenueGoal] = useState(() => { try { return Number(localStorage.getItem("dash-goal")) || 100000; } catch { return 100000; } });
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState("");
+  const goalPct = Math.min(100, Math.round((kpis.totalRevenue / revenueGoal) * 100));
+
+  // ── UPGRADE 5: Live clock ──────────────────────────────────────────────────
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+
+  // ── UPGRADE 6: Pinned KPI cards ────────────────────────────────────────────
+  const [pinned, setPinned] = useState([]);
+  const togglePin = (id) => setPinned(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  // ── UPGRADE 7: Toast system ────────────────────────────────────────────────
+  const [toasts, setToasts] = useState([]);
+  const addToast = useCallback((msg, type = "info") => {
+    const id = Date.now();
+    setToasts(t => [...t, { id, msg, type }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
+  }, []);
+
+  // ── UPGRADE 8: Last refreshed timestamp ───────────────────────────────────
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const handleRefresh = useCallback(() => { setLastRefreshed(new Date()); addToast("Dashboard refreshed", "success"); }, [addToast]);
+
+  // ── UPGRADE 9: Keyboard shortcut modal ────────────────────────────────────
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  useEffect(() => {
+    const h = (e) => { if (e.key === "?" && !e.ctrlKey && !e.metaKey) setShortcutsOpen(s => !s); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  // ── UPGRADE 10: Confetti when all tasks done ──────────────────────────────
+  const allDone = tasks.length > 0 && tasks.every(t => t.status === "Done");
+  const [confettiShown, setConfettiShown] = useState(false);
+  useEffect(() => { if (allDone && !confettiShown) { addToast("🎉 All tasks complete!", "success"); setConfettiShown(true); } if (!allDone) setConfettiShown(false); }, [allDone, confettiShown, addToast]);
+
+  // ── UPGRADE 11: Inline task title edit ────────────────────────────────────
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingTaskTitle, setEditingTaskTitle] = useState("");
+
+  // ── UPGRADE 12: Client health scores ──────────────────────────────────────
+  const clientHealth = useMemo(() => {
+    return clients.slice(0, 5).map(c => {
+      const invoices  = accounting.filter(i => i.client === c.name);
+      const paid      = invoices.filter(i => i.status === "Paid").length;
+      const total     = invoices.length || 1;
+      const payRate   = Math.round((paid / total) * 100);
+      const openTasks = tasks.filter(t => t.ref === c.id || t.assigned === c.name).filter(t => t.status !== "Done").length;
+      const score     = Math.max(0, Math.min(100, payRate - openTasks * 5));
+      return { ...c, score, payRate, openTasks };
+    }).sort((a, b) => b.score - a.score);
+  }, [clients, accounting, tasks]);
+
+  // ── UPGRADE 13: Top clients by revenue ────────────────────────────────────
+  const topClients = useMemo(() => {
+    const map = {};
+    accounting.forEach(i => { if (!map[i.client]) map[i.client] = 0; map[i.client] += i.amount || 0; });
+    return Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0,5).map(([name, val]) => ({ name, val }));
+  }, [accounting]);
+  const maxTopClient = Math.max(...topClients.map(c => c.val), 1);
 
   const onDragStart = (id) => setDragId(id);
   const onDragOver  = (e, id) => { e.preventDefault(); setDragOver(id); };
@@ -123,8 +224,153 @@ export default function Dashboard() {
   const maxServiceVal = Math.max(...revenueByService.map((r) => r.val), 1);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", height: "100%" }}>
-      <QuickActionsBar data={data} setData={setData} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", height: "100%", background: DM.bg, transition: "background 0.2s" }}>
+      {/* ── UPGRADE: Global styles + confetti ── */}
+      <style>{`
+        @keyframes dash-confetti-fall { 0%{transform:translateY(-40px) rotate(0deg);opacity:1} 100%{transform:translateY(120px) rotate(720deg);opacity:0} }
+        @keyframes dash-toast-in { from{transform:translateX(120px);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes dash-count-up { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .dash-toolbar-btn:hover { background: ${DM.light} !important; }
+        .dash-range-btn { padding:4px 10px;border-radius:6px;border:1px solid ${DM.border};background:${DM.card};color:${DM.muted};font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s; }
+        .dash-range-btn.active { background:${B.blue};color:#fff;border-color:${B.blue}; }
+        .dash-range-btn:hover { border-color:${B.blue};color:${B.blue}; }
+        .dash-section-title { color:${DM.text} !important; }
+        .dash-card-dm { background:${DM.card} !important; border-color:${DM.border} !important; color:${DM.text} !important; }
+      `}</style>
+
+      {/* ── UPGRADE 5+8: Top toolbar — clock / range / refresh / dark / shortcuts ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", padding:"8px 0 0" }}>
+        <div style={{ fontSize:11, fontWeight:700, color:DM.muted, fontVariantNumeric:"tabular-nums", letterSpacing:0.3 }}>
+          🕐 {now.toLocaleTimeString("en-AE", { hour:"2-digit", minute:"2-digit", second:"2-digit" })}
+          <span style={{ marginLeft:8, fontWeight:400 }}>· Refreshed {lastRefreshed.toLocaleTimeString("en-AE",{hour:"2-digit",minute:"2-digit"})}</span>
+        </div>
+        <div style={{ flex:1 }} />
+        {/* Date range */}
+        {[["week","7D"],["month","1M"],["quarter","3M"],["all","All"]].map(([v,l]) => (
+          <button key={v} className={`dash-range-btn${dateRange===v?" active":""}`} onClick={() => { setDateRange(v); addToast(`Range: ${l}`, "info"); }}>{l}</button>
+        ))}
+        <div style={{ width:1, height:20, background:DM.border, margin:"0 2px" }} />
+        {/* Cmd+K search */}
+        <button className="dash-toolbar-btn" onClick={() => { setSpotlight(true); setSpotQ(""); }}
+          style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${DM.border}`, background:DM.card, color:DM.muted, fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
+          🔍 <span>Search</span> <kbd style={{ fontSize:9, background:DM.light, border:`1px solid ${DM.border}`, borderRadius:3, padding:"1px 4px" }}>⌘K</kbd>
+        </button>
+        {/* Refresh */}
+        <button className="dash-toolbar-btn" onClick={handleRefresh}
+          style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${DM.border}`, background:DM.card, color:DM.muted, fontSize:14, cursor:"pointer" }} title="Refresh">↻</button>
+        {/* Shortcuts */}
+        <button className="dash-toolbar-btn" onClick={() => setShortcutsOpen(true)}
+          style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${DM.border}`, background:DM.card, color:DM.muted, fontSize:11, fontWeight:700, cursor:"pointer" }} title="Keyboard shortcuts">?</button>
+        {/* Export CSV */}
+        <button className="dash-toolbar-btn" onClick={() => {
+          const rows = [["Metric","Value"],["Total Revenue",kpis.totalRevenue],["Outstanding",kpis.outstanding],["Active Clients",kpis.activeClients],["Open Leads",kpis.openLeads],["Pending Tasks",kpis.pendingTasks],["Collection Rate",kpis.collectionRate+"%"],["Conversion Rate",kpis.conversionRate+"%"]];
+          const csv = rows.map(r => r.join(",")).join("\n");
+          const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = `dashboard-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+          addToast("CSV exported!", "success");
+        }} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${DM.border}`, background:DM.card, color:DM.muted, fontSize:11, fontWeight:700, cursor:"pointer" }} title="Export CSV">⬇ CSV</button>
+      </div>
+
+      {/* ── UPGRADE 4: Revenue goal tracker ── */}
+      <div style={{ background:DM.card, border:`1px solid ${DM.border}`, borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{ fontSize:10, fontWeight:800, color:B.blue, textTransform:"uppercase", letterSpacing:1, whiteSpace:"nowrap" }}>🎯 Revenue Goal</div>
+        <div style={{ flex:1 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:4 }}>
+            <span style={{ color:DM.muted }}>{aed(kpis.totalRevenue)} earned</span>
+            <span style={{ fontWeight:700, color:goalPct>=100?B.green:B.blue }}>{goalPct}% of {aed(revenueGoal)}</span>
+          </div>
+          <div style={{ height:8, background:DM.light, borderRadius:4, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${goalPct}%`, background:`linear-gradient(90deg,${B.blue},${goalPct>=100?B.green:B.accent})`, borderRadius:4, transition:"width 0.8s cubic-bezier(0.4,0,0.2,1)" }} />
+          </div>
+        </div>
+        {editingGoal ? (
+          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+            <input autoFocus value={goalInput} onChange={e => setGoalInput(e.target.value)} onKeyDown={e => { if(e.key==="Enter"){ const v=Number(goalInput.replace(/[^0-9]/g,"")); if(v>0){setRevenueGoal(v);try{localStorage.setItem("dash-goal",v);}catch{} addToast("Goal updated!","success");} setEditingGoal(false); } if(e.key==="Escape") setEditingGoal(false); }}
+              style={{ width:100, padding:"4px 8px", border:`1px solid ${B.blue}`, borderRadius:6, fontSize:12, background:DM.input, color:DM.text, outline:"none" }} placeholder="e.g. 150000" />
+            <button onClick={() => setEditingGoal(false)} style={{ background:"none", border:"none", cursor:"pointer", color:DM.muted, fontSize:16 }}>×</button>
+          </div>
+        ) : (
+          <button onClick={() => { setGoalInput(String(revenueGoal)); setEditingGoal(true); }}
+            style={{ padding:"4px 10px", fontSize:11, fontWeight:600, border:`1px solid ${DM.border}`, borderRadius:6, background:"none", color:DM.muted, cursor:"pointer" }}>Edit Goal</button>
+        )}
+      </div>
+
+      {/* ── UPGRADE 2: Spotlight modal ── */}
+      {spotlight && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:9000, display:"flex", alignItems:"flex-start", justifyContent:"center", paddingTop:"15vh" }} onClick={() => setSpotlight(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background:DM.card, borderRadius:14, width:"min(540px,92vw)", boxShadow:"0 24px 60px rgba(0,0,0,0.3)", overflow:"hidden" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 18px", borderBottom:`1px solid ${DM.border}` }}>
+              <span style={{ fontSize:16, color:DM.muted }}>🔍</span>
+              <input autoFocus value={spotQ} onChange={e => setSpotQ(e.target.value)} placeholder="Search leads, clients, tasks, invoices…"
+                style={{ flex:1, border:"none", outline:"none", fontSize:14, background:"transparent", color:DM.text, fontFamily:"inherit" }} />
+              <kbd style={{ fontSize:10, background:DM.light, border:`1px solid ${DM.border}`, borderRadius:4, padding:"2px 6px", color:DM.muted }}>ESC</kbd>
+            </div>
+            {spotResults.length > 0 ? (
+              <div style={{ maxHeight:320, overflowY:"auto" }}>
+                {spotResults.map((r,i) => (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 18px", borderBottom:`1px solid ${DM.border}`, cursor:"pointer" }}
+                    onMouseEnter={e=>e.currentTarget.style.background=DM.light} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <span style={{ fontSize:16 }}>{r.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:DM.text }}>{r.label}</div>
+                      <div style={{ fontSize:11, color:DM.muted }}>{r.sub}</div>
+                    </div>
+                    <div style={{ width:8, height:8, borderRadius:"50%", background:r.color }} />
+                  </div>
+                ))}
+              </div>
+            ) : spotQ ? (
+              <div style={{ padding:"24px 18px", textAlign:"center", color:DM.muted, fontSize:13 }}>No results for "{spotQ}"</div>
+            ) : (
+              <div style={{ padding:"16px 18px" }}>
+                <div style={{ fontSize:10, fontWeight:700, color:DM.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>Quick Stats</div>
+                <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+                  {[{icon:"👤",label:`${leads.length} Leads`},{icon:"🏢",label:`${clients.length} Clients`},{icon:"📋",label:`${tasks.length} Tasks`},{icon:"💰",label:`${accounting.length} Invoices`}].map((s,i) => (
+                    <div key={i} style={{ fontSize:12, color:DM.muted }}>{s.icon} {s.label}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── UPGRADE 7: Toast notifications ── */}
+      <div style={{ position:"fixed", bottom:80, right:24, zIndex:8000, display:"flex", flexDirection:"column", gap:8, pointerEvents:"none" }}>
+        {toasts.map(t => (
+          <div key={t.id} style={{ animation:"dash-toast-in 0.25s ease", background:t.type==="success"?B.green:t.type==="error"?B.red:B.blue, color:"#fff", borderRadius:8, padding:"8px 14px", fontSize:12, fontWeight:600, boxShadow:"0 4px 16px rgba(0,0,0,0.2)", whiteSpace:"nowrap" }}>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+
+      {/* ── UPGRADE 9: Keyboard shortcuts modal ── */}
+      {shortcutsOpen && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", zIndex:9000, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setShortcutsOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:DM.card, borderRadius:12, padding:24, width:"min(400px,92vw)", boxShadow:"0 16px 40px rgba(0,0,0,0.2)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:15, color:DM.text }}>⌨️ Keyboard Shortcuts</div>
+              <button onClick={()=>setShortcutsOpen(false)} style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", color:DM.muted }}>×</button>
+            </div>
+            {[["⌘K","Open search spotlight"],["?","Toggle this help"],["Esc","Close modals"],["Drag KPI","Reorder cards"],["Click badge","Cycle task status"],["Dbl-click title","Rename task"]].map(([k,d]) => (
+              <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 0", borderBottom:`1px solid ${DM.border}` }}>
+                <span style={{ fontSize:12, color:DM.muted }}>{d}</span>
+                <kbd style={{ fontSize:11, background:DM.light, border:`1px solid ${DM.border}`, borderRadius:4, padding:"2px 7px", color:DM.text, fontWeight:700 }}>{k}</kbd>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── UPGRADE 10: Confetti ── */}
+      {allDone && (
+        <div style={{ position:"fixed", top:0, left:0, right:0, pointerEvents:"none", zIndex:7000, display:"flex", justifyContent:"center", gap:8 }}>
+          {Array.from({length:18}).map((_,i) => (
+            <div key={i} style={{ width:8, height:8, borderRadius:i%3===0?"50%":"2px", background:["#F59E0B","#3B82F6","#10B981","#EF4444","#8B5CF6"][i%5], animation:`dash-confetti-fall ${1+Math.random()*1.2}s ${Math.random()*0.8}s ease-in forwards`, position:"absolute", left:`${5+i*5}%` }} />
+          ))}
+        </div>
+      )}
+
+      <QuickActionsBar data={data} setData={setData} addToast={addToast} />
 
       {/* Today's Summary Bar */}
       {(() => {
@@ -205,7 +451,7 @@ export default function Dashboard() {
                 <div key={id} className="kpi-drag-card"
                   draggable onDragStart={() => onDragStart(id)} onDragOver={e => onDragOver(e,id)} onDrop={() => onDrop(id)} onDragEnd={() => {setDragId(null);setDragOver(null);}}
                   style={{ opacity: dragId===id ? 0.5 : 1, outline: dragOver===id ? `2px dashed ${B.blue}` : "none", borderRadius:10 }}>
-                  <CollapsibleKPI {...def} collapsed={collapsed[id]} onToggle={() => toggleCollapse(id)} />
+                  <CollapsibleKPI {...def} collapsed={collapsed[id]} onToggle={() => toggleCollapse(id)} pinned={pinned.includes(id)} onPin={() => { togglePin(id); addToast(pinned.includes(id)?"Unpinned":"Pinned to top","info"); }} darkMode={dark} DM={DM} />
                 </div>
               );
             })}
@@ -230,7 +476,7 @@ export default function Dashboard() {
                 <div key={id} className="kpi-drag-card"
                   draggable onDragStart={() => onDragStart(id)} onDragOver={e => onDragOver(e,id)} onDrop={() => onDrop(id)} onDragEnd={() => {setDragId(null);setDragOver(null);}}
                   style={{ opacity: dragId===id?0.5:1, outline: dragOver===id?`2px dashed ${B.blue}`:"none", borderRadius:10 }}>
-                  <CollapsibleKPI {...def} collapsed={collapsed[id]} onToggle={() => toggleCollapse(id)} />
+                  <CollapsibleKPI {...def} collapsed={collapsed[id]} onToggle={() => toggleCollapse(id)} pinned={pinned.includes(id)} onPin={() => { togglePin(id); addToast(pinned.includes(id)?"Unpinned":"Pinned to top","info"); }} darkMode={dark} DM={DM} />
                 </div>
               );
             })}
@@ -259,6 +505,9 @@ export default function Dashboard() {
               { id:"workload",     icon:"▤", label:"Workload Chart",        desc:"Horizontal bars per team member" },
               { id:"delay",        icon:"⏰", label:"Delay Report",         desc:"Overdue tasks grouped by owner" },
               { id:"productivity", icon:"📈", label:"Productivity Tracker", desc:"Tasks closed per week — last 6 weeks" },
+              { id:"clienthealth", icon:"💚", label:"Client Health Scores", desc:"Payment rate + open tasks per client" },
+              { id:"topclients",   icon:"🏆", label:"Top Clients",          desc:"Clients ranked by total revenue" },
+              { id:"funnel",       icon:"🔻", label:"Pipeline Funnel",      desc:"Visual lead stage funnel" },
             ].map(w => {
               const active = activeWidgets.includes(w.id);
               return (
@@ -394,8 +643,7 @@ export default function Dashboard() {
               </div>
             </SectionCard>
           )}
-          {activeWidgets.includes("productivity") && (
-            <SectionCard title="Productivity Tracker">
+          {activeWidgets.includes("productivity") && (            <SectionCard title="Productivity Tracker">
               <div style={{ padding:14 }}>
                 <div style={{ fontSize:10, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:"0.6px", marginBottom:10 }}>Tasks completed per week (last 6)</div>
                 <div style={{ display:"flex", gap:6, alignItems:"flex-end", height:72 }}>
@@ -429,6 +677,73 @@ export default function Dashboard() {
               </div>
             </SectionCard>
           )}
+          {/* ── UPGRADE 12: Client Health Scores ── */}
+          {activeWidgets.includes("clienthealth") && (
+            <SectionCard title="Client Health Scores">
+              <div style={{ padding:14 }}>
+                {clientHealth.length === 0 ? <div style={{ fontSize:12, color:B.muted }}>No clients yet</div> : clientHealth.map(c => (
+                  <div key={c.id||c.name} style={{ marginBottom:10 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <Avatar name={c.name} size={22} />
+                        <span style={{ fontSize:12, fontWeight:600, color:DM.text }}>{c.name}</span>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        {c.openTasks > 0 && <span style={{ fontSize:10, color:B.orange }}>📋 {c.openTasks}</span>}
+                        <span style={{ fontSize:12, fontWeight:800, color:c.score>=80?B.green:c.score>=50?B.yellow:B.red }}>{c.score}</span>
+                      </div>
+                    </div>
+                    <div style={{ height:5, background:DM.light, borderRadius:3, overflow:"hidden" }}>
+                      <div style={{ width:`${c.score}%`, height:"100%", background:c.score>=80?B.green:c.score>=50?B.yellow:B.red, borderRadius:3, transition:"width 0.6s" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+          {/* ── UPGRADE 13: Top Clients Leaderboard ── */}
+          {activeWidgets.includes("topclients") && (
+            <SectionCard title="🏆 Top Clients by Revenue">
+              <div style={{ padding:14 }}>
+                {topClients.length === 0 ? <div style={{ fontSize:12, color:B.muted }}>No revenue data</div> : topClients.map((c,i) => (
+                  <div key={c.name} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                    <div style={{ width:20, fontSize:12, fontWeight:800, color:["#F59E0B","#9CA3AF","#B45309","#64748B","#64748B"][i], textAlign:"center" }}>{i+1}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}>
+                        <span style={{ fontWeight:600, color:DM.text }}>{c.name}</span>
+                        <span style={{ fontWeight:700, color:B.blue }}>{aed(c.val)}</span>
+                      </div>
+                      <div style={{ height:5, background:DM.light, borderRadius:3, overflow:"hidden" }}>
+                        <div style={{ width:`${(c.val/maxTopClient)*100}%`, height:"100%", background:i===0?`linear-gradient(90deg,#F59E0B,#FCD34D)`:B.blue, borderRadius:3, transition:"width 0.6s" }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+          {/* ── UPGRADE 15: Pipeline Funnel ── */}
+          {activeWidgets.includes("funnel") && (
+            <SectionCard title="🔻 Pipeline Funnel">
+              <div style={{ padding:14 }}>
+                {pipelineStats.length === 0 ? <div style={{ fontSize:12, color:B.muted }}>No pipeline data</div> : (() => {
+                  const maxCount = Math.max(...pipelineStats.map(s=>s.count),1);
+                  const colors = [B.blue, B.accent, B.yellow, B.orange, B.green, B.red];
+                  return pipelineStats.map((s,i) => {
+                    const w = Math.max(20, (s.count/maxCount)*100);
+                    return (
+                      <div key={s.stage} style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:4 }}>
+                        <div style={{ width:`${w}%`, background:colors[i%colors.length], borderRadius:4, padding:"5px 10px", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"width 0.6s", minWidth:120 }}>
+                          <span style={{ fontSize:11, fontWeight:700, color:"#fff" }}>{s.stage}</span>
+                          <span style={{ fontSize:11, color:"rgba(255,255,255,0.85)" }}>{s.count} · {aed(s.value)}</span>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </SectionCard>
+          )}
         </div>
       )}
 
@@ -446,7 +761,15 @@ export default function Dashboard() {
               return (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${B.border}`, minHeight: 44 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.priority === "High" ? B.red : t.priority === "Medium" ? B.yellow : B.green, flexShrink: 0 }} />
-                  <div style={{ flex: 1, fontSize: 12 }}>{t.title}</div>
+                  {/* ── UPGRADE 11: Inline task title edit on double-click ── */}
+                  {editingTaskId === t.id ? (
+                    <input autoFocus value={editingTaskTitle} onChange={e => setEditingTaskTitle(e.target.value)}
+                      onBlur={() => { if (editingTaskTitle.trim()) { setData(d => ({ ...d, tasks: d.tasks.map(x => x.id === t.id ? { ...x, title: editingTaskTitle.trim() } : x) })); addToast("Task renamed","success"); } setEditingTaskId(null); }}
+                      onKeyDown={e => { if (e.key==="Enter") e.target.blur(); if (e.key==="Escape") setEditingTaskId(null); }}
+                      style={{ flex:1, fontSize:12, border:`1px solid ${B.blue}`, borderRadius:4, padding:"2px 6px", outline:"none", fontFamily:"inherit" }} />
+                  ) : (
+                    <div style={{ flex: 1, fontSize: 12 }} onDoubleClick={() => { setEditingTaskId(t.id); setEditingTaskTitle(t.title); }} title="Double-click to rename">{t.title}</div>
+                  )}
                   <button
                     onClick={() => {
                       const next = statusCycle[t.status] || "Pending";
@@ -519,7 +842,7 @@ export default function Dashboard() {
 
 // ─── Quick Actions Floating Bar ────────────────────────────────────────────────
 
-function QuickActionsBar({ data, setData }) {
+function QuickActionsBar({ data, setData, addToast }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(null); // "lead" | "invoice" | "task"
   const [vals, setVals] = useState({});
@@ -533,6 +856,7 @@ function QuickActionsBar({ data, setData }) {
       setData({ ...data, tasks: [...data.tasks, { id: `T${Date.now()}`, title: vals.title || "New Task", assigned: "", priority: "Medium", status: "Pending", due: vals.due || "", ref: "" }] });
     }
     setForm(null); setVals({});
+    if (addToast) addToast(`${form.charAt(0).toUpperCase()+form.slice(1)} added!`, "success");
   };
 
   const fields = {
@@ -599,7 +923,8 @@ function QuickActionsBar({ data, setData }) {
 
 // ─── Collapsible KPI card (upgraded) ─────────────────────────────────────────
 
-function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, sparkData, trend }) {
+function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, sparkData, trend, pinned, onPin, darkMode, DM }) {
+  const dm = DM || { card:"#fff", border:"#E2E8F0", text:"#1E293B", muted:"#64748B", light:"#F1F5F9" };
   const [hovered, setHovered] = useState(false);
 
   const SparkInline = ({ data, c }) => {
@@ -625,7 +950,7 @@ function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background:"#fff", border:`1px solid #E2E8F0`, borderRadius:10,
+        background: dm.card, border:`1px solid ${dm.border}`, borderRadius:10,
         padding: small ? "10px 14px" : "14px 18px", borderTop:`3px solid ${color}`,
         minHeight: small ? 64 : 80,
         boxShadow: hovered ? "0 6px 20px rgba(0,0,0,0.09)" : "0 1px 3px rgba(0,0,0,0.04)",
@@ -639,16 +964,22 @@ function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, 
           <SparkInline data={sparkData} c={color} />
         </div>
       )}
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: collapsed ? 0 : 4 }}>
-        <div style={{ fontSize:10, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: collapsed ? 0 : 4 }}>
+        <div style={{ fontSize:10, color:dm.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</div>
         <div style={{ display:"flex", alignItems:"center", gap:5 }}>
           {trend !== undefined && trend !== null && !collapsed && (
             <span style={{ fontSize:9, fontWeight:700, color:trend>=0?"#16A34A":"#E63946", background:(trend>=0?"#16A34A":"#E63946")+"15", borderRadius:20, padding:"1px 5px" }}>
               {trend >= 0 ? "▲" : "▼"} {Math.abs(trend)}%
             </span>
           )}
+          {/* ── UPGRADE 6: Pin button ── */}
+          {onPin && (
+            <button onClick={e => { e.stopPropagation(); onPin(); }}
+              style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color: pinned ? color : dm.muted, padding:"0 1px", lineHeight:1, opacity: hovered||pinned ? 1 : 0.4, transition:"opacity 0.15s" }}
+              title={pinned ? "Unpin" : "Pin to top"}>📌</button>
+          )}
           <button onClick={e => { e.stopPropagation(); onToggle(); }}
-            style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:"#64748B", padding:"0 2px", lineHeight:1 }}
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:dm.muted, padding:"0 2px", lineHeight:1 }}
             title={collapsed ? "Expand" : "Collapse"}>
             {collapsed ? "▸" : "▾"}
           </button>
@@ -656,8 +987,8 @@ function CollapsibleKPI({ label, value, sub, color, small, collapsed, onToggle, 
       </div>
       {!collapsed && (
         <>
-          <div style={{ fontSize: small ? 18 : 22, fontWeight:800, color:"#1E293B", lineHeight:1, letterSpacing:"-0.5px" }}>{value}</div>
-          {sub && <div style={{ fontSize:11, color:"#64748B", marginTop:5 }}>{sub}</div>}
+          <div style={{ fontSize: small ? 18 : 22, fontWeight:800, color:dm.text, lineHeight:1, letterSpacing:"-0.5px", animation:"dash-count-up 0.35s ease" }}>{value}</div>
+          {sub && <div style={{ fontSize:11, color:dm.muted, marginTop:5 }}>{sub}</div>}
         </>
       )}
     </div>

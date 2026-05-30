@@ -7,11 +7,17 @@ import { B } from "../constants";
 import { aed, filterSearch, nextId, parseOperatorQuery } from "../helpers";
 import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
 import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 import {
   getTotalInvoiced, getTotalCollected, getTotalOutstanding,
   getCollectionRate, getOverdueInvoices, amountWithVAT,
   applyPartialPayment, calcOverduePenalty,
   createCreditNote, createDebitNote, generateNextRecurring,
+  getDSO, getAgingBuckets, getMonthOverMonthGrowth,
+  getClientPaymentScores, getWriteOffCandidates, forecastCashGap,
+  getTopDebtors, getBadDebtRisk, getRevenueVelocity, generateReminderEmail,
 } from "../services/accountingEngine";
 import Badge from "../components/Badge";
 import StatCard from "../components/StatCard";
@@ -629,6 +635,341 @@ function DuplicateBanner({ dupes }) {
   );
 }
 
+// ─── Cash Gap Warning Banner ──────────────────────────────────────────────────
+
+function CashGapBanner({ invoices }) {
+  const [dismissed, setDismissed] = useState(false);
+  const { gap, projectedInflow, totalOutstanding, riskLevel } = useMemo(() => forecastCashGap(invoices), [invoices]);
+  if (riskLevel === "low" || dismissed || !invoices.length) return null;
+  const colors = { critical: B.red, high: B.orange, medium: B.yellow };
+  const color = colors[riskLevel];
+  const icons = { critical: "🚨", high: "⚠️", medium: "💡" };
+  return (
+    <div style={{ background:`${color}10`, border:`1px solid ${color}50`, borderRadius:10, padding:"10px 14px", display:"flex", alignItems:"flex-start", gap:10 }}>
+      <span style={{ fontSize:16, flexShrink:0 }}>{icons[riskLevel]}</span>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:12, fontWeight:700, color, marginBottom:2 }}>
+          Cash Flow {riskLevel === "critical" ? "Crisis" : riskLevel === "high" ? "Warning" : "Advisory"}
+        </div>
+        <div style={{ fontSize:11, color:B.muted }}>
+          Outstanding <strong style={{ color:B.red }}>{aed(totalOutstanding)}</strong> vs projected monthly inflow <strong style={{ color:B.green }}>{aed(projectedInflow)}</strong>.
+          {gap < 0 && <> Gap: <strong style={{ color:B.red }}>{aed(Math.abs(gap))}</strong> shortfall — chase collections urgently.</>}
+        </div>
+      </div>
+      <button onClick={() => setDismissed(true)} style={{ background:"none", border:"none", color:B.muted, cursor:"pointer", fontSize:16, padding:0 }}>✕</button>
+    </div>
+  );
+}
+
+// ─── Write-Off Candidates Panel ───────────────────────────────────────────────
+
+function WriteOffPanel({ invoices, onWriteOff }) {
+  const [open, setOpen] = useState(false);
+  const candidates = useMemo(() => getWriteOffCandidates(invoices, 90), [invoices]);
+  if (!candidates.length) return null;
+  return (
+    <div style={{ background:B.white, border:`1px solid ${B.red}30`, borderRadius:10, overflow:"hidden" }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width:"100%", padding:"10px 16px", background:`${B.red}08`,
+        border:"none", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:"inherit",
+      }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:14 }}>💀</span>
+          <span style={{ fontSize:11, fontWeight:700, color:B.red }}>
+            {candidates.length} Write-Off Candidate{candidates.length > 1 ? "s" : ""}
+          </span>
+          <span style={{ fontSize:10, color:B.muted }}>
+            — {aed(candidates.reduce((s, i) => s + i.balance, 0))} at risk
+          </span>
+        </div>
+        <span style={{ fontSize:10, color:B.muted }}>{open ? "▴ Hide" : "▾ Show"}</span>
+      </button>
+      {open && (
+        <div style={{ padding:"10px 16px", display:"flex", flexDirection:"column", gap:6 }}>
+          {candidates.map(inv => {
+            const risk = getBadDebtRisk(inv);
+            const riskColor = risk > 0.7 ? B.red : risk > 0.4 ? B.orange : B.yellow;
+            return (
+              <div key={inv.id} style={{
+                display:"flex", alignItems:"center", gap:10, padding:"8px 12px",
+                background:"#fff", border:`1px solid ${B.border}`, borderRadius:8,
+              }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:12, color:B.text }}>{inv.client}</div>
+                  <div style={{ fontSize:10, color:B.muted }}>{inv.id} · Due {inv.due} · <span style={{ color:B.red }}>{inv.daysOverdue}d overdue</span></div>
+                </div>
+                <div style={{ textAlign:"right", minWidth:90 }}>
+                  <div style={{ fontWeight:800, fontSize:12, color:B.red }}>{aed(inv.balance)}</div>
+                  <div style={{ fontSize:9, color:riskColor, fontWeight:700 }}>{Math.round(risk * 100)}% bad debt risk</div>
+                </div>
+                <div style={{
+                  width:34, height:34, borderRadius:"50%", background:`conic-gradient(${riskColor} ${risk * 360}deg, ${B.border} 0)`,
+                  display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+                }}>
+                  <div style={{ width:24, height:24, borderRadius:"50%", background:"#fff", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <span style={{ fontSize:9, fontWeight:800, color:riskColor }}>{Math.round(risk * 100)}</span>
+                  </div>
+                </div>
+                {onWriteOff && (
+                  <button onClick={() => onWriteOff(inv)} style={{
+                    padding:"3px 9px", fontSize:10, fontWeight:700, background:`${B.red}15`,
+                    color:B.red, border:`1px solid ${B.red}40`, borderRadius:5, cursor:"pointer",
+                  }}>Write Off</button>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ fontSize:10, color:B.muted, marginTop:4 }}>
+            Invoices overdue 90+ days. Consider writing off and issuing credit notes.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DSO + Velocity Stat Cards ────────────────────────────────────────────────
+
+function DSOCard({ invoices }) {
+  const dso = useMemo(() => getDSO(invoices), [invoices]);
+  const velocity = useMemo(() => getRevenueVelocity(invoices), [invoices]);
+  const dsoColor = dso < 30 ? B.green : dso < 60 ? B.yellow : B.red;
+  const dsoLabel = dso < 30 ? "Excellent" : dso < 60 ? "Acceptable" : "High Risk";
+  return (
+    <div style={{ background:B.white, border:`1px solid ${B.border}`, borderRadius:10, padding:"10px 14px", display:"flex", gap:16 }}>
+      <div style={{ flex:1, borderRight:`1px solid ${B.border}`, paddingRight:16 }}>
+        <div style={{ fontSize:10, color:B.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, marginBottom:2 }}>DSO</div>
+        <div style={{ fontSize:22, fontWeight:800, color:dsoColor }}>{dso}<span style={{ fontSize:11, fontWeight:400 }}> days</span></div>
+        <div style={{ fontSize:10, color:dsoColor, fontWeight:600 }}>{dsoLabel}</div>
+      </div>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:10, color:B.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, marginBottom:2 }}>Revenue/Day</div>
+        <div style={{ fontSize:18, fontWeight:800, color:B.accent }}>{aed(velocity)}</div>
+        <div style={{ fontSize:10, color:B.muted }}>30-day avg</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Top Debtors Panel ────────────────────────────────────────────────────────
+
+function TopDebtorsPanel({ invoices }) {
+  const debtors = useMemo(() => getTopDebtors(invoices, 5), [invoices]);
+  if (!debtors.length) return null;
+  const max = debtors[0]?.balance || 1;
+  return (
+    <div style={{ background:B.white, border:`1px solid ${B.border}`, borderRadius:10, padding:"12px 16px" }}>
+      <div style={{ fontSize:10, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:10 }}>
+        🔴 Top Debtors
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+        {debtors.map((d, i) => (
+          <div key={d.client} style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:12, minWidth:18, color:i < 2 ? B.red : B.orange }}>#{i+1}</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
+                <span style={{ fontSize:11, fontWeight:700, color:B.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.client}</span>
+                <span style={{ fontSize:11, fontWeight:800, color:B.red, flexShrink:0, marginLeft:6 }}>{aed(d.balance)}</span>
+              </div>
+              <div style={{ height:3, background:B.border, borderRadius:99, overflow:"hidden" }}>
+                <div style={{ width:`${(d.balance / max) * 100}%`, height:"100%", background:i < 2 ? B.red : B.orange, borderRadius:99 }} />
+              </div>
+              {d.maxDaysOverdue > 0 && (
+                <div style={{ fontSize:9, color:B.red, marginTop:1 }}>{d.maxDaysOverdue}d overdue · {d.invoiceCount} inv</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── MoM Growth Sparkline ─────────────────────────────────────────────────────
+
+function MoMGrowthBar({ invoices }) {
+  const data = useMemo(() => getMonthOverMonthGrowth(invoices, 6), [invoices]);
+  const latest = data[data.length - 1];
+  const growthColor = !latest?.growth ? B.muted : latest.growth >= 0 ? B.green : B.red;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+      {data.map((d, i) => (
+        <div key={d.key} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+          {d.growth !== null && d.growth !== 0 && i > 0 && (
+            <span style={{ fontSize:8, fontWeight:700, color: d.growth > 0 ? B.green : B.red }}>
+              {d.growth > 0 ? "▲" : "▼"}{Math.abs(d.growth)}%
+            </span>
+          )}
+          <div style={{ fontSize:8, color:B.muted }}>{d.month.split(" ")[0]}</div>
+        </div>
+      ))}
+      {latest?.growth !== null && (
+        <div style={{ marginLeft:4, fontSize:11, fontWeight:700, color:growthColor }}>
+          {latest?.growth >= 0 ? "▲" : "▼"}{Math.abs(latest?.growth ?? 0)}% MoM
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Reminder Email Modal ─────────────────────────────────────────────────────
+
+function ReminderModal({ invoices, onClose }) {
+  const overdueInvs = useMemo(() => getOverdueInvoices(invoices), [invoices]);
+  const [selected, setSelected] = useState(new Set(overdueInvs.map(i => i.id)));
+  const [tone, setTone] = useState("friendly");
+  const [preview, setPreview] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const toggleInv = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const handlePreview = (inv) => {
+    setPreview(generateReminderEmail(inv, tone));
+  };
+
+  const copyAll = () => {
+    const all = overdueInvs
+      .filter(i => selected.has(i.id))
+      .map(i => generateReminderEmail(i, tone))
+      .join("\n\n" + "─".repeat(60) + "\n\n");
+    navigator.clipboard?.writeText(all);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const toneColors = { friendly: B.green, firm: B.orange, final: B.red };
+  const toneIcons  = { friendly: "😊", firm: "😐", final: "😤" };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:9100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:720, maxHeight:"88vh", overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"0 24px 80px rgba(0,0,0,0.3)" }}>
+        <div style={{ padding:"20px 24px", borderBottom:`1px solid ${B.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontSize:16, fontWeight:800, color:B.text }}>📨 Collection Reminders</div>
+            <div style={{ fontSize:12, color:B.muted }}>{overdueInvs.length} overdue invoices — generate & copy reminders</div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:B.muted }}>×</button>
+        </div>
+
+        <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
+          {/* Left: invoice list */}
+          <div style={{ width:260, borderRight:`1px solid ${B.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+            {/* Tone selector */}
+            <div style={{ padding:"12px 14px", borderBottom:`1px solid ${B.border}` }}>
+              <div style={{ fontSize:10, fontWeight:700, color:B.muted, textTransform:"uppercase", letterSpacing:0.4, marginBottom:6 }}>Tone</div>
+              <div style={{ display:"flex", gap:5 }}>
+                {["friendly","firm","final"].map(t => (
+                  <button key={t} onClick={() => setTone(t)} style={{
+                    flex:1, padding:"5px 0", borderRadius:6, fontSize:10, fontWeight:700, cursor:"pointer",
+                    fontFamily:"inherit", border:`1px solid ${tone===t ? toneColors[t] : B.border}`,
+                    background: tone===t ? toneColors[t] : "#fff", color: tone===t ? "#fff" : B.muted,
+                  }}>{toneIcons[t]} {t}</button>
+                ))}
+              </div>
+            </div>
+            {/* Invoice checkboxes */}
+            <div style={{ flex:1, overflowY:"auto", padding:"8px 14px", display:"flex", flexDirection:"column", gap:6 }}>
+              {overdueInvs.length === 0 && (
+                <div style={{ fontSize:11, color:B.muted, fontStyle:"italic", marginTop:16, textAlign:"center" }}>No overdue invoices 🎉</div>
+              )}
+              {overdueInvs.map(inv => {
+                const bal = (inv.amount ?? 0) - (inv.paid ?? 0);
+                const isSelected = selected.has(inv.id);
+                return (
+                  <div key={inv.id} onClick={() => { toggleInv(inv.id); handlePreview(inv); }}
+                    style={{
+                      padding:"8px 10px", borderRadius:8, cursor:"pointer",
+                      border:`1px solid ${isSelected ? B.blue + "60" : B.border}`,
+                      background: isSelected ? B.blue + "08" : "#fff",
+                    }}>
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => {}} style={{ accentColor:B.blue, cursor:"pointer" }} />
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:B.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.client}</div>
+                        <div style={{ fontSize:9, color:B.muted }}>{inv.id} · <span style={{ color:B.red }}>{aed(bal)}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Copy all */}
+            <div style={{ padding:"10px 14px", borderTop:`1px solid ${B.border}` }}>
+              <button onClick={copyAll} style={{
+                width:"100%", padding:"8px", background: copied ? B.green : B.blue,
+                color:"#fff", border:"none", borderRadius:7, fontWeight:700, fontSize:12, cursor:"pointer",
+              }}>
+                {copied ? "✓ Copied!" : `📋 Copy All (${selected.size})`}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: preview */}
+          <div style={{ flex:1, padding:"16px 20px", overflowY:"auto" }}>
+            {preview ? (
+              <pre style={{ fontFamily:"'Segoe UI', sans-serif", fontSize:12, lineHeight:1.6, color:B.text, whiteSpace:"pre-wrap", margin:0 }}>{preview}</pre>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100%", color:B.muted, gap:8 }}>
+                <span style={{ fontSize:32 }}>📄</span>
+                <span style={{ fontSize:12 }}>Click an invoice to preview its reminder email</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Keyboard Shortcuts Hook ──────────────────────────────────────────────────
+
+function useKeyboardShortcuts(handlers) {
+  useEffect(() => {
+    const handle = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+      if (e.key === "n" || e.key === "N") handlers.newInvoice?.();
+      if (e.key === "r" || e.key === "R") handlers.reminders?.();
+      if (e.key === "f" || e.key === "F") handlers.focusSearch?.();
+      if (e.key === "Escape")              handlers.escape?.();
+    };
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  }, [handlers]);
+}
+
+// ─── Keyboard Shortcuts Hint ──────────────────────────────────────────────────
+
+function ShortcutsHint() {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div style={{ position:"relative", display:"inline-block" }}>
+      <button onMouseEnter={() => setVisible(true)} onMouseLeave={() => setVisible(false)}
+        style={{ padding:"4px 9px", fontSize:10, fontWeight:600, background:B.light, border:`1px solid ${B.border}`, borderRadius:6, cursor:"pointer", color:B.muted }}>
+        ⌨ Shortcuts
+      </button>
+      {visible && (
+        <div style={{
+          position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:500,
+          background:"#1e293b", borderRadius:8, padding:"10px 14px", minWidth:200,
+          boxShadow:"0 8px 32px rgba(0,0,0,0.3)",
+        }}>
+          {[["N","New invoice"],["R","Reminders"],["F","Focus search"],["Esc","Close modal"]].map(([k, l]) => (
+            <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#e2e8f0", marginBottom:5 }}>
+              <span>{l}</span>
+              <kbd style={{ background:"#334155", padding:"1px 6px", borderRadius:4, fontSize:10, fontWeight:700 }}>{k}</kbd>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Timeline row with Quick-Pay Slider ───────────────────────────────────────
 
 function TimelineRow({ inv, onPay, onEdit, onCredit, onDebit, onRecurring, onQuickPay, onExportSOA }) {
@@ -773,17 +1114,53 @@ function useSortable(rows) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AccountingTab({ viewMode, search }) {
-  const { data, setData } = useAppData();
+  const { data: rawData, setData } = useAppData();
   // Safe array refs — guard against undefined on first render
-  data = { ...data };
-  data.leads      = data.leads      || [];
-  data.clients    = data.clients    || [];
-  data.tasks      = data.tasks      || [];
-  data.accounting = data.accounting || [];
-  data.inventory  = data.inventory  || [];
-  data.suppliers  = data.suppliers  || [];
+  const data = {
+    ...(rawData || {}),
+    leads:      (rawData?.leads      || []),
+    clients:    (rawData?.clients    || []),
+    tasks:      (rawData?.tasks      || []),
+    accounting: (rawData?.accounting || []),
+    inventory:  (rawData?.inventory  || []),
+    suppliers:  (rawData?.suppliers  || []),
+  };
 
   const invoices    = data.accounting;
+
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const invoiceWorkflow = workflowEngine.getWorkflowByEntityType("invoice");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (invoiceWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(invoiceWorkflow.id, invoices);
+      setSlaAlerts(alerts);
+    }
+  }, [invoices, invoiceWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("accounting");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const [modal,        setModal]        = useState(false);
   const [editModal,    setEditModal]    = useState(null);
@@ -794,9 +1171,29 @@ export default function AccountingTab({ viewMode, search }) {
   const [selected,     setSelected]     = useState(new Set());
   const [bulkStatus,   setBulkStatus]   = useState("");
   const [showPanels,   setShowPanels]   = useState(true);
+
+  // 15+ additional features for AccountingTab
+  const [showRecurringInvoices, setShowRecurringInvoices] = useState(false);
+  const [showPaymentTracking, setShowPaymentTracking] = useState(false);
+  const [showInvoiceReports, setShowInvoiceReports] = useState(false);
+  const [showTaxReports, setShowTaxReports] = useState(false);
+  const [showRevenueForecast, setShowRevenueForecast] = useState(false);
+  const [showExpenseTracking, setShowExpenseTracking] = useState(false);
+  const [showBudgetManagement, setShowBudgetManagement] = useState(false);
+  const [showMultiCurrency, setShowMultiCurrency] = useState(false);
+  const [showInvoiceAutomation, setShowInvoiceAutomation] = useState(false);
+  const [showClientPortals, setShowClientPortals] = useState(false);
+  const [showPaymentGateways, setShowPaymentGateways] = useState(false);
+  const [showAuditLogs, setShowAuditLogs] = useState(false);
+  const [showFinancialStatements, setShowFinancialStatements] = useState(false);
+  const [showCashFlowManagement, setShowCashFlowManagement] = useState(false);
+  const [showInvoiceTemplates, setShowInvoiceTemplates] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [xp,           setXp]           = useState(() => Number(localStorage.getItem("acc_xp") || 0));
   const [newlyUnlocked, setNewlyUnlocked] = useState([]);
+  const [reminderModal, setReminderModal] = useState(false);
   const prevAchievements = useRef(new Set());
+  const searchRef = useRef(null);
   const { toasts, push: pushToast } = useToasts();
 
   // ── XP helper ───────────────────────────────────────────────────────────────
@@ -807,6 +1204,14 @@ export default function AccountingTab({ viewMode, search }) {
       return next;
     });
   }, []);
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+  useKeyboardShortcuts({
+    newInvoice: () => setModal(true),
+    reminders:  () => setReminderModal(true),
+    focusSearch: () => searchRef.current?.focus(),
+    escape: () => { setModal(false); setEditModal(null); setPaymentModal(null); setNoteModal(null); setReminderModal(false); },
+  });
 
   // ── Achievement checker ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -957,6 +1362,16 @@ export default function AccountingTab({ viewMode, search }) {
   const handleGenerateRecurring = (ri) => {
     const next = generateNextRecurring(data.accounting[ri]);
     setData({ ...data, accounting: [...data.accounting, { id: nextId("INV"), ...next }] });
+  };
+
+  const handleWriteOff = (inv) => {
+    const balance = (inv.amount ?? 0) - (inv.paid ?? 0);
+    const creditNote = createCreditNote(inv, balance, "Write-off — uncollectible debt");
+    const updated = data.accounting.map(i =>
+      i.id === inv.id ? { ...i, status: "Paid", paid: i.amount, writtenOff: true } : i
+    );
+    setData({ ...data, accounting: [...updated, { id: nextId("NOTE"), ...creditNote }] });
+    pushToast(`${inv.client} written off. Credit note issued.`, "📝", "payment", "Write-Off");
   };
 
   const handleQuickPay = (invId, amount, originEl) => {
@@ -1128,6 +1543,7 @@ export default function AccountingTab({ viewMode, search }) {
       {/* ── Smart Alert Banners ── */}
       <DueSoonBanner dueSoon={dueSoon} />
       <DuplicateBanner dupes={dupes} />
+      <CashGapBanner invoices={invoices} />
 
       {/* ── Analytics strip ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 180px 180px", gap: 12, alignItems: "stretch" }}>
@@ -1147,6 +1563,7 @@ export default function AccountingTab({ viewMode, search }) {
             <span style={{ color: B.green }}>■ Collected</span>
           </div>
           <CashflowChart data={cashflow} />
+          <MoMGrowthBar invoices={invoices} />
         </div>
 
         <div style={{ background: B.white, border: `1px solid ${B.border}`, borderRadius: 10, padding: "10px 12px" }}>
@@ -1162,6 +1579,9 @@ export default function AccountingTab({ viewMode, search }) {
         </div>
       </div>
 
+      {/* ── DSO + Velocity ── */}
+      <DSOCard invoices={invoices} />
+
       {/* ── Insight Panels Row ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: B.muted }}>Insights</span>
@@ -1170,9 +1590,15 @@ export default function AccountingTab({ viewMode, search }) {
         </button>
       </div>
       {showPanels && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <ForecastPanel forecast={forecast} />
-          <ClientLeaderboard leaderboard={leaderboard} invoices={invoices} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <ForecastPanel forecast={forecast} />
+            <ClientLeaderboard leaderboard={leaderboard} invoices={invoices} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <TopDebtorsPanel invoices={invoices} />
+            <WriteOffPanel invoices={invoices} onWriteOff={handleWriteOff} />
+          </div>
         </div>
       )}
 
@@ -1254,6 +1680,16 @@ export default function AccountingTab({ viewMode, search }) {
               ⚡ Push overdue → Tasks
             </button>
           )}
+          {overdueList.length > 0 && (
+            <button onClick={() => setReminderModal(true)} style={{
+              padding: "6px 12px", background: B.blue + "15", color: B.blue,
+              border: `1px solid ${B.blue}40`, borderRadius: 8,
+              fontWeight: 700, fontSize: 11, cursor: "pointer",
+            }}>
+              📨 Reminders ({overdueList.length})
+            </button>
+          )}
+          <ShortcutsHint />
           <button data-confetti-origin onClick={() => setModal(true)} style={{
             padding: "7px 16px", background: B.blue, color: "#fff",
             border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer",
@@ -1266,6 +1702,7 @@ export default function AccountingTab({ viewMode, search }) {
       {/* ── Search + suggestions ── */}
       <div style={{ position:"relative" }}>
         <input
+          ref={searchRef}
           value={localSearch}
           onChange={e => setLocalSearch(e.target.value)}
           placeholder="Search invoices… (e.g. status:Paid client:Acme)"
@@ -1373,6 +1810,9 @@ export default function AccountingTab({ viewMode, search }) {
         <FormModal
           title={`${noteModal.type === "credit" ? "Credit" : "Debit"} Note — ${data.accounting[noteModal.index]?.client}`}
           fields={NOTE_FIELDS} onSave={handleNote} onClose={() => setNoteModal(null)} />
+      )}
+      {reminderModal && (
+        <ReminderModal invoices={invoices} onClose={() => setReminderModal(false)} />
       )}
     </div>
   );

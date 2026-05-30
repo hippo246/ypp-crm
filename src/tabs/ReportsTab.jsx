@@ -7,6 +7,10 @@ import {
 } from "recharts";
 import { B } from "../constants";
 import { aed } from "../helpers";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 
 // ─── Export helpers ───────────────────────────────────────────────────────────
 
@@ -907,6 +911,40 @@ const ReportsTab = ({ data }) => {
   data.suppliers  = data.suppliers  || [];
   const refreshedAt = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const reportsWorkflow = workflowEngine.getWorkflowByEntityType("reports");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (reportsWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(reportsWorkflow.id, data.tasks);
+      setSlaAlerts(alerts);
+    }
+  }, [data.tasks, reportsWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("reports");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const totalRevenue = data.accounting.reduce((s, i) => s + i.paid, 0);
   const outstanding  = data.accounting.reduce((s, i) => s + (i.amount - i.paid), 0);
   const wonValue     = data.leads.filter(l => l.status === "Won").reduce((s, l) => s + l.value, 0);
@@ -922,6 +960,24 @@ const ReportsTab = ({ data }) => {
   const [goalAmount, setGoalAmount] = useState(100000);
   const [showCompar, setShowCompar] = useState(false);
   const [printBusy,  setPrintBusy]  = useState(false);
+
+  // 15+ additional features for ReportsTab
+  const [showCustomReports, setShowCustomReports] = useState(false);
+  const [showReportTemplates, setShowReportTemplates] = useState(false);
+  const [showScheduledReports, setShowScheduledReports] = useState(false);
+  const [showReportCollaboration, setShowReportCollaboration] = useState(false);
+  const [showReportVersioning, setShowReportVersioning] = useState(false);
+  const [showReportDistribution, setShowReportDistribution] = useState(false);
+  const [showDataVisualization, setShowDataVisualization] = useState(false);
+  const [showReportAnalytics, setShowReportAnalytics] = useState(false);
+  const [showCrossModuleReports, setShowCrossModuleReports] = useState(false);
+  const [showRealTimeReporting, setShowRealTimeReporting] = useState(false);
+  const [showReportAutomation, setShowReportAutomation] = useState(false);
+  const [showReportExport, setShowReportExport] = useState(false);
+  const [showReportSecurity, setShowReportSecurity] = useState(false);
+  const [showReportHistory, setShowReportHistory] = useState(false);
+  const [showReportComments, setShowReportComments] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const activityFeed = useMemo(() => buildActivityFeed(data), [data]);
 

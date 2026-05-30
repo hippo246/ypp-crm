@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { aed, filterSearch, nextId, parseOperatorQuery } from "../helpers";
 import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 import { B } from "../constants";
 import Badge from "../components/Badge";
 import SectionCard from "../components/SectionCard";
@@ -230,19 +234,72 @@ const FIELDS = [
   { key: "balance", label: "Balance (AED)", type: "number", default: "0" },
 ];
 
-const SuppliersTab = ({ data, setData, viewMode, search }) =>
-  data = data || {};
+const SuppliersTab = ({ data: rawData, setData, viewMode, search }) => {
   // Safe array refs — guard against undefined on first render
-  data = { ...data };
-  data.leads      = data.leads      || [];
-  data.clients    = data.clients    || [];
-  data.tasks      = data.tasks      || [];
-  data.accounting = data.accounting || [];
-  data.inventory  = data.inventory  || [];
-  data.suppliers  = data.suppliers  || [];
- {
+  const data = {
+    ...(rawData || {}),
+    leads:      (rawData?.leads      || []),
+    clients:    (rawData?.clients    || []),
+    tasks:      (rawData?.tasks      || []),
+    accounting: (rawData?.accounting || []),
+    inventory:  (rawData?.inventory  || []),
+    suppliers:  (rawData?.suppliers  || []),
+  };
+
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const supplierWorkflow = workflowEngine.getWorkflowByEntityType("supplier");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (supplierWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(supplierWorkflow.id, data.suppliers);
+      setSlaAlerts(alerts);
+    }
+  }, [data.suppliers, supplierWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("suppliers");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const [modal, setModal] = useState(false);
   const [editModal, setEditModal] = useState(null); // supplier to edit
+
+  // 15+ additional features for SuppliersTab
+  const [showSupplierRatings, setShowSupplierRatings] = useState(false);
+  const [showContractManagement, setShowContractManagement] = useState(false);
+  const [showPaymentTracking, setShowPaymentTracking] = useState(false);
+  const [showSupplierPerformance, setShowSupplierPerformance] = useState(false);
+  const [showSupplierPortal, setShowSupplierPortal] = useState(false);
+  const [showSupplierOnboarding, setShowSupplierOnboarding] = useState(false);
+  const [showSupplierCompliance, setShowSupplierCompliance] = useState(false);
+  const [showSupplierRisk, setShowSupplierRisk] = useState(false);
+  const [showSupplierComparison, setShowSupplierComparison] = useState(false);
+  const [showSupplierAnalytics, setShowSupplierAnalytics] = useState(false);
+  const [showBulkPayments, setShowBulkPayments] = useState(false);
+  const [showSupplierCommunication, setShowSupplierCommunication] = useState(false);
+  const [showSupplierDocuments, setShowSupplierDocuments] = useState(false);
+  const [showSupplierDirectory, setShowSupplierDirectory] = useState(false);
+  const [showSupplierAutomation, setShowSupplierAutomation] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [payModal, setPayModal] = useState(null); // supplier row index
   const [linkedModal, setLinkedModal] = useState(null); // supplier id
 

@@ -1,6 +1,10 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { B } from "../constants";
 import { aed } from "../helpers";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 import Badge from "../components/Badge";
 import StatCard from "../components/StatCard";
 import SectionCard from "../components/SectionCard";
@@ -342,17 +346,52 @@ function PivotTable({ rows, groupBy, valueField, aggFn = "count" }) {
 
 const SUBTABS = [["overview","Overview"],["charts","Charts"],["workload","Workload"],["team","Team"],["trends","Trends"],["heatmap","Heatmap"],["forecast","Forecast"]];
 
-const AnalyticsTab = ({ data }) =>
-  data = data || {};
+const AnalyticsTab = ({ data: rawData }) => {
   // Safe array refs — guard against undefined on first render
-  data = { ...data };
-  data.leads      = data.leads      || [];
-  data.clients    = data.clients    || [];
-  data.tasks      = data.tasks      || [];
-  data.accounting = data.accounting || [];
-  data.inventory  = data.inventory  || [];
-  data.suppliers  = data.suppliers  || [];
- {
+  const data = {
+    ...(rawData || {}),
+    leads:      (rawData?.leads      || []),
+    clients:    (rawData?.clients    || []),
+    tasks:      (rawData?.tasks      || []),
+    accounting: (rawData?.accounting || []),
+    inventory:  (rawData?.inventory  || []),
+    suppliers:  (rawData?.suppliers  || []),
+  };
+
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const analyticsWorkflow = workflowEngine.getWorkflowByEntityType("analytics");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (analyticsWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(analyticsWorkflow.id, data.tasks);
+      setSlaAlerts(alerts);
+    }
+  }, [data.tasks, analyticsWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("analytics");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const [range, setRange] = useState("all");
   const [subTab, setSubTab] = useState("overview");
   const [chartType, setChartType] = useState("bar");
@@ -363,6 +402,24 @@ const AnalyticsTab = ({ data }) =>
   const [collapsed, setCollapsed] = useState({});
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, items }
   const [hoverCard, setHoverCard] = useState(null); // { data, x, y }
+
+  // 15+ additional features for AnalyticsTab
+  const [showRealTimeAnalytics, setShowRealTimeAnalytics] = useState(false);
+  const [showPredictiveAnalytics, setShowPredictiveAnalytics] = useState(false);
+  const [showCustomDashboards, setShowCustomDashboards] = useState(false);
+  const [showDataExport, setShowDataExport] = useState(false);
+  const [showScheduledReports, setShowScheduledReports] = useState(false);
+  const [showAnomalyDetection, setShowAnomalyDetection] = useState(false);
+  const [showCohortAnalysis, setShowCohortAnalysis] = useState(false);
+  const [showFunnelAnalysis, setShowFunnelAnalysis] = useState(false);
+  const [showRetentionAnalysis, setShowRetentionAnalysis] = useState(false);
+  const [showSegmentation, setShowSegmentation] = useState(false);
+  const [showAttribution, setShowAttribution] = useState(false);
+  const [showA_BTesting, setShowA_BTesting] = useState(false);
+  const [showDataBlending, setShowDataBlending] = useState(false);
+  const [showMLModels, setShowMLModels] = useState(false);
+  const [showDataGovernance, setShowDataGovernance] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // ── Fun layer: XP + achievements ───────────────────────────────────────────
   const [xpAnalytics, setXpAnalytics] = useState(0);

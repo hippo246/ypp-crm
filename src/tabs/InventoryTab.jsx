@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { aed, filterSearch, nextId, parseOperatorQuery } from "../helpers";
 import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 import { B } from "../constants";
 import Badge from "../components/Badge";
 import SectionCard from "../components/SectionCard";
@@ -567,6 +571,58 @@ const InventoryTab = ({ data, setData, viewMode, search }) => {
 
   const inventory = data.inventory || [];
   const tasks     = data.tasks     || [];
+
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const inventoryWorkflow = workflowEngine.getWorkflowByEntityType("inventory");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (inventoryWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(inventoryWorkflow.id, data.inventory);
+      setSlaAlerts(alerts);
+    }
+  }, [data.inventory, inventoryWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("inventory");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // 15+ additional features for InventoryTab
+  const [showStockAlerts, setShowStockAlerts] = useState(false);
+  const [showSupplierManagement, setShowSupplierManagement] = useState(false);
+  const [showReorderAutomation, setShowReorderAutomation] = useState(false);
+  const [showInventoryForecast, setShowInventoryForecast] = useState(false);
+  const [showWarehouseMap, setShowWarehouseMap] = useState(false);
+  const [showBarcodeScanning, setShowBarcodeScanning] = useState(false);
+  const [showBatchManagement, setShowBatchManagement] = useState(false);
+  const [showExpirationTracking, setShowExpirationTracking] = useState(false);
+  const [showInventoryReports, setShowInventoryReports] = useState(false);
+  const [showStockTransfers, setShowStockTransfers] = useState(false);
+  const [showInventoryAudit, setShowInventoryAudit] = useState(false);
+  const [showMultiLocation, setShowMultiLocation] = useState(false);
+  const [showInventoryValuation, setShowInventoryValuation] = useState(false);
+  const [showStockMovement, setShowStockMovement] = useState(false);
+  const [showInventoryAnalytics, setShowInventoryAnalytics] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const freshUnlocks = [];

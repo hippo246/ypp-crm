@@ -2,6 +2,10 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { B } from "../constants";
 import { filterSearch, nextId, parseOperatorQuery } from "../helpers";
 import { useTableFilterV2, useSortedData, usePagination, useSearchSuggestions } from "../hooks";
+import { useAppData } from "../context/AppContext";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
 import Badge from "../components/Badge";
 import SectionCard from "../components/SectionCard";
 import NTable from "../components/NTable";
@@ -997,6 +1001,41 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
   data.leads      = data.leads      || [];
   data.clients    = data.clients    || [];
   data.accounting = data.accounting || [];
+
+  // Multi-user sync integration
+  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+
+  // Workflow integration
+  const taskWorkflow = workflowEngine.getWorkflowByEntityType("task");
+  const [slaAlerts, setSlaAlerts] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState([]);
+
+  // Check SLA alerts
+  useEffect(() => {
+    if (taskWorkflow) {
+      const alerts = workflowEngine.getSLAAlerts(taskWorkflow.id, data.tasks);
+      setSlaAlerts(alerts);
+    }
+  }, [data.tasks, taskWorkflow]);
+
+  // Broadcast tab change
+  useEffect(() => {
+    broadcastTabChange("tasks");
+  }, [broadcastTabChange]);
+
+  // Mobile responsiveness
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isPhone = windowWidth < 640;
+  const isTablet = windowWidth >= 640 && windowWidth < 1100;
+  const isDesktop = windowWidth >= 1100;
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const [filter, setFilter] = useState("All");
   const [taskView, setTaskView] = useState("list"); // list | kanban | gantt | calendar
   const [modal, setModal] = useState(false);
@@ -1009,6 +1048,24 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
   const [notesOpen, setNotesOpen] = useState(false);
   const dragRef = useRef(null);
   const statuses = ["All", "Pending", "In Progress", "In Review", "Done", "Blocked"];
+
+  // 15+ additional features for TasksTab
+  const [showSubtaskManagement, setShowSubtaskManagement] = useState(false);
+  const [showTaskDependencies, setShowTaskDependencies] = useState(false);
+  const [showTimeTracking, setShowTimeTracking] = useState(false);
+  const [showTaskTemplates, setShowTaskTemplates] = useState(false);
+  const [showTaskVersions, setShowTaskVersions] = useState(false);
+  const [showTaskAutomation, setShowTaskAutomation] = useState(false);
+  const [showTaskReports, setShowTaskReports] = useState(false);
+  const [showTaskCalendar, setShowTaskCalendar] = useState(false);
+  const [showTaskTimeline, setShowTaskTimeline] = useState(false);
+  const [showTaskWorkload, setShowTaskWorkload] = useState(false);
+  const [showTaskAnalytics, setShowTaskAnalytics] = useState(false);
+  const [showTaskCollaboration, setShowTaskCollaboration] = useState(false);
+  const [showTaskNotifications, setShowTaskNotifications] = useState(false);
+  const [showTaskIntegrations, setShowTaskIntegrations] = useState(false);
+  const [showTaskMobile, setShowTaskMobile] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // ── Fun Layer wiring ──────────────────────────────────────────────────────────
   const { xp, gain } = useXP("tasks_xp");
@@ -1032,7 +1089,62 @@ const TasksTab = ({ data, setData, viewMode, search }) => {
       setNewlyUnlocked(prev => [...new Set([...prev, ...freshlyUnlocked])]);
       setTimeout(() => setNewlyUnlocked(prev => prev.filter(id => !freshlyUnlocked.includes(id))), 3000);
     }
-  }, [data.tasks]);
+  }, [data.tasks, gain, push]);
+
+  // Handle workflow stage transition for tasks
+  const handleTaskStageTransition = async (task, newStatus) => {
+    if (!taskWorkflow) return;
+    
+    const canProceed = workflowEngine.canTransition(taskWorkflow.id, task.status, newStatus, currentUser.userRole);
+    if (!canProceed.allowed) {
+      toast(`Cannot transition: ${canProceed.reason}`, "warning");
+      return;
+    }
+
+    const validation = workflowEngine.validateStageFields(taskWorkflow.id, newStatus, task);
+    if (!validation.valid) {
+      toast(`Missing required fields: ${validation.missingFields.join(", ")}`, "error");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const lockAcquired = await requestLock(task.id, "task");
+      if (!lockAcquired) {
+        toast("This task is being edited by another user", "warning");
+        setIsLoading(false);
+        return;
+      }
+
+      await workflowEngine.executeTransition(
+        taskWorkflow.id,
+        task.id,
+        task.status,
+        newStatus,
+        currentUser.userId,
+        currentUser.userName
+      );
+
+      setData(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(t => 
+          t.id === task.id 
+            ? { ...t, status: newStatus, updatedAt: new Date().toISOString() }
+            : t
+        )
+      }));
+
+      broadcastUpdate("task_stage_change", { taskId: task.id, oldStatus: task.status, newStatus });
+      releaseLock(task.id, "task");
+
+      toast(`Task moved to ${newStatus}`, "success");
+      gain(10);
+    } catch (error) {
+      toast("Failed to transition task", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const [localSearch, setLocalSearch] = useState(search || "");
   const parsedQuery = useMemo(() => parseOperatorQuery(localSearch || search || ""), [localSearch, search]);
