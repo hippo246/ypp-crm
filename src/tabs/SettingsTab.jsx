@@ -488,7 +488,7 @@ function NotificationsSection({ notifPrefs, setNotifPrefs }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Notification Channels</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Notification Channels</h3>
         
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
@@ -533,7 +533,7 @@ function NotificationsSection({ notifPrefs, setNotifPrefs }) {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Quiet Hours</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Quiet Hours</h3>
         
         <label style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 16 }}>
           <input
@@ -573,7 +573,7 @@ function NotificationsSection({ notifPrefs, setNotifPrefs }) {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Notification Categories</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Notification Categories</h3>
         
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {Object.entries(notifPrefs.categories).map(([key, value]) => (
@@ -598,7 +598,7 @@ function SecuritySection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Password</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Password</h3>
         
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
           <div>
@@ -617,7 +617,7 @@ function SecuritySection() {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Two-Factor Authentication</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Two-Factor Authentication</h3>
         
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 16, background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
           <div>
@@ -631,7 +631,7 @@ function SecuritySection() {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Active Sessions</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Active Sessions</h3>
         
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {[
@@ -661,7 +661,7 @@ function DataSection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Export Data</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Export Data</h3>
         
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
           {[
@@ -687,7 +687,7 @@ function DataSection() {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Import Data</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Import Data</h3>
         
         <div style={{ padding: 32, border: "2px dashed #E2E8F0", borderRadius: 8, textAlign: "center", cursor: "pointer" }}
           onMouseEnter={e => e.currentTarget.style.borderColor = "#3B82F6"}
@@ -759,7 +759,7 @@ function TeamSection() {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Role Permissions</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Role Permissions</h3>
         
         {Object.entries(ROLE_COLORS).map(([role, color]) => (
           <div key={role} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: "#F8FAFC", borderRadius: 8, marginBottom: 8 }}>
@@ -780,7 +780,7 @@ function SystemSection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">System Information</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>System Information</h3>
         
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <div>
@@ -803,7 +803,7 @@ function SystemSection() {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Performance</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Performance</h3>
         
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
@@ -837,7 +837,7 @@ function SystemSection() {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Logs & Debug</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Logs & Debug</h3>
         
         <button style={{ padding: "8px 16px", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 12, cursor: "pointer", marginBottom: 12 }}>
           Download System Logs
