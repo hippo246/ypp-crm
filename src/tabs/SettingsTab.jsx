@@ -256,7 +256,7 @@ function PreferencesSection({ preferences, setPreferences }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Appearance</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Appearance</h3>
         
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>Theme</label>
