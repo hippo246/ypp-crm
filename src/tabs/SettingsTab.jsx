@@ -340,7 +340,7 @@ function PreferencesSection({ preferences, setPreferences }) {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px"">Sidebar Accent</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Sidebar Accent</h3>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <input
             type="color"
