@@ -699,7 +699,7 @@ function DataSection() {
       </div>
 
       <div style={{ background: "#FEF2F2", borderRadius: 12, padding: 24, border: "1px solid #FECACA" }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#DC2626", margin: "0 0 12px"">Danger Zone</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: "#DC2626", margin: "0 0 12px" }}>Danger Zone</h3>
         
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
