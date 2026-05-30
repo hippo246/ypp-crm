@@ -21,6 +21,7 @@ const PERMISSIONS = {
     reports:    { view: true,  edit: true,  delete: true,  export: true  },
     audit:      { view: true,  edit: false, delete: false,  export: true  },
     automations:{ view: true,  edit: true,  delete: true,  export: false },
+    settings:   { view: true,  edit: true,  delete: false, export: false },
   },
   Sales: {
     dashboard:  { view: true,  edit: false, delete: false, export: false },
@@ -35,6 +36,7 @@ const PERMISSIONS = {
     reports:    { view: true,  edit: false, delete: false, export: false },
     audit:      { view: false, edit: false, delete: false, export: false },
     automations:{ view: false, edit: false, delete: false, export: false },
+    settings:   { view: true,  edit: true,  delete: false, export: false },
   },
   Accountant: {
     dashboard:  { view: true,  edit: false, delete: false, export: true  },
@@ -49,6 +51,7 @@ const PERMISSIONS = {
     reports:    { view: true,  edit: false, delete: false, export: true  },
     audit:      { view: true,  edit: false, delete: false, export: true  },
     automations:{ view: false, edit: false, delete: false, export: false },
+    settings:   { view: true,  edit: true,  delete: false, export: false },
   },
   Operations: {
     dashboard:  { view: true,  edit: false, delete: false, export: false },
@@ -63,6 +66,7 @@ const PERMISSIONS = {
     reports:    { view: false, edit: false, delete: false, export: false },
     audit:      { view: false, edit: false, delete: false, export: false },
     automations:{ view: true,  edit: false, delete: false, export: false },
+    settings:   { view: true,  edit: true,  delete: false, export: false },
   },
 };
 

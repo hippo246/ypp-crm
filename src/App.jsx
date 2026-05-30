@@ -1307,11 +1307,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
     return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
   }, []);
 
-  useEffect(() => {
-    document.body.style.background = T.bg;
-    document.body.style.colorScheme = dark ? "dark" : "light";
-    document.body.style.fontSize = fontSize === -1 ? "13px" : fontSize === 1 ? "15px" : "14px";
-  }, [dark, T.bg, fontSize]);
+
 
   const titles = {
     dashboard: "Dashboard", leads: "Leads", clients: "Ongoing Clients",
@@ -1388,7 +1384,24 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
         case "analytics":   return <AnalyticsTab {...legacyProps} />;
         case "reports":     return <ReportsTab {...legacyProps} />;
         case "automations": return <AutomationsTab />;
-        case "settings":    return <SettingsTab />;
+        case "settings":    return (
+          <SettingsTab
+            dark={dark} setDark={setDark}
+            compact={compact} setCompact={setCompact}
+            highContrast={highContrast} setHighContrast={setHighContrast}
+            density={density} setDensity={setDensity}
+            fontSize={fontSize} setFontSize={setFontSize}
+            sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed}
+            sidebarAccent={sidebarAccent} setSidebarAccent={setSidebarAccent}
+            focusMode={focusMode} setFocusMode={setFocusMode}
+            splitView={splitView} setSplitView={setSplitView}
+            viewMode={viewMode} setViewMode={setViewMode}
+            currentUser={currentUser}
+            onRoleChange={onRoleChange}
+            data={data} setData={setData}
+            navigateTo={navigateTo}
+          />
+        );
         default:            return null;
       }
     })();
@@ -1415,8 +1428,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   function clearAllNotifs() { dispatch({ type: "CLEAR_ALL_NOTIFS" }); toast("All notifications cleared", "info"); }
 
   return (
-    <div
-      style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: densityFont, color: T.text, background: T.bg, transition: "background 0.2s, color 0.2s" }}>
+    <div style={{ display: "flex", height: "100vh", background: T.bg, color: T.text, fontFamily: "'Inter', system-ui, sans-serif", fontSize: densityFont, overflow: "hidden", transition: "background 0.2s, color 0.2s" }}>
 
       {/* Daily digest */}
       {showDailyDigest && <DailyDigestModal dark={dark} data={data} onClose={() => { setShowDailyDigest(false); localStorage.setItem("crm_digestDate", new Date().toDateString()); }} />}

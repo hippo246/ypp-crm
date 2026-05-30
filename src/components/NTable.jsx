@@ -131,7 +131,7 @@ const NTable = ({
         .ntable-row-sel td  { background: #EFF6FF !important; }
       `}</style>
       <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: maxHeight, borderRadius: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: fs }}>
+        <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", fontSize: fs }}>
           <thead>
             <tr>
               {selectable && (
@@ -219,7 +219,7 @@ const NTable = ({
                   {cols.map(c => (
                     <td key={c.key} style={{
                       ...tdBase,
-                      maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      whiteSpace: "nowrap",
                     }}>
                       {c.key === "name" && r.name && !c.render ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
