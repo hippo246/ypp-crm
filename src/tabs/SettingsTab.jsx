@@ -704,7 +704,7 @@ function DataSection() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500 }}>Delete All Data</div>
-            <div style={{ fontSize: 11, color: "#991B1B"">This action cannot be undone</div>
+            <div style={{ fontSize: 11, color: "#991B1B" }}>This action cannot be undone</div>
           </div>
           <button style={{ padding: "6px 12px", background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
             Delete All
@@ -808,7 +808,7 @@ function SystemSection() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: "#64748B"">API Response Time</span>
+              <span style={{ fontSize: 12, color: "#64748B" }}>API Response Time</span>
               <span style={{ fontSize: 12, fontWeight: 500 }}>120ms</span>
             </div>
             <div style={{ height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
@@ -817,7 +817,7 @@ function SystemSection() {
           </div>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: "#64748B"">Database Queries</span>
+              <span style={{ fontSize: 12, color: "#64748B" }}>Database Queries</span>
               <span style={{ fontSize: 12, fontWeight: 500 }}>45ms avg</span>
             </div>
             <div style={{ height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
@@ -826,7 +826,7 @@ function SystemSection() {
           </div>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: "#64748B"">Memory Usage</span>
+              <span style={{ fontSize: 12, color: "#64748B" }}>Memory Usage</span>
               <span style={{ fontSize: 12, fontWeight: 500 }}>512 MB</span>
             </div>
             <div style={{ height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
