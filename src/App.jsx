@@ -1187,6 +1187,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
   const [sidebarAccent, setSidebarAccent] = usePersisted("crm_sidebarAccent", null);
   const [unsavedTabs, setUnsavedTabs] = usePersisted("crm_unsavedTabs", {});
   const [highContrast, setHighContrast] = usePersisted("crm_highContrast", false);
+  const T = getTheme(dark, highContrast);
   const [fontSize, setFontSize] = usePersisted("crm_fontSize", 0); // -1, 0, 1
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
