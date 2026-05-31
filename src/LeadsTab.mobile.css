@@ -111,15 +111,14 @@
     overflow-y: auto !important;
   }
 
-  /* Edit modal form grid → single column
-     React serialises gridTemplateColumns as grid-template-columns in DOM  */
-  [style*="grid-template-columns: 1fr 1fr"],
-  [style*="grid-template-columns: repeat(4"] {
+  /* Edit modal form grid → single column (2-col forms only, NOT stat grids) */
+  [style*="grid-template-columns: 1fr 1fr"] {
     grid-template-columns: 1fr !important;
   }
 
-  /* Funnel summary mini-grid → 2 cols (better than 4 on phone) */
-  [style*="grid-template-columns: repeat(4,1fr)"] {
+  /* 4-col grids (stat cards, funnel) → 2 cols on phone */
+  [style*="grid-template-columns: repeat(4,1fr)"],
+  [style*="grid-template-columns: repeat(4, 1fr)"] {
     grid-template-columns: repeat(2, 1fr) !important;
   }
 

@@ -16,11 +16,12 @@
     gap: 12px !important;
   }
 
-  /* Tables become cards on mobile */
-  table {
+  /* Tables — hide bare/standalone tables; section-card tables handled by mobile.css */
+  /* table {
     display: none !important;
-  }
+  } */
 
+  /* Show mobile card view instead (toggled by JS in each tab) */
   .mobile-card-view {
     display: flex !important;
     flex-direction: column;

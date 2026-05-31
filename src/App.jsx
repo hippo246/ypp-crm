@@ -1698,10 +1698,12 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             ☰
           </button>
 
-          {/* Tab history back/forward */}
+          {/* Tab history back/forward — desktop only */}
           <button onClick={goBack} disabled={tabHistoryIdx <= 0} title="Go back"
+            className="desktop-only-btn"
             style={{ width: 26, height: 26, borderRadius: 6, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: tabHistoryIdx <= 0 ? "default" : "pointer", fontSize: 11, color: tabHistoryIdx <= 0 ? T.border : T.muted, flexShrink: 0, transition: "all 0.15s" }}>←</button>
           <button onClick={goForward} disabled={tabHistoryIdx >= tabHistory.length - 1} title="Go forward"
+            className="desktop-only-btn"
             style={{ width: 26, height: 26, borderRadius: 6, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: tabHistoryIdx >= tabHistory.length - 1 ? "default" : "pointer", fontSize: 11, color: tabHistoryIdx >= tabHistory.length - 1 ? T.border : T.muted, flexShrink: 0, transition: "all 0.15s" }}>→</button>
 
           {focusMode && (
@@ -1754,12 +1756,13 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           )}
           <button onClick={() => { setPomodoroActive(a => !a); setPomodoroBreak(false); if (pomodoroSecs === 25*60 && !pomodoroActive) toast("Pomodoro started — 25 min focus", "info"); }}
             title={pomodoroActive ? "Pause timer" : "Start focus timer (25 min)"}
+            className="desktop-only-btn"
             style={{ width: 26, height: 26, borderRadius: 6, background: pomodoroActive ? "#ef444418" : T.input, border: `1px solid ${pomodoroActive ? "#ef444444" : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>
             {pomodoroActive ? "⏸" : "🍅"}
           </button>
 
-          {/* Auto-save indicator */}
-          <div title={autoSaveStatus} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.muted }}>
+          {/* Auto-save indicator — desktop only */}
+          <div className="desktop-only-btn" title={autoSaveStatus} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.muted }}>
             <style id="autosave-kf">{`@keyframes saving-spin { to { transform: rotate(360deg); } }`}</style>
             {autoSaveStatus === "saving"
               ? <div style={{ width: 8, height: 8, border: "1.5px solid transparent", borderTopColor: B.orange, borderRadius: "50%", animation: "saving-spin 0.7s linear infinite" }} />
@@ -1839,16 +1842,17 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             )}
           </div>
 
-          {/* Export */}
+          {/* Export — desktop only */}
           {["leads","clients","tasks","accounting","inventory","suppliers"].includes(activeTab) && (
             <button onClick={exportCurrentTab} title="Export current view as CSV"
+              className="desktop-only-btn"
               style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: T.muted, flexShrink: 0, transition: "all 0.15s" }}>
               ⬇
             </button>
           )}
 
-          {/* Sticky note */}
-          <div style={{ position: "relative" }}>
+          {/* Sticky note — desktop only */}
+          <div className="desktop-only-btn" style={{ position: "relative" }}>
             <button onClick={() => setShowStickyNote(s => !s)} title={`Notes for ${titles[activeTab]}`}
               style={{ width: 30, height: 30, borderRadius: 7, background: showStickyNote || stickyNotes[activeTab] ? "#fde04733" : T.input, border: `1px solid ${showStickyNote || stickyNotes[activeTab] ? "#fde04788" : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
               📌
@@ -1874,48 +1878,54 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             )}
           </div>
 
-          {/* Split view toggle */}
+          {/* Split view toggle — desktop only */}
           <button onClick={() => setSplitView(s => !s)} title="Split view (⌘⇧S)"
+            className="desktop-only-btn"
             style={{ width: 30, height: 30, borderRadius: 7, background: splitView ? `${B.accent}22` : T.input, border: `1px solid ${splitView ? B.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: splitView ? B.accent : T.muted, transition: "all 0.15s" }}>
             ⧉
           </button>
 
-          {/* Bell */}
-          <div style={{ position: "relative" }}>
-            <button onClick={() => setShowNotifs(!showNotifs)}
-              style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}>
-              🔔
-              {unreadCount > 0 && (
-                <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: B.red, color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {unreadCount > 9 ? "9+" : unreadCount}
+          {/* Bell + badges — each in their own relative container, in a flex row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+
+            {/* Duplicate warnings — desktop only */}
+            {(duplicates.leads.length > 0 || duplicates.clients.length > 0) && (
+              <div className="desktop-only-btn" title={`${duplicates.leads.length} duplicate leads, ${duplicates.clients.length} duplicate clients`}
+                style={{ position: "relative", width: 30, height: 30, borderRadius: 7, background: "#fef2f2", border: "1px solid #fecaca", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, transition: "all 0.15s", flexShrink: 0 }}
+                onClick={() => { toast(`${duplicates.leads.length} duplicate leads, ${duplicates.clients.length} duplicate clients found. Review them in Leads/Clients tabs.`, "warning"); }}>
+                ⚠️
+                <div style={{ position: "absolute", top: -4, right: -4, width: 14, height: 14, borderRadius: "50%", background: "#ef4444", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {duplicates.leads.length + duplicates.clients.length}
                 </div>
-              )}
-            </button>
-            {showNotifs && <NotifPanel notifications={notifications} onClose={() => setShowNotifs(false)} onMarkRead={markRead} onMarkAll={markAll} onDismiss={dismissNotif} onClearAll={clearAllNotifs} dark={dark} highContrast={highContrast} />}
-
-          {/* Duplicate warnings badge */}
-          {(duplicates.leads.length > 0 || duplicates.clients.length > 0) && (
-            <div title={`${duplicates.leads.length} duplicate leads, ${duplicates.clients.length} duplicate clients`}
-              style={{ width: 30, height: 30, borderRadius: 7, background: "#fef2f2", border: "1px solid #fecaca", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}
-              onClick={() => { toast(`${duplicates.leads.length} duplicate leads, ${duplicates.clients.length} duplicate clients found. Review them in Leads/Clients tabs.`, "warning"); }}>
-              ⚠️
-              <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: "#ef4444", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {duplicates.leads.length + duplicates.clients.length}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Stale records badge */}
-          {(staleRecords.leads.length > 0 || staleRecords.tasks.length > 0) && (
-            <div title={`${staleRecords.leads.length} stale leads, ${staleRecords.tasks.length} stale tasks`}
-              style={{ width: 30, height: 30, borderRadius: 7, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}
-              onClick={() => { toast(`${staleRecords.leads.length} stale leads, ${staleRecords.tasks.length} stale tasks need attention.`, "warning"); }}>
-              🕐
-              <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: "#f59e0b", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {staleRecords.leads.length + staleRecords.tasks.length}
+            {/* Stale records — desktop only */}
+            {(staleRecords.leads.length > 0 || staleRecords.tasks.length > 0) && (
+              <div className="desktop-only-btn" title={`${staleRecords.leads.length} stale leads, ${staleRecords.tasks.length} stale tasks`}
+                style={{ position: "relative", width: 30, height: 30, borderRadius: 7, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, transition: "all 0.15s", flexShrink: 0 }}
+                onClick={() => { toast(`${staleRecords.leads.length} stale leads, ${staleRecords.tasks.length} stale tasks need attention.`, "warning"); }}>
+                🕐
+                <div style={{ position: "absolute", top: -4, right: -4, width: 14, height: 14, borderRadius: "50%", background: "#f59e0b", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {staleRecords.leads.length + staleRecords.tasks.length}
+                </div>
               </div>
+            )}
+
+            {/* Bell */}
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <button onClick={() => setShowNotifs(!showNotifs)}
+                style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}>
+                🔔
+                {unreadCount > 0 && (
+                  <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", background: B.red, color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </div>
+                )}
+              </button>
+              {showNotifs && <NotifPanel notifications={notifications} onClose={() => setShowNotifs(false)} onMarkRead={markRead} onMarkAll={markAll} onDismiss={dismissNotif} onClearAll={clearAllNotifs} dark={dark} highContrast={highContrast} />}
             </div>
-          )}
+
           </div>
 
           {/* Avatar */}
@@ -2074,6 +2084,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           .topbar-search { display: none; }
           .topbar-role-picker { display: none; }
           .hamburger-btn { display: flex !important; }
+          .desktop-only-btn { display: none !important; }
         }
         @media (max-width: 480px) {
           .page-pad { padding: 8px !important; }

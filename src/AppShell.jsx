@@ -38,22 +38,23 @@ const AutomationsTab = lazy(() => import("../tabs/AutomationsTab"));
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
-  { id: "dashboard",   label: "Dashboard",   icon: "🏠", short: "Home"  },
-  { id: "leads",       label: "Leads",       icon: "🎯", short: "Leads" },
-  { id: "clients",     label: "Clients",     icon: "👥", short: "Clients"},
-  { id: "tasks",       label: "Tasks",       icon: "✅", short: "Tasks" },
-  { id: "accounting",  label: "Accounting",  icon: "💰", short: "Acctg" },
-  { id: "calendar",    label: "Calendar",    icon: "📅", short: "Cal"   },
-  { id: "inventory",   label: "Inventory",   icon: "📦", short: "Inv"   },
-  { id: "suppliers",   label: "Suppliers",   icon: "🏭", short: "Supp"  },
-  { id: "analytics",   label: "Analytics",   icon: "📊", short: "Stats" },
-  { id: "reports",     label: "Reports",     icon: "📋", short: "Rep"   },
-  { id: "automations", label: "Automations", icon: "⚡", short: "Auto"  },
+  { id: "dashboard",   label: "Dashboard",   icon: "◎",  short: "Home"  },
+  { id: "leads",       label: "Leads",       icon: "◎",  short: "Leads" },
+  { id: "clients",     label: "Clients",     icon: "⬡",  short: "Clients"},
+  { id: "tasks",       label: "Tasks",       icon: "◈",  short: "Tasks" },
+  { id: "accounting",  label: "Accounting",  icon: "◆",  short: "Acctg" },
+  { id: "calendar",    label: "Calendar",    icon: "▦",  short: "Calendar"},
+  { id: "inventory",   label: "Inventory",   icon: "▤",  short: "Inv"   },
+  { id: "suppliers",   label: "Suppliers",   icon: "▥",  short: "Supp"  },
+  { id: "analytics",   label: "Analytics",   icon: "▲",  short: "Stats" },
+  { id: "reports",     label: "Reports",     icon: "▶",  short: "Rep"   },
+  { id: "automations", label: "Automations", icon: "◉",  short: "Auto"  },
   { id: "settings",    label: "Settings",    icon: "⚙️", short: "Setup" },
 ];
 
-// Mobile bottom nav shows only the 5 most used — rest accessible via "More"
-const MOBILE_PRIMARY = ["dashboard","leads","tasks","accounting","clients"];
+// Mobile bottom nav shows only the 4 most used — rest accessible via "More"
+// Matches the image: Leads · Tasks · Calendar · More
+const MOBILE_PRIMARY = ["leads","tasks","calendar","dashboard"];
 
 // ── Memoized tab content (avoids re-rendering inactive tabs) ──────────────────
 const TabContent = memo(function TabContent({
@@ -311,8 +312,11 @@ export default function AppShell() {
         .app-main {
           flex: 1;
           min-width: 0;
+          min-height: 0;
           display: flex;
           flex-direction: column;
+          height: 100dvh;        /* gives .app-content a real ancestor height to inherit */
+          overflow: hidden;
         }
         .app-topbar {
           background: #fff;
@@ -364,8 +368,11 @@ export default function AppShell() {
 
         .app-content {
           flex: 1;
+          min-height: 0;
+          height: 0;           /* forces flex child to actually fill — combined with flex:1 this gives a real px height children can inherit */
           padding: 16px 20px 80px;
           overflow-x: hidden;
+          overflow-y: auto;
         }
 
         /* ── Mobile bottom nav ────────────────────────────────── */
@@ -377,10 +384,12 @@ export default function AppShell() {
           border-top: 1px solid #E2E8F0;
           z-index: 50;
           padding-bottom: env(safe-area-inset-bottom);
+          box-shadow: 0 -2px 16px rgba(0,0,0,0.08);
         }
         .mobile-nav-inner {
           display: flex;
           align-items: stretch;
+          height: 56px;
         }
         .mobile-nav-item {
           flex: 1;
@@ -388,20 +397,49 @@ export default function AppShell() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 8px 2px 6px;
-          gap: 3px;
+          padding: 6px 2px 4px;
+          gap: 2px;
           cursor: pointer;
           border: none;
           background: none;
           font-family: inherit;
           -webkit-tap-highlight-color: transparent;
           min-width: 0;
+          position: relative;
         }
-        .mobile-nav-item .m-icon { font-size: 20px; line-height: 1; }
-        .mobile-nav-item .m-lbl { font-size: 10px; font-weight: 500; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        .mobile-nav-item.active .m-icon { transform: translateY(-1px); }
-        .mobile-nav-item.active .m-lbl { color: #3B82F6; font-weight: 700; }
-        .mobile-nav-dot { width: 4px; height: 4px; border-radius: 50%; background: #3B82F6; margin-top: 2px; }
+        .mobile-nav-item .m-icon {
+          font-size: 18px;
+          line-height: 1;
+          transition: transform 0.15s;
+          color: #94a3b8;
+        }
+        .mobile-nav-item .m-lbl {
+          font-size: 10px;
+          font-weight: 500;
+          color: #94a3b8;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
+        }
+        .mobile-nav-item.active .m-icon {
+          transform: translateY(-1px);
+          color: #1a2f4a;
+        }
+        .mobile-nav-item.active .m-lbl {
+          color: #1a2f4a;
+          font-weight: 700;
+        }
+        /* Active top bar indicator */
+        .mobile-nav-item.active::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 20%; right: 20%;
+          height: 2px;
+          border-radius: 0 0 4px 4px;
+          background: #1a2f4a;
+        }
+        .mobile-nav-dot { display: none; }
 
         /* More sheet */
         .more-sheet-backdrop {
@@ -411,34 +449,51 @@ export default function AppShell() {
         .more-sheet {
           position: fixed; bottom: 0; left: 0; right: 0;
           background: #fff;
-          border-radius: 16px 16px 0 0;
-          padding: 16px 12px calc(env(safe-area-inset-bottom) + 16px);
+          border-radius: 20px 20px 0 0;
+          padding: 12px 16px calc(env(safe-area-inset-bottom) + 20px);
           z-index: 61;
           animation: slideUp 0.2s ease;
+          box-shadow: 0 -4px 32px rgba(0,0,0,0.18);
+        }
+        .more-sheet-handle {
+          width: 40px; height: 4px; border-radius: 2px;
+          background: #CBD5E1; margin: 0 auto 16px;
         }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
-        .more-sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .more-sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
         .more-sheet-item {
           display: flex; flex-direction: column; align-items: center; gap: 6px;
-          padding: 12px 8px; border-radius: 10px; cursor: pointer;
+          padding: 14px 8px; border-radius: 12px; cursor: pointer;
           border: 1.5px solid transparent; background: #F8FAFC;
           font-family: inherit;
           -webkit-tap-highlight-color: transparent;
-          transition: background 0.1s;
+          transition: background 0.1s, border-color 0.1s;
         }
         .more-sheet-item:active { background: #EFF6FF; }
-        .more-sheet-item.active { border-color: #3B82F6; background: #EFF6FF; }
-        .more-sheet-item .ms-icon { font-size: 22px; }
-        .more-sheet-item .ms-lbl { font-size: 11px; font-weight: 600; color: #475569; }
+        .more-sheet-item.active { border-color: #1a2f4a; background: #f0f4ff; }
+        .more-sheet-item .ms-icon { font-size: 20px; color: #475569; }
+        .more-sheet-item.active .ms-icon { color: #1a2f4a; }
+        .more-sheet-item .ms-lbl { font-size: 11px; font-weight: 600; color: #475569; text-align: center; }
+        .more-sheet-item.active .ms-lbl { color: #1a2f4a; }
 
         /* ── Responsive breakpoints ───────────────────────────── */
         @media (max-width: 768px) {
           .app-sidebar { display: none; }
           .mobile-nav  { display: flex; flex-direction: column; }
-          .app-content { padding: 12px 12px 72px; }
-          .app-topbar  { padding: 8px 12px; }
-          .app-search  { max-width: none; }
+          .app-content { padding: 10px 10px calc(68px + env(safe-area-inset-bottom, 0px)); }
+          .app-topbar  {
+            padding: 0 12px;
+            height: 48px;
+            flex-wrap: nowrap;
+            gap: 8px;
+          }
+          .app-topbar-title {
+            display: block;
+            font-size: 15px;
+            font-weight: 700;
+          }
+          .app-search  { display: none; }
           .view-toggle { display: none; }
         }
         @media (min-width: 769px) {
@@ -616,7 +671,7 @@ export default function AppShell() {
         <>
           <div className="more-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="more-sheet">
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: "#CBD5E1", margin: "0 auto 16px" }} />
+            <div className="more-sheet-handle" />
             <div className="more-sheet-grid">
               {TABS.filter(t => !MOBILE_PRIMARY.includes(t.id)).map(tab => (
                 <button key={tab.id}

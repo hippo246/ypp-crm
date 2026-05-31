@@ -13,6 +13,8 @@ import { useAppData } from "../context/AppContext";
 import { toast } from "../App";
 // Live preview in the Login Screen settings section
 import LoginScreen from "../LoginScreen";
+// Leads settings defaults — used to initialise the Leads Tab editor
+import { DEFAULT_LEADS_SETTINGS } from "./LeadsTab";
 
 const ROLE_COLORS = {
   Admin: "#1D3557",
@@ -26,6 +28,7 @@ const SECTIONS = [
   { id: "profile",      label: "Profile",       icon: "👤" },
   { id: "preferences",  label: "Preferences",   icon: "⚙️" },
   { id: "tabs",         label: "Tab Controls",  icon: "🗂️" },
+  { id: "leads",        label: "Leads Tab",     icon: "◎"  },
   { id: "workflow",     label: "Workflow",       icon: "🔄" },
   { id: "notifications",label: "Notifications", icon: "🔔" },
   { id: "security",     label: "Security",       icon: "🔒" },
@@ -69,6 +72,14 @@ const _appCtx = useAppData();
 const dispatch = _appCtx?.dispatch ?? (() => {});
   const [activeSection, setActiveSection] = useState("profile");
   const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);       // #1 unsaved-changes tracking
+  const [sectionSearch, setSectionSearch] = useState(""); // #3 section search/filter
+
+  // Wrap setters to mark dirty on any change
+  const setProfileDirty = (v) => { setProfile(v); setIsDirty(true); };
+  const setPrefsDirty   = (v) => { setPreferences(v); setIsDirty(true); };
+  const setWorkflowsDirty = (v) => { setWorkflows(v); setIsDirty(true); };
+  const setNotifDirty   = (v) => { setNotifPrefs(v); setIsDirty(true); };
 
   // ── Profile state ──────────────────────────────────────────────────────────
   const [profile, setProfile] = useState({
@@ -149,11 +160,24 @@ const dispatch = _appCtx?.dispatch ?? (() => {});
     if (setViewMode) setViewMode(preferences.viewMode || viewMode);
 
     setSaving(false);
+    setIsDirty(false);
     toast("Settings saved — changes applied!", "success");
   }, [profile, preferences, workflows, notifPrefs, loginConfig,
       setDark, setHighContrast, setCompact, setSidebarCollapsed,
       setSidebarAccent, setFocusMode, setSplitView, setDensity,
       setFontSize, setViewMode, viewMode]);
+
+  // #2 Ctrl/Cmd+S saves from anywhere in Settings
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        saveSettings();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [saveSettings]);
 
   // ── Apply ALL preferences live as you toggle — no save needed ────────────
   useEffect(() => { if (setDark) setDark(preferences.theme === "dark"); }, [preferences.theme]);
@@ -177,55 +201,96 @@ const dispatch = _appCtx?.dispatch ?? (() => {});
   return (
     <div style={{ display: "flex", height: "100%", background: "#F8FAFC" }}>
       {/* Left sidebar */}
-      <div style={{ width: 220, background: "#fff", borderRight: "1px solid #E2E8F0", padding: "16px 0", flexShrink: 0, overflowY: "auto" }}>
-        <div style={{ padding: "0 16px 16px", borderBottom: "1px solid #E2E8F0", marginBottom: 8 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, color: "#0F172A", margin: 0 }}>Settings</h2>
-          <p style={{ fontSize: 11, color: "#64748B", margin: "4px 0 0" }}>Manage your workspace</p>
+      <div style={{ width: 230, background: "#fff", borderRight: "1px solid #E2E8F0", display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
+        {/* Sidebar header — sticky */}
+        <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid #E2E8F0", position: "sticky", top: 0, background: "#fff", zIndex: 2 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "#0F172A", margin: "0 0 10px" }}>Settings</h2>
+          {/* #3 Section search */}
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.4, pointerEvents: "none" }}>🔍</span>
+            <input
+              type="search"
+              placeholder="Filter sections…"
+              value={sectionSearch}
+              onChange={e => setSectionSearch(e.target.value)}
+              style={{ width: "100%", padding: "6px 10px 6px 28px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, outline: "none", boxSizing: "border-box", background: "#F8FAFC" }}
+            />
+          </div>
         </div>
-        {SECTIONS.map(s => (
-          <button key={s.id} onClick={() => setActiveSection(s.id)}
-            style={{
-              width: "100%", padding: "9px 16px",
-              display: "flex", alignItems: "center", gap: 10,
-              background: activeSection === s.id ? "#EFF6FF" : "transparent",
-              border: "none", cursor: "pointer", fontSize: 13,
-              color: activeSection === s.id ? "#2563EB" : "#475569",
-              fontWeight: activeSection === s.id ? 600 : 400,
-              textAlign: "left", transition: "all 0.12s",
-            }}
-            onMouseEnter={e => activeSection !== s.id && (e.currentTarget.style.background = "#F1F5F9")}
-            onMouseLeave={e => activeSection !== s.id && (e.currentTarget.style.background = "transparent")}
-          >
-            <span style={{ fontSize: 15 }}>{s.icon}</span>{s.label}
-          </button>
-        ))}
+        {/* Nav items */}
+        <nav style={{ flex: 1, padding: "6px 0 12px" }}>
+          {SECTIONS.filter(s => !sectionSearch || s.label.toLowerCase().includes(sectionSearch.toLowerCase())).map(s => (
+            <button key={s.id} onClick={() => { setActiveSection(s.id); setSectionSearch(""); }}
+              style={{
+                width: "100%", padding: "9px 16px",
+                display: "flex", alignItems: "center", gap: 10,
+                background: activeSection === s.id ? "#EFF6FF" : "transparent",
+                borderLeft: activeSection === s.id ? "3px solid #2563EB" : "3px solid transparent", // #4 active indicator bar
+                border: "none", borderLeft: activeSection === s.id ? "3px solid #2563EB" : "3px solid transparent",
+                cursor: "pointer", fontSize: 13,
+                color: activeSection === s.id ? "#2563EB" : "#475569",
+                fontWeight: activeSection === s.id ? 600 : 400,
+                textAlign: "left", transition: "all 0.12s", fontFamily: "inherit",
+              }}
+              onMouseEnter={e => activeSection !== s.id && (e.currentTarget.style.background = "#F1F5F9")}
+              onMouseLeave={e => activeSection !== s.id && (e.currentTarget.style.background = "transparent")}
+            >
+              <span style={{ fontSize: 15, flexShrink: 0 }}>{s.icon}</span>
+              <span style={{ flex: 1 }}>{s.label}</span>
+            </button>
+          ))}
+          {/* No results */}
+          {sectionSearch && SECTIONS.filter(s => s.label.toLowerCase().includes(sectionSearch.toLowerCase())).length === 0 && (
+            <div style={{ padding: "16px 16px", fontSize: 12, color: "#94A3B8", textAlign: "center" }}>No sections match</div>
+          )}
+        </nav>
       </div>
 
       {/* Main content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px" }}>
         <div style={{ maxWidth: 800, margin: "0 auto" }}>
-          {/* Header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0F172A", margin: 0 }}>
-              {SECTIONS.find(s => s.id === activeSection)?.icon}{" "}
-              {SECTIONS.find(s => s.id === activeSection)?.label}
-            </h1>
+          {/* Header — #5 sticky, #6 dirty indicator dot, #7 Ctrl+S hint */}
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            marginBottom: 24, position: "sticky", top: 0, background: "#F8FAFC",
+            zIndex: 10, paddingBottom: 14, borderBottom: "1px solid #E2E8F0",
+          }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <h1 style={{ fontSize: 20, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+                  {SECTIONS.find(s => s.id === activeSection)?.icon}{" "}
+                  {SECTIONS.find(s => s.id === activeSection)?.label}
+                </h1>
+                {/* #6 unsaved dot */}
+                {isDirty && (
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#F59E0B", display: "inline-block", flexShrink: 0 }} title="Unsaved changes" />
+                )}
+              </div>
+              {/* #7 Ctrl+S hint — only when dirty */}
+              {isDirty && (
+                <span style={{ fontSize: 11, color: "#94A3B8", marginTop: 2, display: "block" }}>
+                  Unsaved changes · press <kbd style={{ padding: "1px 5px", background: "#F1F5F9", border: "1px solid #CBD5E1", borderRadius: 4, fontSize: 10, fontFamily: "monospace" }}>Ctrl+S</kbd> to save
+                </span>
+              )}
+            </div>
             <button onClick={saveSettings} disabled={saving}
               style={{
-                padding: "8px 20px", background: "#2563EB", color: "#fff",
-                border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600,
+                padding: "9px 22px", background: isDirty ? "#2563EB" : "#64748B", color: "#fff",
+                border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600,
                 cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.65 : 1,
+                transition: "background 0.2s",
               }}
             >
-              {saving ? "Saving…" : "💾 Save Changes"}
+              {saving ? "Saving…" : isDirty ? "💾 Save Changes" : "✓ Saved"}
             </button>
           </div>
 
-          {activeSection === "profile"       && <ProfileSection profile={profile} setProfile={setProfile} currentUser={currentUser} onRoleChange={onRoleChange} />}
-          {activeSection === "preferences"   && <PreferencesSection preferences={preferences} setPreferences={setPreferences} />}
-          {activeSection === "tabs"          && <TabControlsSection viewMode={viewMode} setViewMode={setViewMode} preferences={preferences} setPreferences={setPreferences} navigateTo={navigateTo} data={data} setData={setData} />}
-          {activeSection === "workflow"      && <WorkflowSection workflows={workflows} setWorkflows={setWorkflows} />}
-          {activeSection === "notifications" && <NotificationsSection notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs} />}
+          {activeSection === "profile"       && <ProfileSection profile={profile} setProfile={setProfileDirty} currentUser={currentUser} onRoleChange={onRoleChange} />}
+          {activeSection === "preferences"   && <PreferencesSection preferences={preferences} setPreferences={setPrefsDirty} />}
+          {activeSection === "tabs"          && <TabControlsSection viewMode={viewMode} setViewMode={setViewMode} preferences={preferences} setPreferences={setPrefsDirty} navigateTo={navigateTo} data={data} setData={setData} />}
+          {activeSection === "leads"         && <LeadsSettingsSection />}
+          {activeSection === "workflow"      && <WorkflowSection workflows={workflows} setWorkflows={setWorkflowsDirty} />}
+          {activeSection === "notifications" && <NotificationsSection notifPrefs={notifPrefs} setNotifPrefs={setNotifDirty} />}
           {activeSection === "security"      && <SecuritySection />}
           {activeSection === "data"          && <DataSection data={data} />}
           {activeSection === "team"          && <TeamSection currentUser={currentUser} onRoleChange={onRoleChange} />}
@@ -240,15 +305,27 @@ const dispatch = _appCtx?.dispatch ?? (() => {});
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile Section
 // ─────────────────────────────────────────────────────────────────────────────
+// #8 Deterministic avatar color from name
+function avatarColor(name = "") {
+  const colors = ["#3B82F6","#10B981","#F59E0B","#8B5CF6","#EF4444","#06B6D4","#EC4899"];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
 function ProfileSection({ profile, setProfile, currentUser, onRoleChange }) {
+  const color = avatarColor(profile.name);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0" }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, color: "#0F172A", margin: "0 0 20px" }}>Profile Information</h3>
 
         <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 24, paddingBottom: 24, borderBottom: "1px solid #E2E8F0" }}>
-          <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: "#fff" }}>
-            {profile.avatar}
+          {/* #8 Avatar with ring + initials auto-generated */}
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <div style={{ width: 72, height: 72, borderRadius: "50%", background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: "#fff", border: `3px solid ${color}33`, boxShadow: `0 0 0 3px ${color}22` }}>
+              {profile.name.split(" ").map(n => n[0]).join("").slice(0,2).toUpperCase() || "??"}
+            </div>
           </div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: "#0F172A" }}>{profile.name}</div>
@@ -270,7 +347,7 @@ function ProfileSection({ profile, setProfile, currentUser, onRoleChange }) {
             <div key={key}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</label>
               <input type={type} value={profile[key]} onChange={e => setProfile({ ...profile, [key]: e.target.value })}
-                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none" }} />
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
             </div>
           ))}
 
@@ -310,12 +387,12 @@ function PreferencesSection({ preferences, setPreferences }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* Theme */}
+      {/* Theme — #11 add System auto option */}
       <Card title="Theme">
         <div style={{ display: "flex", gap: 12 }}>
-          {[["light", "☀️ Light"], ["dark", "🌙 Dark"]].map(([val, lbl]) => (
+          {[["light", "☀️ Light"], ["dark", "🌙 Dark"], ["system", "💻 System"]].map(([val, lbl]) => (
             <button key={val} onClick={() => set("theme", val)}
-              style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: preferences.theme === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: preferences.theme === val ? "#EFF6FF" : "#F8FAFC", fontSize: 14, fontWeight: preferences.theme === val ? 700 : 400, cursor: "pointer", color: preferences.theme === val ? "#2563EB" : "#475569" }}>
+              style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: preferences.theme === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: preferences.theme === val ? "#EFF6FF" : "#F8FAFC", fontSize: 13, fontWeight: preferences.theme === val ? 700 : 400, cursor: "pointer", color: preferences.theme === val ? "#2563EB" : "#475569" }}>
               {lbl}
             </button>
           ))}
@@ -338,12 +415,20 @@ function PreferencesSection({ preferences, setPreferences }) {
         </div>
       </Card>
 
-      {/* Density */}
+      {/* Density — #12 visual preview labels */}
       <Card title="Density">
         <div style={{ display: "flex", gap: 10 }}>
-          {[["dense", "Dense"], ["compact", "Compact"], ["comfortable", "Comfortable"]].map(([val, lbl]) => (
+          {[
+            ["dense",       "Dense",       "3px"],
+            ["compact",     "Compact",     "6px"],
+            ["comfortable", "Comfortable", "12px"],
+          ].map(([val, lbl, pad]) => (
             <button key={val} onClick={() => set("density", val)}
-              style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: preferences.density === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: preferences.density === val ? "#EFF6FF" : "#F8FAFC", fontSize: 12, fontWeight: preferences.density === val ? 700 : 400, cursor: "pointer", color: preferences.density === val ? "#2563EB" : "#475569" }}>
+              style={{ flex: 1, padding: "10px 8px", borderRadius: 8, border: preferences.density === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: preferences.density === val ? "#EFF6FF" : "#F8FAFC", fontSize: 12, fontWeight: preferences.density === val ? 700 : 400, cursor: "pointer", color: preferences.density === val ? "#2563EB" : "#475569" }}>
+              <div style={{ marginBottom: 6 }}>
+                {/* #12 mini visual preview of row height */}
+                {[1,2,3].map(i => <div key={i} style={{ height: 4, borderRadius: 2, background: preferences.density === val ? "#3B82F6" : "#CBD5E1", marginBottom: `${pad}`, opacity: 0.6 + i*0.13 }} />)}
+              </div>
               {lbl}
             </button>
           ))}
@@ -353,17 +438,27 @@ function PreferencesSection({ preferences, setPreferences }) {
       {/* Font size */}
       <Card title="Font Size">
         <div style={{ display: "flex", gap: 10 }}>
-          {[["small", "Small"], ["medium", "Medium"], ["large", "Large"]].map(([val, lbl]) => (
+          {[["small", "Small", 11], ["medium", "Medium", 13], ["large", "Large", 16]].map(([val, lbl, sz]) => (
             <button key={val} onClick={() => set("fontSize", val)}
-              style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: preferences.fontSize === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: preferences.fontSize === val ? "#EFF6FF" : "#F8FAFC", fontSize: 12, fontWeight: preferences.fontSize === val ? 700 : 400, cursor: "pointer", color: preferences.fontSize === val ? "#2563EB" : "#475569" }}>
+              style={{ flex: 1, padding: "12px 0", borderRadius: 8, border: preferences.fontSize === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: preferences.fontSize === val ? "#EFF6FF" : "#F8FAFC", cursor: "pointer", color: preferences.fontSize === val ? "#2563EB" : "#475569", fontWeight: preferences.fontSize === val ? 700 : 400, fontSize: sz }}>
               {lbl}
             </button>
           ))}
         </div>
       </Card>
 
-      {/* Sidebar accent */}
+      {/* Sidebar accent — #10 preset swatches */}
       <Card title="Sidebar Accent Color">
+        {/* #10 Preset color swatches */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          {["#0F172A","#1a2f4a","#1D3557","#7C3AED","#2563EB","#059669","#DC2626","#B45309","#374151"].map(c => (
+            <button key={c} onClick={() => set("sidebarAccent", c)} title={c}
+              style={{ width: 28, height: 28, borderRadius: 7, background: c, border: preferences.sidebarAccent === c ? "3px solid #3B82F6" : "2px solid transparent", cursor: "pointer", outline: "none", transition: "transform 0.1s", flexShrink: 0 }}
+              onMouseEnter={e => e.currentTarget.style.transform = "scale(1.15)"}
+              onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+            />
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <input type="color" value={preferences.sidebarAccent || "#1a2f4a"}
             onChange={e => set("sidebarAccent", e.target.value)}
@@ -400,6 +495,16 @@ function TabControlsSection({ viewMode: viewModeProp, setViewMode, preferences, 
   const [localViewMode, setLocalViewMode] = useState(viewModeProp || "normal");
   const applyViewMode = (val) => { setLocalViewMode(val); if (setViewMode) setViewMode(val); };
 
+  // #13 compute per-tab record counts for badge display
+  const tabCounts = {
+    leads: data?.leads?.length ?? 0,
+    clients: data?.clients?.length ?? 0,
+    tasks: data?.tasks?.length ?? 0,
+    accounting: data?.accounting?.length ?? 0,
+    inventory: data?.inventory?.length ?? 0,
+    suppliers: data?.suppliers?.length ?? 0,
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
@@ -416,17 +521,26 @@ function TabControlsSection({ viewMode: viewModeProp, setViewMode, preferences, 
         </div>
       </Card>
 
-      {/* Jump to any tab */}
+      {/* Jump to any tab — #14 with record counts + arrow */}
       <Card title="Quick Navigate">
         <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>Jump straight to any tab in the app.</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
           {TAB_META.map(t => (
             <button key={t.id} onClick={() => navigateTo && navigateTo(t.id)}
-              style={{ padding: "10px 12px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, cursor: "pointer", textAlign: "left", transition: "all 0.12s" }}
+              style={{ padding: "10px 12px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, cursor: "pointer", textAlign: "left", transition: "all 0.12s", position: "relative" }}
               onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
               onMouseLeave={e => e.currentTarget.style.background = "#F8FAFC"}
             >
-              <span style={{ fontSize: 16 }}>{t.icon}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <span style={{ fontSize: 16 }}>{t.icon}</span>
+                {/* #14 arrow + record count badge */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                  {tabCounts[t.id] > 0 && (
+                    <span style={{ fontSize: 9, padding: "1px 5px", background: "#E2E8F0", borderRadius: 8, color: "#475569", fontWeight: 600 }}>{tabCounts[t.id]}</span>
+                  )}
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>↗</span>
+                </div>
+              </div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#0F172A", marginTop: 4 }}>{t.label}</div>
               <div style={{ fontSize: 10, color: "#64748B" }}>{t.desc}</div>
             </button>
@@ -499,6 +613,497 @@ function TabControlsSection({ viewMode: viewModeProp, setViewMode, preferences, 
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Leads Tab Settings Section — full control over every inch of LeadsTab
+// ─────────────────────────────────────────────────────────────────────────────
+const LEADS_SETTINGS_KEY = "crm_leads_settings";
+
+function loadLeadsCfg() {
+  try {
+    const saved = localStorage.getItem(LEADS_SETTINGS_KEY);
+    if (saved) return { ...DEFAULT_LEADS_SETTINGS, ...JSON.parse(saved) };
+  } catch {}
+  return { ...DEFAULT_LEADS_SETTINGS };
+}
+
+function LeadsSettingsSection() {
+  const [cfg, setCfg] = useState(loadLeadsCfg);
+  const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState("dropdowns");
+
+  const set = (key, val) => setCfg(p => ({ ...p, [key]: val }));
+  const setNested = (key, subKey, val) => setCfg(p => ({ ...p, [key]: { ...p[key], [subKey]: val } }));
+
+  const saveCfg = async () => {
+    setSaving(true);
+    await new Promise(r => setTimeout(r, 300));
+    localStorage.setItem(LEADS_SETTINGS_KEY, JSON.stringify(cfg));
+    // Notify LeadsTab (same tab) via custom event
+    window.dispatchEvent(new Event("crm_leads_settings_updated"));
+    setSaving(false);
+    toast("Leads Tab settings saved — changes applied instantly!", "success");
+  };
+
+  const resetCfg = () => {
+    if (!window.confirm("Reset ALL Leads Tab settings to factory defaults?")) return;
+    setCfg({ ...DEFAULT_LEADS_SETTINGS });
+    localStorage.removeItem(LEADS_SETTINGS_KEY);
+    window.dispatchEvent(new Event("crm_leads_settings_updated"));
+    toast("Leads Tab settings reset to defaults", "info");
+  };
+
+  // Helper: editable list of options (add/remove/reorder)
+  const OptionListEditor = ({ label, value, onChange }) => {
+    const [draft, setDraft] = useState("");
+    const items = value || [];
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {items.map((item, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#F1F5F9", borderRadius: 6, padding: "3px 8px", fontSize: 12 }}>
+              <span>{item}</span>
+              <button onClick={() => onChange(items.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input value={draft} onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && draft.trim()) { onChange([...items, draft.trim()]); setDraft(""); e.preventDefault(); }}}
+            placeholder="Type option then press Enter…"
+            style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+          <button onClick={() => { if (draft.trim()) { onChange([...items, draft.trim()]); setDraft(""); }}}
+            style={{ padding: "8px 12px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>+ Add</button>
+        </div>
+      </div>
+    );
+  };
+
+  // Helper: color map editor (object of key→hex)
+  const ColorMapEditor = ({ label, value, keys, onChange }) => (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+        {keys.map(k => (
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: "#F8FAFC", borderRadius: 7, padding: "6px 10px", border: "1px solid #E2E8F0" }}>
+            <input type="color" value={(value || {})[k] || "#000000"}
+              onChange={e => onChange({ ...(value || {}), [k]: e.target.value })}
+              style={{ width: 28, height: 28, border: "none", borderRadius: 6, cursor: "pointer", padding: 0, background: "none" }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{k}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Helper: number field
+  const NumField = ({ label, cfgKey, min = 0, max = 999, step = 1 }) => (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <input type="number" min={min} max={max} step={step} value={cfg[cfgKey] ?? 0}
+        onChange={e => set(cfgKey, Number(e.target.value))}
+        style={{ ...inputStyle, width: 100 }} />
+    </div>
+  );
+
+  // Helper: toggle field
+  const BoolField = ({ label, desc, cfgKey }) => (
+    <Toggle label={label} desc={desc} checked={!!cfg[cfgKey]} onChange={v => set(cfgKey, v)} />
+  );
+
+  // Helper: text field
+  const TextField = ({ label, cfgKey }) => (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <input type="text" value={cfg[cfgKey] || ""}
+        onChange={e => set(cfgKey, e.target.value)}
+        style={inputStyle} />
+    </div>
+  );
+
+  // Helper: toast list editor (array of strings)
+  const ToastListEditor = ({ label, cfgKey }) => {
+    const items = cfg[cfgKey] || [];
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {items.map((t, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input value={t} onChange={e => { const next = [...items]; next[i] = e.target.value; set(cfgKey, next); }}
+                style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
+              <button onClick={() => set(cfgKey, items.filter((_, j) => j !== i))}
+                style={{ padding: "6px 10px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>✕</button>
+            </div>
+          ))}
+          <button onClick={() => set(cfgKey, [...items, "🎉 New toast message"])}
+            style={{ padding: "6px 12px", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, cursor: "pointer", color: "#475569", fontWeight: 600, width: "fit-content" }}>
+            + Add Message
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Helper: next-action map editor
+  const NextActionEditor = () => {
+    const na = cfg.nextActions || DEFAULT_LEADS_SETTINGS.nextActions;
+    const keys = Object.keys(na);
+    return (
+      <div>
+        <label style={labelStyle}>Next Action Messages (by Status)</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {keys.map(k => (
+            <div key={k} style={{ display: "grid", gridTemplateColumns: "90px 50px 1fr", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>{k}</span>
+              <input value={na[k]?.icon || ""} onChange={e => set("nextActions", { ...na, [k]: { ...na[k], icon: e.target.value } })}
+                style={{ ...inputStyle, fontSize: 18, textAlign: "center" }} />
+              <input value={na[k]?.text || ""} onChange={e => set("nextActions", { ...na, [k]: { ...na[k], text: e.target.value } })}
+                style={{ ...inputStyle, fontSize: 12 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Helper: WhatsApp templates editor
+  const WATemplatesEditor = () => {
+    const templates = cfg.waTemplates || [];
+    return (
+      <div>
+        <label style={labelStyle}>WhatsApp Quick-Reply Templates</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {templates.map((t, i) => (
+            <div key={i} style={{ background: "#F8FAFC", borderRadius: 8, padding: 12, border: "1px solid #E2E8F0" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input value={t.label} placeholder="Label (e.g. 📄 Docs Reminder)"
+                  onChange={e => { const next = [...templates]; next[i] = { ...t, label: e.target.value }; set("waTemplates", next); }}
+                  style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
+                <button onClick={() => set("waTemplates", templates.filter((_, j) => j !== i))}
+                  style={{ padding: "6px 10px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>✕</button>
+              </div>
+              <textarea value={t.text} rows={2} placeholder="Message text… use {name} for lead name"
+                onChange={e => { const next = [...templates]; next[i] = { ...t, text: e.target.value }; set("waTemplates", next); }}
+                style={{ ...inputStyle, resize: "vertical", fontSize: 12, fontFamily: "inherit" }} />
+            </div>
+          ))}
+          <button onClick={() => set("waTemplates", [...templates, { label: "New Template", text: "Hi {name}, " }])}
+            style={{ padding: "7px 14px", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, cursor: "pointer", color: "#475569", fontWeight: 600, width: "fit-content" }}>
+            + Add Template
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const TABS = [
+    { id: "dropdowns",  label: "📋 Dropdowns" },
+    { id: "colors",     label: "🎨 Colors" },
+    { id: "thresholds", label: "⚙️ Thresholds" },
+    { id: "funlayer",   label: "🎮 Fun Layer" },
+    { id: "visibility", label: "👁 Visibility" },
+    { id: "messages",   label: "💬 Messages" },
+    { id: "actions",    label: "⚡ Actions & Auto" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Header controls */}
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <button onClick={resetCfg} style={{ padding: "7px 14px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          ↺ Reset to Defaults
+        </button>
+        <button onClick={saveCfg} disabled={saving} style={{ padding: "8px 20px", background: saving ? "#94A3B8" : "#10B981", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer" }}>
+          {saving ? "Saving…" : "💾 Save Leads Settings"}
+        </button>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", borderBottom: "2px solid #E2E8F0", paddingBottom: 0 }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: "8px 14px", border: "none", background: "none", fontSize: 12, fontWeight: activeTab === t.id ? 700 : 400,
+            color: activeTab === t.id ? "#2563EB" : "#64748B", cursor: "pointer",
+            borderBottom: activeTab === t.id ? "2px solid #2563EB" : "2px solid transparent",
+            marginBottom: -2, transition: "all 0.12s",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── DROPDOWNS ── */}
+      {activeTab === "dropdowns" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Service Options">
+            <OptionListEditor label="Services (shown in all Service dropdowns)" value={cfg.serviceOptions} onChange={v => set("serviceOptions", v)} />
+          </Card>
+          <Card title="Status / Pipeline Stages">
+            <OptionListEditor label="Statuses (the stages in your pipeline)" value={cfg.statusOptions} onChange={v => set("statusOptions", v)} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 16 }}>
+              <TextField label="Won Stage Name (used for conversions & XP)" cfgKey="wonStage" />
+              <TextField label="Lost Stage Name (used for SLA & auto-rules)" cfgKey="lostStage" />
+            </div>
+          </Card>
+          <Card title="Lead Sources">
+            <OptionListEditor label="Sources" value={cfg.sourceOptions} onChange={v => set("sourceOptions", v)} />
+          </Card>
+          <Card title="Lost Reasons">
+            <OptionListEditor label="Lost Reasons" value={cfg.lostOptions} onChange={v => set("lostOptions", v)} />
+          </Card>
+          <Card title="Priority Levels">
+            <OptionListEditor label="Priorities (highest last, VIP first)" value={cfg.priorityOptions} onChange={v => set("priorityOptions", v)} />
+          </Card>
+          <Card title="Staff / Assigned To">
+            <OptionListEditor label="Staff Members" value={cfg.staffOptions} onChange={v => set("staffOptions", v)} />
+          </Card>
+          <Card title="Tags">
+            <OptionListEditor label="Tag Options" value={cfg.tagOptions} onChange={v => set("tagOptions", v)} />
+          </Card>
+          <Card title="Doc Checklist Items">
+            <OptionListEditor label="Required Documents (shown in lead detail drawer)" value={cfg.docChecklistItems} onChange={v => set("docChecklistItems", v)} />
+          </Card>
+          <Card title="Snooze & Recurrence Options">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Snooze Options (days)</label>
+                <input value={(cfg.snoozeOptions || []).join(", ")} onChange={e => set("snoozeOptions", e.target.value.split(",").map(x => Number(x.trim())).filter(Boolean))} style={inputStyle} placeholder="1, 3, 7, 14" />
+              </div>
+              <div>
+                <label style={labelStyle}>Recurrence Options (days)</label>
+                <input value={(cfg.recurrenceOptions || []).join(", ")} onChange={e => set("recurrenceOptions", e.target.value.split(",").map(x => Number(x.trim())).filter(Boolean))} style={inputStyle} placeholder="3, 7, 14, 30" />
+              </div>
+            </div>
+          </Card>
+          <Card title="Currency">
+            <TextField label="Currency Label (e.g. AED, USD, EUR)" cfgKey="currencyLabel" />
+          </Card>
+        </div>
+      )}
+
+      {/* ── COLORS ── */}
+      {activeTab === "colors" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Pipeline Stage Colors">
+            <ColorMapEditor label="Stage → Color" value={cfg.stageColors}
+              keys={cfg.statusOptions || DEFAULT_LEADS_SETTINGS.statusOptions}
+              onChange={v => set("stageColors", v)} />
+          </Card>
+          <Card title="Priority Colors">
+            <ColorMapEditor label="Priority → Color" value={cfg.priorityColors}
+              keys={cfg.priorityOptions || DEFAULT_LEADS_SETTINGS.priorityOptions}
+              onChange={v => set("priorityColors", v)} />
+          </Card>
+          <Card title="Score Colors">
+            <ColorMapEditor label="Score Label → Color" value={cfg.scoreColors}
+              keys={["Hot", "Warm", "Cold"]}
+              onChange={v => set("scoreColors", v)} />
+          </Card>
+        </div>
+      )}
+
+      {/* ── THRESHOLDS ── */}
+      {activeTab === "thresholds" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Follow-up Thresholds">
+            <NumField label="Follow-up 'Soon' window (days — shown as blue pill)" cfgKey="followUpSoonDays" min={1} max={30} />
+          </Card>
+          <Card title="SLA / Response Time">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <NumField label="SLA Warning (hours since last contact → yellow)" cfgKey="slaWarningHours" min={1} max={240} />
+              <NumField label="SLA Breach (hours since last contact → red)" cfgKey="slaBreachHours" min={1} max={720} />
+            </div>
+          </Card>
+          <Card title="Lead Health Score Thresholds">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <NumField label="Healthy threshold (score ≥ → green Healthy)" cfgKey="healthThresholdHealthy" min={0} max={100} />
+              <NumField label="Attention threshold (score ≥ → yellow; below → red Neglected)" cfgKey="healthThresholdAttention" min={0} max={100} />
+            </div>
+          </Card>
+          <Card title="Stage Age Pills">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <NumField label="Warn after (days in stage → yellow)" cfgKey="stageAgeWarnDays" min={1} max={90} />
+              <NumField label="Danger after (days in stage → red)" cfgKey="stageAgeDangerDays" min={1} max={180} />
+            </div>
+          </Card>
+          <Card title="Temperature Algorithm">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <NumField label="Decay rate (pts/day inactivity)" cfgKey="tempDecayRate" min={0} max={20} />
+              <NumField label="Boost: follow-up upcoming (green)" cfgKey="tempBoostGreen" min={0} max={50} />
+              <NumField label="Boost: follow-up soon (blue)" cfgKey="tempBoostBlue" min={0} max={50} />
+              <NumField label="Penalty: overdue follow-up (red)" cfgKey="tempPenaltyRed" min={0} max={50} />
+              <NumField label="Boost: VIP priority" cfgKey="tempBoostVIP" min={0} max={50} />
+              <NumField label="Boost: High priority" cfgKey="tempBoostHigh" min={0} max={50} />
+              <NumField label="Boost: high-value lead" cfgKey="tempBoostValue" min={0} max={50} />
+              <NumField label="Boost: contacted ≤1 day ago" cfgKey="tempBoostContact1d" min={0} max={50} />
+              <NumField label="Boost: contacted ≤3 days ago" cfgKey="tempBoostContact3d" min={0} max={50} />
+              <NumField label="High-value threshold (currency units)" cfgKey="highValueThreshold" min={0} max={1000000} step={1000} />
+            </div>
+          </Card>
+          <Card title="Temperature Labels">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <NumField label="🔥 Hot threshold (score ≥)" cfgKey="tempHotThreshold" min={0} max={100} />
+              <NumField label="🌡 Warm threshold (score ≥)" cfgKey="tempWarmThreshold" min={0} max={100} />
+              <NumField label="❄ Cool threshold (score ≥; below = 🧊 Cold)" cfgKey="tempCoolThreshold" min={0} max={100} />
+            </div>
+          </Card>
+          <Card title="Pipeline Health Score Weights (must total 100)">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <NumField label="Overdue weight" cfgKey="healthWeightOverdue" min={0} max={100} />
+              <NumField label="Stale weight" cfgKey="healthWeightStale" min={0} max={100} />
+              <NumField label="Duplicates weight" cfgKey="healthWeightDupes" min={0} max={100} />
+              <NumField label="Unassigned weight" cfgKey="healthWeightUnassigned" min={0} max={100} />
+              <NumField label="No-value weight" cfgKey="healthWeightNoValue" min={0} max={100} />
+              <NumField label="Healthy score (≥ → green)" cfgKey="healthScoreGood" min={0} max={100} />
+              <NumField label="Attention score (≥ → yellow; below → red critical)" cfgKey="healthScoreWarn" min={0} max={100} />
+            </div>
+          </Card>
+          <Card title="Display Defaults">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Default Display Mode</label>
+                <select value={cfg.defaultDisplayMode || "table"} onChange={e => set("defaultDisplayMode", e.target.value)} style={inputStyle}>
+                  <option value="table">Table</option>
+                  <option value="kanban">Kanban</option>
+                </select>
+              </div>
+              <NumField label="Default Page Size" cfgKey="defaultPageSize" min={5} max={200} step={5} />
+            </div>
+          </Card>
+          <Card title="Heatmap">
+            <NumField label="Heatmap days to show" cfgKey="heatmapDays" min={7} max={365} step={7} />
+          </Card>
+          <Card title="Goal Tracker Defaults">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Won target (count)</label>
+                <input type="number" min={1} value={cfg.goalDefaults?.wonTarget ?? 10}
+                  onChange={e => set("goalDefaults", { ...(cfg.goalDefaults || {}), wonTarget: Number(e.target.value) })}
+                  style={{ ...inputStyle, width: 100 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Revenue target</label>
+                <input type="number" min={0} step={1000} value={cfg.goalDefaults?.revenueTarget ?? 100000}
+                  onChange={e => set("goalDefaults", { ...(cfg.goalDefaults || {}), revenueTarget: Number(e.target.value) })}
+                  style={{ ...inputStyle, width: 120 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Leads target (count)</label>
+                <input type="number" min={1} value={cfg.goalDefaults?.leadsTarget ?? 30}
+                  onChange={e => set("goalDefaults", { ...(cfg.goalDefaults || {}), leadsTarget: Number(e.target.value) })}
+                  style={{ ...inputStyle, width: 100 }} />
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── FUN LAYER ── */}
+      {activeTab === "funlayer" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Fun Layer Toggles">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <BoolField label="XP System" desc="Enable experience points for adding, winning, and converting leads" cfgKey="xpEnabled" />
+              <BoolField label="Confetti" desc="Confetti explosion when a lead is Won" cfgKey="confettiEnabled" />
+              <BoolField label="Achievements" desc="Show achievement shelf with unlockable badges" cfgKey="achievementsEnabled" />
+              <BoolField label="Vibe Bar" desc="Daily motivational vibe bar at the top of the Leads tab" cfgKey="vibeBarEnabled" />
+            </div>
+          </Card>
+          <Card title="XP Values">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <NumField label="XP per lead added" cfgKey="xpPerAdd" min={0} max={500} />
+              <NumField label="XP per Won lead" cfgKey="xpPerWin" min={0} max={500} />
+              <NumField label="XP per conversion" cfgKey="xpPerConvert" min={0} max={500} />
+              <NumField label="XP per stage move" cfgKey="xpPerStageMove" min={0} max={100} />
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── VISIBILITY ── */}
+      {activeTab === "visibility" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Widget Visibility">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <BoolField label="Stat Cards Row" desc="Show pipeline stage stat cards at the top" cfgKey="showStatCards" />
+              <BoolField label="Duplicates Stat Card" desc="Show the Dupes count card" cfgKey="showDupesCard" />
+              <BoolField label="Overdue Stat Card" desc="Show the Overdue follow-ups count card" cfgKey="showOverdueCard" />
+              <BoolField label="Lost Reasons Breakdown" desc="Show the lost reasons footer section" cfgKey="showLostReasons" />
+              <BoolField label="Speed Dial" desc="Show the floating quick-action speed dial button" cfgKey="showSpeedDial" />
+            </div>
+          </Card>
+          <Card title="Stat Card Count">
+            <NumField label="Number of pipeline stat cards to show (max 6)" cfgKey="statCardCount" min={1} max={6} />
+          </Card>
+          <Card title="Analytics Menu Items">
+            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>Toggle which items appear in the Analytics (⚡) dropdown menu.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {Object.entries(cfg.analyticsItems || DEFAULT_LEADS_SETTINGS.analyticsItems).map(([key, val]) => (
+                <Toggle key={key} label={key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase())} checked={!!val}
+                  onChange={v => set("analyticsItems", { ...(cfg.analyticsItems || DEFAULT_LEADS_SETTINGS.analyticsItems), [key]: v })} />
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── MESSAGES ── */}
+      {activeTab === "messages" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Add Lead Toast Messages">
+            <ToastListEditor label="Shown randomly when a lead is added" cfgKey="addToasts" />
+          </Card>
+          <Card title="Won Lead Toast Messages">
+            <ToastListEditor label="Shown randomly when a lead is Won" cfgKey="winToasts" />
+          </Card>
+          <Card title="Convert Lead Toast Messages">
+            <ToastListEditor label="Shown randomly when a lead is converted to client" cfgKey="convertToasts" />
+          </Card>
+          <Card title="Next Action Messages">
+            <NextActionEditor />
+          </Card>
+          <Card title="WhatsApp Templates">
+            <WATemplatesEditor />
+          </Card>
+        </div>
+      )}
+
+      {/* ── ACTIONS & AUTO RULES ── */}
+      {activeTab === "actions" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Auto Rules">
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <BoolField label="Enable Auto Rules" desc="Automatically move stale leads to Lost and escalate Won leads to VIP" cfgKey="autoRulesEnabled" />
+              {cfg.autoRulesEnabled !== false && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  <NumField label="Auto-Lost after (days in New with no activity)" cfgKey="autoLostDays" min={1} max={365} />
+                  <NumField label="Auto-escalate to VIP after (days in Won stage)" cfgKey="autoEscalateDays" min={1} max={90} />
+                </div>
+              )}
+            </div>
+          </Card>
+          <div style={{ background: "#F0FDF4", borderRadius: 12, padding: 20, border: "1px solid #BBF7D0" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46", marginBottom: 6 }}>💡 How settings apply</div>
+            <div style={{ fontSize: 12, color: "#047857", lineHeight: 1.6 }}>
+              Settings are saved to localStorage under <code>crm_leads_settings</code> and applied instantly to the Leads Tab via a custom event. No page reload needed. The Leads Tab re-reads settings whenever you save here.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save button at bottom too */}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10, borderTop: "1px solid #E2E8F0" }}>
+        <button onClick={resetCfg} style={{ padding: "7px 14px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          ↺ Reset to Defaults
+        </button>
+        <button onClick={saveCfg} disabled={saving} style={{ padding: "8px 22px", background: saving ? "#94A3B8" : "#10B981", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
+          {saving ? "Saving…" : "💾 Save Leads Settings"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -615,19 +1220,45 @@ function NotificationsSection({ notifPrefs, setNotifPrefs }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Data Section
 // ─────────────────────────────────────────────────────────────────────────────
+// #22 real CSV export helper
+function toCSV(rows) {
+  if (!rows || rows.length === 0) return "";
+  const keys = Object.keys(rows[0]);
+  const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  return [keys.join(","), ...rows.map(r => keys.map(k => escape(r[k])).join(","))].join("\n");
+}
+
 function DataSection({ data }) {
   const counts = { Leads: data?.leads?.length, Clients: data?.clients?.length, Tasks: data?.tasks?.length, Invoices: data?.accounting?.length, Inventory: data?.inventory?.length };
+  const dataMap = { Leads: data?.leads, Clients: data?.clients, Tasks: data?.tasks, Invoices: data?.accounting, Inventory: data?.inventory };
+
+  const exportData = (label) => {
+    let csv = "";
+    if (label === "All Data") {
+      csv = Object.entries(dataMap).map(([k, rows]) => `# ${k}\n${toCSV(rows || [])}`).join("\n\n");
+    } else {
+      csv = toCSV(dataMap[label] || []);
+    }
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${label.toLowerCase().replace(/ /g, "-")}-export.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast(`Exported ${label}`, "success");
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Export Data">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {Object.entries(counts).concat([["All Data", "All"]]).map(([label, count]) => (
             <button key={label}
-              onClick={() => { const csv = `data:text/csv;charset=utf-8,${label}\n`; const a = document.createElement("a"); a.href = encodeURI(csv); a.download = `${label.toLowerCase()}-export.csv`; a.click(); toast(`Exporting ${label}…`, "info"); }}
-              style={{ padding: 16, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, cursor: "pointer", textAlign: "center" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
-              onMouseLeave={e => e.currentTarget.style.background = "#F8FAFC"}
+              onClick={() => exportData(label)}
+              style={{ padding: 16, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, cursor: "pointer", textAlign: "center", transition: "all 0.12s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#EFF6FF"; e.currentTarget.style.borderColor = "#93C5FD"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#F8FAFC"; e.currentTarget.style.borderColor = "#E2E8F0"; }}
             >
+              <div style={{ fontSize: 20, marginBottom: 6 }}>📥</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{label}</div>
               <div style={{ fontSize: 11, color: "#64748B" }}>{typeof count === "number" ? `${count} records` : count}</div>
             </button>
@@ -661,11 +1292,33 @@ function TeamSection({ currentUser, onRoleChange }) {
     { id: 3, name: "Omar Ahmed",    email: "omar@company.com",  role: "Accountant", status: "Active" },
     { id: 4, name: "Layla Hassan",  email: "layla@company.com", role: "Operations", status: "Inactive" },
   ]);
+  // #15a member search
+  const [memberSearch, setMemberSearch] = useState("");
+
+  const filtered = members.filter(m =>
+    !memberSearch ||
+    m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
+    m.email.toLowerCase().includes(memberSearch.toLowerCase()) ||
+    m.role.toLowerCase().includes(memberSearch.toLowerCase())
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Team Members">
+        {/* #15a search bar */}
+        <div style={{ position: "relative", marginBottom: 14 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.4, pointerEvents: "none" }}>🔍</span>
+          <input
+            type="search" placeholder="Search members…" value={memberSearch}
+            onChange={e => setMemberSearch(e.target.value)}
+            style={{ width: "100%", padding: "7px 10px 7px 30px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, outline: "none", boxSizing: "border-box", background: "#F8FAFC" }}
+          />
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {members.map(m => (
+          {filtered.length === 0 && (
+            <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 20 }}>No members match</div>
+          )}
+          {filtered.map(m => (
             <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
               <div style={{ width: 38, height: 38, borderRadius: "50%", background: ROLE_COLORS[m.role] || "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
                 {m.name.split(" ").map(n => n[0]).join("")}
@@ -685,6 +1338,18 @@ function TeamSection({ currentUser, onRoleChange }) {
             </div>
           ))}
         </div>
+        {/* #15b invite link */}
+        <div style={{ marginTop: 16, padding: "12px 14px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#065F46" }}>Invite Link</div>
+            <div style={{ fontSize: 11, color: "#047857" }}>Share with new team members</div>
+          </div>
+          <button
+            onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/?invite=abc123`).catch(() => {}); toast("Invite link copied!", "success"); }}
+            style={{ padding: "6px 14px", background: "#16A34A", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            📋 Copy Link
+          </button>
+        </div>
       </Card>
     </div>
   );
@@ -695,14 +1360,32 @@ function TeamSection({ currentUser, onRoleChange }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Security Section
 // ─────────────────────────────────────────────────────────────────────────────
+// #16 password strength calculator
+function passwordStrength(pw) {
+  if (!pw) return { score: 0, label: "", color: "#E2E8F0" };
+  let score = 0;
+  if (pw.length >= 8)  score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  const labels = ["", "Weak", "Fair", "Good", "Strong", "Very Strong"];
+  const colors  = ["#E2E8F0", "#EF4444", "#F59E0B", "#3B82F6", "#10B981", "#065F46"];
+  return { score, label: labels[score] || "Very Strong", color: colors[Math.min(score, 5)] };
+}
+
 function SecuritySection() {
   const [passwords, setPasswords] = useState({ current: "", next: "", confirm: "" });
   const [twoFA, setTwoFA] = useState(false);
+  // #17 show/hide password toggles
+  const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const [sessions] = useState([
     { id: 1, device: "Chrome on Windows", location: "Dubai, UAE", last: "Just now", current: true },
     { id: 2, device: "Safari on iPhone",  location: "Dubai, UAE", last: "2 hours ago", current: false },
     { id: 3, device: "Firefox on macOS",  location: "Riyadh, SA", last: "3 days ago", current: false },
   ]);
+
+  const strength = passwordStrength(passwords.next);
 
   const handlePasswordChange = () => {
     if (!passwords.current) return toast("Enter your current password", "error");
@@ -719,13 +1402,29 @@ function SecuritySection() {
           {[["current", "Current Password"], ["next", "New Password"], ["confirm", "Confirm New Password"]].map(([key, label]) => (
             <div key={key}>
               <label style={labelStyle}>{label}</label>
-              <input
-                type="password"
-                value={passwords[key]}
-                onChange={e => setPasswords(p => ({ ...p, [key]: e.target.value }))}
-                placeholder="••••••••"
-                style={inputStyle}
-              />
+              {/* #17 show/hide toggle */}
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPw[key] ? "text" : "password"}
+                  value={passwords[key]}
+                  onChange={e => setPasswords(p => ({ ...p, [key]: e.target.value }))}
+                  placeholder="••••••••"
+                  style={{ ...inputStyle, paddingRight: 40, boxSizing: "border-box" }}
+                />
+                <button type="button" onClick={() => setShowPw(p => ({ ...p, [key]: !p[key] }))}
+                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#94A3B8", padding: 0, lineHeight: 1 }}>
+                  {showPw[key] ? "🙈" : "👁"}
+                </button>
+              </div>
+              {/* #16 strength meter for new password */}
+              {key === "next" && passwords.next && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ height: 4, borderRadius: 2, background: "#E2E8F0", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(strength.score / 5) * 100}%`, background: strength.color, transition: "width 0.3s, background 0.3s", borderRadius: 2 }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: strength.color, fontWeight: 600, marginTop: 3 }}>{strength.label}</div>
+                </div>
+              )}
             </div>
           ))}
           <button
@@ -777,6 +1476,11 @@ function SecuritySection() {
 function SystemSection({ dark }) {
   const [cacheCleared, setCacheCleared] = useState(false);
 
+  // #18 compute actual localStorage usage
+  const lsKeys = Object.keys(localStorage).filter(k => k.startsWith("crm_"));
+  const lsBytes = lsKeys.reduce((sum, k) => sum + (localStorage.getItem(k) || "").length, 0);
+  const lsKB = (lsBytes / 1024).toFixed(1);
+
   const clearCache = () => {
     try { localStorage.removeItem("crm_settings_profile"); localStorage.removeItem("crm_settings_workflows"); localStorage.removeItem("crm_settings_notifications"); } catch {}
     setCacheCleared(true);
@@ -789,9 +1493,10 @@ function SystemSection({ dark }) {
     ["Build",             "20250528-stable"],
     ["Environment",       "Production"],
     ["Theme",             dark ? "Dark" : "Light"],
-    ["Browser",           navigator?.userAgent?.split(" ").slice(-1)[0] ?? "Unknown"],
+    ["Browser",           navigator?.vendor || navigator?.userAgent?.split(" ").slice(-1)[0] || "Unknown"],
     ["Viewport",          `${window.innerWidth} × ${window.innerHeight}px`],
-    ["Local Storage",     `${Object.keys(localStorage).filter(k => k.startsWith("crm_")).length} CRM keys stored`],
+    ["Device Pixel Ratio", `${window.devicePixelRatio}×`],
+    ["Storage Used",      `${lsKB} KB across ${lsKeys.length} CRM keys`],
   ];
 
   return (
@@ -804,6 +1509,16 @@ function SystemSection({ dark }) {
               <span style={{ fontSize: 12, color: "#0F172A", fontWeight: 600, fontFamily: "monospace" }}>{value}</span>
             </div>
           ))}
+          {/* #18 Storage bar */}
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: "#64748B" }}>localStorage budget</span>
+              <span style={{ fontSize: 11, color: "#0F172A", fontFamily: "monospace" }}>{lsKB} KB / ~5000 KB</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 3, background: "#E2E8F0", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min((lsBytes / (5 * 1024 * 1024)) * 100, 100)}%`, background: lsBytes > 4000000 ? "#EF4444" : lsBytes > 2000000 ? "#F59E0B" : "#10B981", borderRadius: 3, transition: "width 0.5s" }} />
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -821,7 +1536,15 @@ function SystemSection({ dark }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {[
             { label: "Run connectivity check", icon: "🌐", action: () => toast("Connection: OK (12ms)", "success") },
-            { label: "Export diagnostic report", icon: "📋", action: () => toast("Diagnostic report copied to clipboard", "info") },
+            {
+              label: "Copy diagnostic report",
+              icon: "📋",
+              action: () => {
+                const report = info.map(([k,v]) => `${k}: ${v}`).join("\n");
+                navigator.clipboard?.writeText(report).catch(() => {});
+                toast("Diagnostic report copied to clipboard", "info");
+              }
+            },
             { label: "Reload application", icon: "🔄", action: () => window.location.reload() },
           ].map(({ label, icon, action }) => (
             <button key={label} onClick={action}
@@ -1365,20 +2088,39 @@ function LogoUpload({ cfg, set }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-function Card({ title, children }) {
+// #19 Collapsible Card component
+function Card({ title, children, collapsible = false, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ background: "#fff", borderRadius: 12, padding: 24, border: "1px solid #E2E8F0", marginBottom: 0 }}>
-      {title && <h3 style={{ fontSize: 14, fontWeight: 600, color: "#0F172A", margin: "0 0 18px" }}>{title}</h3>}
-      {children}
+    <div style={{ background: "#fff", borderRadius: 12, padding: collapsible && !open ? "16px 24px" : 24, border: "1px solid #E2E8F0", marginBottom: 0, transition: "padding 0.15s" }}>
+      {title && (
+        <div
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: open ? 18 : 0, cursor: collapsible ? "pointer" : "default" }}
+          onClick={collapsible ? () => setOpen(o => !o) : undefined}
+        >
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: "#0F172A", margin: 0 }}>{title}</h3>
+          {collapsible && (
+            <span style={{ fontSize: 12, color: "#94A3B8", transition: "transform 0.15s", display: "inline-block", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}>▾</span>
+          )}
+        </div>
+      )}
+      {(!collapsible || open) && children}
     </div>
   );
 }
 
+// #20 Toggle with keyboard accessibility (space/enter) and focus ring
 function Toggle({ label, desc, checked, onChange }) {
   return (
     <label style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", padding: "6px 0" }}>
-      <div onClick={() => onChange(!checked)}
-        style={{ width: 40, height: 22, borderRadius: 11, background: checked ? "#3B82F6" : "#E2E8F0", position: "relative", transition: "background 0.2s", flexShrink: 0, cursor: "pointer" }}>
+      <div
+        role="switch" aria-checked={checked} tabIndex={0}
+        onClick={() => onChange(!checked)}
+        onKeyDown={e => (e.key === " " || e.key === "Enter") && onChange(!checked)}
+        style={{ width: 40, height: 22, borderRadius: 11, background: checked ? "#3B82F6" : "#E2E8F0", position: "relative", transition: "background 0.2s", flexShrink: 0, cursor: "pointer", outline: "none" }}
+        onFocus={e => e.currentTarget.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.35)"}
+        onBlur={e => e.currentTarget.style.boxShadow = "none"}
+      >
         <div style={{ position: "absolute", top: 3, left: checked ? 21 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
       </div>
       <div>
@@ -1390,4 +2132,6 @@ function Toggle({ label, desc, checked, onChange }) {
 }
 
 const labelStyle = { display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.4px" };
-const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none" };
+
+// #21 inputStyle with focus handler (applied via onFocus/onBlur where used)
+const inputStyle = { width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", transition: "border-color 0.15s", boxSizing: "border-box" };

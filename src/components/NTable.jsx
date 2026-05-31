@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { B } from "../constants";
 import Avatar from "./Avatar";
 import FormModal from "./FormModal";
@@ -30,6 +30,7 @@ const NTable = ({
   onSelection,
   emptyText   = "No records found",
   dense       = false,
+  stickyFirst = false,
   maxHeight   = "calc(100vh - 370px)",
   zebra       = false,
 }) => {
@@ -49,7 +50,7 @@ const NTable = ({
     }
   }, [sortKey, sortable]);
 
-  const sortedRows = sortKey
+  const sortedRows = useMemo(() => sortKey
     ? [...rows].sort((a, b) => {
         const av = a[sortKey] ?? "";
         const bv = b[sortKey] ?? "";
@@ -58,7 +59,8 @@ const NTable = ({
           : String(av).localeCompare(String(bv), undefined, { numeric: true });
         return sortDir === "asc" ? cmp : -cmp;
       })
-    : rows;
+    : rows,
+  [rows, sortKey, sortDir]);
 
   const toggleRow = (id) => {
     setSelected(prev => {
@@ -145,10 +147,13 @@ const NTable = ({
                 </th>
               )}
               <th style={{ ...thBase(false), width: 38 }}>#</th>
-              {cols.map(c => (
+              {cols.map((c, ci) => (
                 <th key={c.key}
                   onClick={() => handleSort(c.key)}
-                  style={thBase(sortKey === c.key)}
+                  style={{
+                    ...thBase(sortKey === c.key),
+                    ...(stickyFirst && ci === 0 ? { position: "sticky", left: 0, zIndex: 3, boxShadow: "2px 0 4px rgba(0,0,0,0.06)" } : {}),
+                  }}
                 >
                   {c.label}<SortIcon colKey={c.key} />
                 </th>
@@ -180,7 +185,7 @@ const NTable = ({
                 borderBottom: "1px solid #F1F5F9",
                 verticalAlign: "middle",
                 transition: "background 0.12s",
-                background: isSel ? "#EFF6FF" : undefined,
+                background: isSel ? "#EFF6FF" : (zebra && i % 2 === 1 ? "#FAFBFE" : undefined),
               };
 
               return (
@@ -216,10 +221,11 @@ const NTable = ({
                     </span>
                   </td>
 
-                  {cols.map(c => (
+                  {cols.map((c, ci) => (
                     <td key={c.key} style={{
                       ...tdBase,
                       whiteSpace: "nowrap",
+                      ...(stickyFirst && ci === 0 ? { position: "sticky", left: 0, zIndex: 1, background: isSel ? "#EFF6FF" : (zebra && i % 2 === 1 ? "#FAFBFE" : "#fff"), boxShadow: "2px 0 4px rgba(0,0,0,0.04)" } : {}),
                     }}>
                       {c.key === "name" && r.name && !c.render ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

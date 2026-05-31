@@ -262,12 +262,13 @@ thead th {
     margin: -8px auto 16px;
   }
 
-  /* Modal form grids → single column */
-  [style*="grid-template-columns: 1fr 1fr"],
-  [style*="grid-template-columns: repeat(4"] {
+  /* Modal form grids → single column (2-col forms only) */
+  [style*="grid-template-columns: 1fr 1fr"] {
     grid-template-columns: 1fr !important;
   }
-  [style*="grid-template-columns: repeat(4,1fr)"] {
+  /* 4-col grids (stat cards, funnels) → 2 cols, never 1 */
+  [style*="grid-template-columns: repeat(4,1fr)"],
+  [style*="grid-template-columns: repeat(4, 1fr)"] {
     grid-template-columns: repeat(2, 1fr) !important;
   }
 
@@ -578,8 +579,215 @@ thead th {
 
 
 /* ══════════════════════════════════════════════════════════════════
-   §10  GLOBAL POLISH  (all screen sizes)
+   §11  OVERRIDES — fix mobile-tabs.css over-aggressiveness
 ══════════════════════════════════════════════════════════════════ */
+
+/* mobile-tabs.css hides all tables — too aggressive.
+   Re-show them inside section-card / ntable-wrap; let horizontal scroll handle overflow. */
+@media (max-width: 640px) {
+  .section-card table,
+  .ntable-wrap table,
+  [class*="section-card"] table {
+    display: table !important;
+    min-width: 680px !important;
+  }
+}
+
+/* ── FAB (Floating Action Button) — shown on mobile ── */
+@media (max-width: 640px) {
+  /* The FAB is injected via .mobile-fab class — add Lead shortcut */
+  .mobile-fab {
+    position: fixed;
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px) + 12px);
+    right: 16px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #1a2f4a;
+    color: #fff;
+    font-size: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(26,47,74,0.45);
+    z-index: 49;
+    border: none;
+    cursor: pointer;
+    font-weight: 300;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .mobile-fab:active {
+    transform: scale(0.93);
+    box-shadow: 0 2px 8px rgba(26,47,74,0.3);
+  }
+}
+
+/* ── Lead card mobile view — matches image card design ── */
+@media (max-width: 640px) {
+  .lead-mobile-card {
+    background: #fff;
+    border: 1px solid #E8EDF3;
+    border-radius: 14px;
+    padding: 14px 14px 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    position: relative;
+  }
+  .lead-mobile-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .lead-mobile-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .lead-mobile-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0F172A;
+  }
+  .lead-mobile-sub {
+    font-size: 11px;
+    color: #64748B;
+    margin-top: 1px;
+  }
+  .lead-mobile-badges {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .lead-mobile-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #F1F5F9;
+  }
+  .lead-mobile-action-btn {
+    flex: 1;
+    min-height: 36px;
+    border-radius: 8px;
+    border: 1px solid #E2E8F0;
+    background: #F8FAFC;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .lead-mobile-action-btn:active {
+    background: #EFF6FF;
+    border-color: #BFDBFE;
+    color: #1D4ED8;
+  }
+}
+
+/* ── Action queue cards (Dashboard home) ── */
+@media (max-width: 640px) {
+  .action-queue-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: #fff;
+    border: 1px solid #E8EDF3;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .action-queue-item:active {
+    background: #F8FAFC;
+  }
+  .action-queue-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .action-queue-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 11px;
+    background: #1a2f4a;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 0 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+}
+
+/* ── Topbar search: show on mobile as icon-only ── */
+@media (max-width: 640px) {
+  .app-search-wrap input {
+    font-size: 16px !important; /* prevent iOS zoom */
+  }
+  /* Show a compact search - topbar search hidden, use icon */
+  .app-topbar .app-search {
+    display: none !important;
+  }
+  /* Show search icon in topbar instead */
+  .topbar-search-icon-mobile {
+    display: flex !important;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+}
+@media (min-width: 641px) {
+  .topbar-search-icon-mobile { display: none !important; }
+}
+
+/* ── Pipeline snapshot bar (mobile horizontal scroll) ── */
+@media (max-width: 640px) {
+  .pipeline-snapshot-bar {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 8px !important;
+    padding-bottom: 6px !important;
+    scrollbar-width: none !important;
+  }
+  .pipeline-snapshot-bar::-webkit-scrollbar { display: none; }
+  .pipeline-snapshot-item {
+    flex-shrink: 0 !important;
+    min-width: 80px !important;
+  }
+}
+
 
 /* Subtle focus ring for keyboard navigation */
 :focus-visible {
