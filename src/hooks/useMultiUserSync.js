@@ -17,7 +17,7 @@ const CHANNEL_NAME = "crm_multiuser_sync";
 const LOCK_TIMEOUT = 30000; // 30 seconds
 const HEARTBEAT_INTERVAL = 10000; // 10 seconds
 
-export function useMultiUserSync(userId, userName, userRole) {
+export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
   const [activeUsers, setActiveUsers] = useState([]);
   const [tabLocks, setTabLocks] = useState({});
   const [conflicts, setConflicts] = useState([]);
@@ -25,6 +25,8 @@ export function useMultiUserSync(userId, userName, userRole) {
   const heartbeatRef = useRef(null);
   const locksRef = useRef({});
   const activityLogRef = useRef([]);
+  const onDataUpdateRef = useRef(onDataUpdate);
+  useEffect(() => { onDataUpdateRef.current = onDataUpdate; }, [onDataUpdate]);
 
   // Initialize BroadcastChannel
   useEffect(() => {
@@ -316,10 +318,9 @@ export function useMultiUserSync(userId, userName, userRole) {
   // Handle data update from other users
   const handleDataUpdate = useCallback((payload) => {
     if (payload.userId === userId) return;
-    
-    // This would trigger a callback to update local state
-    // For now, we just log it
-    console.log("Data update received:", payload);
+    if (typeof onDataUpdateRef.current === "function") {
+      onDataUpdateRef.current(payload);
+    }
   }, [userId]);
 
   // Handle conflict detection

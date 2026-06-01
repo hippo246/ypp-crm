@@ -1371,7 +1371,7 @@ const CONVERT_TOASTS   = ["Lead converted to client.", "Client record created.",
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function LeadsTab({ search }) {
-  const { data, setData } = useAppData();
+  const { data, setData, dispatch } = useAppData();
   // ── Load live settings from localStorage (SettingsTab writes here) ───────────
   const cfg = useLeadsSettings();
   const { toasts, push: pushToast } = useLeadToasts();
@@ -1414,9 +1414,43 @@ export default function LeadsTab({ search }) {
   data.clients    ??= [];
   data.accounting ??= [];
 
-  // Multi-user sync integration
-  const currentUser = { userId: "user_1", userName: "Current User", userRole: "Admin" };
-  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole);
+  // Resolve current user: AppContext data.currentUser → localStorage yp_current_user → safe stub
+  const _ctxUser = data.currentUser ?? (() => {
+    try { return JSON.parse(localStorage.getItem("yp_current_user")); } catch { return null; }
+  })();
+  const currentUser = _ctxUser
+    ? { userId: _ctxUser.id || _ctxUser.userId || "user_1", userName: _ctxUser.name || _ctxUser.userName || "Current User", userRole: _ctxUser.role || _ctxUser.userRole || "Admin" }
+    : { userId: "user_1", userName: "Current User", userRole: "Admin" };
+
+  // When another tab broadcasts a data update, merge leads into local state
+  const handleRemoteDataUpdate = useCallback((payload) => {
+    if (payload.updateType === "lead_stage_change") {
+      const { leadId, newStage } = payload.data;
+      const today = new Date().toISOString().slice(0, 10);
+      setData(prev => ({
+        ...prev,
+        leads: prev.leads.map(l =>
+          l.id !== leadId ? l : { ...l, status: newStage, updatedAt: today, timeline: [...(l.timeline || []), { date: today, text: `↔ Stage updated by ${payload.userName}: → ${newStage}` }] }
+        ),
+      }));
+    }
+  }, [setData]);
+
+  const { activeUsers, tabLocks, requestLock, releaseLock, broadcastUpdate, broadcastTabChange } = useMultiUserSync(currentUser.userId, currentUser.userName, currentUser.userRole, handleRemoteDataUpdate);
+
+  // Keep AppContext presence in sync with activeUsers from the sync hook
+  useEffect(() => {
+    dispatch({ type: "UPDATE_PRESENCE", payload: { userId: currentUser.userId, name: currentUser.userName, activeTab: "leads", lastSeen: Date.now() } });
+    return () => {
+      dispatch({ type: "REMOVE_PRESENCE", payload: { userId: currentUser.userId } });
+    };
+  }, [currentUser.userId, currentUser.userName, dispatch]);
+
+  useEffect(() => {
+    activeUsers.forEach(u => {
+      dispatch({ type: "UPDATE_PRESENCE", payload: { userId: u.userId, name: u.userName, activeTab: u.activeTab, lastSeen: u.lastSeen } });
+    });
+  }, [activeUsers, dispatch]);
 
   // Workflow integration
   const leadWorkflow = workflowEngine.getWorkflowByEntityType("lead");
@@ -1732,6 +1766,7 @@ export default function LeadsTab({ search }) {
   const [showSpeedDial,      setShowSpeedDial]       = useState(false);
   const [globalNote,         setGlobalNote]          = useState("");
   const [showPipelineHealth, setShowPipelineHealth]  = useState(false);
+  const [showPhoneTools,     setShowPhoneTools]      = useState(false);
   const [expandedCards,      setExpandedCards]       = useState(new Set());
   // Exclusive expand: clicking "More" on one card collapses all others first
   const toggleCardExpand = (id, e) => { e.stopPropagation(); setExpandedCards(prev => { const wasOpen = prev.has(id); const n = new Set(); if (!wasOpen) n.add(id); return n; }); };
@@ -2811,9 +2846,9 @@ export default function LeadsTab({ search }) {
                   );
                 })}
               </div>
-              {/* Filter icon */}
-              <button onClick={() => {}} style={{ width: 34, height: 34, borderRadius: 8, background: "#fff", border: "1.5px solid #e8ecf1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <i className="ti ti-adjustments-horizontal" style={{ fontSize: 16, color: "#64748b" }} />
+              {/* Tools button — opens bottom sheet on phone */}
+              <button onClick={() => setShowPhoneTools(true)} style={{ width: 34, height: 34, borderRadius: 8, background: "#fff", border: "1.5px solid #e8ecf1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <i className="ti ti-tools" style={{ fontSize: 16, color: "#64748b" }} />
               </button>
               {/* + Add Lead FAB */}
               <button onClick={() => setAddModal(true)} style={{
@@ -2951,24 +2986,46 @@ export default function LeadsTab({ search }) {
             Add Lead
           </button>
 
-          {/* Analytics menu — right side */}
-          <AnalyticsMenu
-            isPhone={isPhone} dupeIds={dupeIds}
-            onMergeDupes={handleMergeDupes}
-            onReminders={() => setShowReminderCenter(true)}
-            onFunnel={() => setShowFunnel(true)}
-            onROI={() => setShowSourceROI(true)}
-            onStaffROI={() => setShowStaffROI(true)}
-            onForecast={() => setShowForecast(true)}
-            onHeatmap={() => setShowHeatmap(true)}
-            onFields={() => setShowCustomFields(true)}
-            onGoals={() => setShowGoalTracker(true)}
-            onWinLoss={() => setShowWinLossReport(true)}
-            onHealth={() => setShowPipelineHealth(true)}
-            onCompare={() => setShowLeadCompare(true)}
-            onColumns={() => setShowColumnPicker(true)}
-            onImport={() => setShowBulkImport(true)}
-          />
+          {/* Collaborators button — shows active user count, opens panel */}
+          {activeUsers.length > 0 && (
+            <button
+              onClick={() => setShowCollaborators(c => !c)}
+              title={`${activeUsers.length} collaborator${activeUsers.length !== 1 ? "s" : ""} active`}
+              style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 10px", borderRadius: 8, cursor: "pointer",
+                background: showCollaborators ? "#eff6ff" : "#fff",
+                border: `1.5px solid ${showCollaborators ? "#93c5fd" : "#e8ecf1"}`,
+                color: showCollaborators ? "#2563eb" : "#64748b",
+                fontSize: 11, fontWeight: 600, flexShrink: 0,
+                transition: "all 0.15s",
+              }}
+            >
+              <span style={{ display: "flex" }}>
+                {activeUsers.slice(0, 3).map((u, idx) => (
+                  <span key={u.userId} style={{
+                    width: 20, height: 20, borderRadius: 6,
+                    background: `hsl(${(u.userId.charCodeAt(0) * 37) % 360},55%,55%)`,
+                    color: "#fff", fontSize: 9, fontWeight: 800,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    marginLeft: idx > 0 ? -6 : 0,
+                    border: "2px solid #fff", flexShrink: 0,
+                  }}>
+                    {(u.userName || "?")[0].toUpperCase()}
+                  </span>
+                ))}
+              </span>
+              {activeUsers.length} online
+            </button>
+          )}
+
+          {/* Tools button — opens same bottom sheet as phone */}
+          <button onClick={() => setShowPhoneTools(true)} style={{ width: 32, height: 32, borderRadius: 7, background: "#fff", border: "1.5px solid #e8ecf1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#c7d2fe"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#e8ecf1"; }}
+            title="Tools">
+            <i className="ti ti-tools" style={{ fontSize: 15, color: "#64748b" }} />
+          </button>
         </div>
         )}
 
@@ -3003,6 +3060,47 @@ export default function LeadsTab({ search }) {
       </div>
 
       {/* ── Content ── */}
+      {/* Phone Tools bottom sheet */}
+      {showPhoneTools && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1200, display: "flex", flexDirection: "column", justifyContent: "flex-end" }} onClick={() => setShowPhoneTools(false)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(2,8,23,0.45)", backdropFilter: "blur(3px)" }} />
+          <div style={{ position: "relative", zIndex: 1, background: "#fff", borderRadius: "18px 18px 0 0", padding: "20px 20px 32px", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)" }} onClick={e => e.stopPropagation()}>
+            {/* Handle */}
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: "#e2e8f0", margin: "0 auto 18px" }} />
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", marginBottom: 14 }}>Tools</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              {[
+                { icon: "ti-chart-bar",         label: "Funnel",         action: () => { setShowFunnel(true);        setShowPhoneTools(false); } },
+                { icon: "ti-heart-rate-monitor", label: "Pipeline Health",action: () => { setShowPipelineHealth(true); setShowPhoneTools(false); } },
+                { icon: "ti-bell",               label: "Reminders",      action: () => { setShowReminderCenter(true); setShowPhoneTools(false); } },
+                { icon: "ti-upload",             label: "Import",         action: () => { setShowBulkImport(true);    setShowPhoneTools(false); } },
+                { icon: "ti-tag",                label: "Tag Manager",    action: () => { setShowTagManager(true);    setShowPhoneTools(false); } },
+                { icon: "ti-target",             label: "Goals",          action: () => { setShowGoalTracker(true);   setShowPhoneTools(false); } },
+                { icon: "ti-copy",               label: "Merge Dupes",    action: () => { handleMergeDupes();         setShowPhoneTools(false); } },
+                { icon: "ti-trending-up",        label: "Win/Loss",       action: () => { setShowWinLossReport(true); setShowPhoneTools(false); } },
+                { icon: "ti-currency-dollar",    label: "Source ROI",     action: () => { setShowSourceROI(true);     setShowPhoneTools(false); } },
+                { icon: "ti-users",              label: "Staff ROI",      action: () => { setShowStaffROI(true);      setShowPhoneTools(false); } },
+                { icon: "ti-chart-line",         label: "Forecast",       action: () => { setShowForecast(true);      setShowPhoneTools(false); } },
+                { icon: "ti-map-2",              label: "Heatmap",        action: () => { setShowHeatmap(true);       setShowPhoneTools(false); } },
+                { icon: "ti-adjustments",        label: "Custom Fields",  action: () => { setShowCustomFields(true);  setShowPhoneTools(false); } },
+                { icon: "ti-columns",            label: "Columns",        action: () => { setShowColumnPicker(true);  setShowPhoneTools(false); } },
+                { icon: "ti-git-compare",        label: "Compare",        action: () => { setShowLeadCompare(true);   setShowPhoneTools(false); } },
+              ].map(({ icon, label, action }) => (
+                <button key={label} onClick={action} style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "12px 14px", borderRadius: 10,
+                  background: "#f8fafc", border: "1.5px solid #e8ecf1",
+                  cursor: "pointer", textAlign: "left",
+                }}>
+                  <i className={`ti ${icon}`} style={{ fontSize: 18, color: "#4f46e5", flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#334155", lineHeight: 1.25 }}>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Kanban is desktop/tablet only — force table on phone */}
       {(displayMode === "kanban" && !isPhone) ? (
         <KanbanBoard
@@ -3015,6 +3113,8 @@ export default function LeadsTab({ search }) {
           onDetail={(lead) => { setDetailLead(lead); setHoverLead(null); }}
           onHover={(lead, pos) => { setHoverLead(lead); setHoverPos(pos); }}
           onHoverEnd={() => setHoverLead(null)}
+          tabLocks={tabLocks}
+          currentUser={currentUser}
           onSetFollowUp={(lead, date) => {
             const updated = data.leads.map(l => l.id === lead.id ? { ...l, followUpDate: date, updatedAt: new Date().toISOString().slice(0,10) } : l);
             setData({ ...data, leads: updated });
@@ -3692,12 +3792,14 @@ export default function LeadsTab({ search }) {
                         {/* Checkbox col */}
                         <th className="lt-th" style={{ width: 36, padding: "10px 10px" }}>
                           <input type="checkbox"
-                            style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13 }}
+                            style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13, opacity: (leadPageData.length > 0 && leadPageData.every(r => bulkSelected.has(r.id))) || bulkSelected.size > 0 ? 1 : 0, transition: "opacity 0.15s" }}
                             checked={leadPageData.length > 0 && leadPageData.every(r => bulkSelected.has(r.id))}
                             onChange={e => {
                               if (e.target.checked) setBulkSelected(new Set(leadPageData.map(r => r.id)));
                               else setBulkSelected(new Set());
                             }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                            onMouseLeave={e => { if (bulkSelected.size === 0) e.currentTarget.style.opacity = 0; }}
                           />
                         </th>
                         {[
@@ -3744,6 +3846,9 @@ export default function LeadsTab({ search }) {
                         const tempStyle   = tempLabel === "🔥 Hot" ? { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5" }
                                           : tempLabel === "🌡 Warm" ? { bg: "#fffbeb", color: "#d97706", border: "#fde68a" }
                                           : { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" };
+                        const lockKey     = `lead:${r.id}`;
+                        const lock        = tabLocks[lockKey];
+                        const isLockedByOther = lock && lock.userId !== currentUser.userId;
                         return (
                           <tr key={r.id} className={`lt-tr${isSel ? " lt-sel" : ""}`}
                             style={{ borderLeft: `3px solid ${stageColor}` }}>
@@ -3766,11 +3871,12 @@ export default function LeadsTab({ search }) {
                                   <div className="lt-sub" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>
                                     {r.phone || r.email || "No contact"}
                                   </div>
-                                  {(isDupe || isStale || isOverdue) && (
+                                  {(isDupe || isStale || isOverdue || isLockedByOther) && (
                                     <div style={{ marginTop: 3 }}>
                                       {isDupe    && <span className="lt-warn" style={{ background: "#faf5ff", color: "#7c3aed", borderColor: "#c4b5fd" }}>⚠ dupe</span>}
                                       {isStale   && <span className="lt-warn" style={{ background: "#fff7ed", color: "#c2410c", borderColor: "#fed7aa" }}>⏱ stale</span>}
                                       {isOverdue && <span className="lt-warn" style={{ background: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5" }}>🔴 overdue</span>}
+                                      {isLockedByOther && <span className="lt-warn" title={`Locked by ${lock.userName}`} style={{ background: "#fefce8", color: "#a16207", borderColor: "#fde68a" }}>🔒 {lock.userName}</span>}
                                     </div>
                                   )}
                                 </div>
@@ -4074,6 +4180,43 @@ export default function LeadsTab({ search }) {
       {showCallScheduler && <CallSchedulerModal lead={showCallScheduler} onSave={(date, note) => { handleChange(showCallScheduler.id, "followUpDate", date); if (note) handleAddNote(showCallScheduler.id, `Call scheduled: ${note}`); setShowCallScheduler(null); toast("Call scheduled!", "success"); }} onClose={() => setShowCallScheduler(null)} />}
       {showLeadCompare && compareSelected.length === 2 && <LeadCompareModal leads={compareSelected} onClose={() => { setShowLeadCompare(false); setCompareSelected([]); }} />}
       {showColumnPicker && <ColumnPickerModal cols={allCols} visibility={columnVisibility} onChange={setColumnVisibility} onClose={() => setShowColumnPicker(false)} />}
+
+      {/* ── Collaborators panel ── */}
+      {showCollaborators && activeUsers.length > 0 && (
+        <div style={{
+          position: "fixed", top: 60, right: 16, zIndex: 500,
+          background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 12,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.12)", minWidth: 240, maxWidth: 300,
+          padding: "14px 16px",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>
+              👥 {activeUsers.length} Online Now
+            </span>
+            <button onClick={() => setShowCollaborators(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 16, lineHeight: 1, padding: 0 }}>✕</button>
+          </div>
+          {activeUsers.map(u => (
+            <div key={u.userId} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderTop: "1px solid #f1f5f9" }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                background: `hsl(${(u.userId.charCodeAt(0) * 37) % 360},55%,55%)`,
+                color: "#fff", fontSize: 11, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {(u.userName || "?")[0].toUpperCase()}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.userName}</div>
+                <div style={{ fontSize: 10, color: "#94a3b8" }}>
+                  {u.userRole || ""}
+                  {u.activeTab ? ` · on ${u.activeTab}` : ""}
+                </div>
+              </div>
+              <span style={{ marginLeft: "auto", width: 8, height: 8, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} title="Active" />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Global Search (CMD+K) ── */}
       {showGlobalSearch && (
@@ -4900,7 +5043,7 @@ function LeadHoverCard({ lead, pos, staleLeads, dupeIds, cfg: cfgProp, onClose, 
 }
 
 // ─── Kanban Board ────────────────────────────────────────────────────────────────
-function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, onSetFollowUp, onHover, onHoverEnd, onDetail }) {
+function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, onSetFollowUp, onHover, onHoverEnd, onDetail, tabLocks, currentUser }) {
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [editFollowUp, setEditFollowUp] = useState(null);
@@ -4961,6 +5104,9 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                 const isDupe = dupeIds.has(lead.id);
                 const isStale = staleLeads.some((s) => s.id === lead.id);
                 const isEditingFU = editFollowUp === lead.id;
+                const kanbanLockKey = `lead:${lead.id}`;
+                const kanbanLock = tabLocks[kanbanLockKey];
+                const kanbanLockedByOther = kanbanLock && kanbanLock.userId !== currentUser.userId;
                 return (
                   <div
                     key={lead.id}
@@ -4991,6 +5137,7 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                           <span style={{ fontSize: 8, fontWeight: 800, color: PRIORITY_COLORS[lead.priority], background: PRIORITY_COLORS[lead.priority] + "18", borderRadius: 3, padding: "1px 4px" }}>{lead.priority}</span>
                         )}
                         {isDupe && <span title="Duplicate" style={{ fontSize: 9, color: "#f59e0b" }}>⚠</span>}
+                        {kanbanLockedByOther && <span title={`Locked by ${kanbanLock.userName}`} style={{ fontSize: 9, color: "#a16207" }}>🔒</span>}
                         <button onClick={e => { e.stopPropagation(); onEdit(lead); }}
                           style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#cbd5e1", padding: 0, lineHeight: 1 }} title="Edit">✏️</button>
                       </div>
