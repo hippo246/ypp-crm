@@ -618,14 +618,26 @@ function TabControlsSection({ viewMode: viewModeProp, setViewMode, preferences, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Leads Tab Settings Section — full control over every inch of LeadsTab
+// Leads Tab Settings Section — every DEFAULT_LEADS_SETTINGS key is editable
 // ─────────────────────────────────────────────────────────────────────────────
 const LEADS_SETTINGS_KEY = "crm_leads_settings";
 
 function loadLeadsCfg() {
   try {
     const saved = localStorage.getItem(LEADS_SETTINGS_KEY);
-    if (saved) return { ...DEFAULT_LEADS_SETTINGS, ...JSON.parse(saved) };
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        ...DEFAULT_LEADS_SETTINGS,
+        ...parsed,
+        stageColors:    { ...DEFAULT_LEADS_SETTINGS.stageColors,    ...(parsed.stageColors    || {}) },
+        priorityColors: { ...DEFAULT_LEADS_SETTINGS.priorityColors, ...(parsed.priorityColors || {}) },
+        scoreColors:    { ...DEFAULT_LEADS_SETTINGS.scoreColors,     ...(parsed.scoreColors    || {}) },
+        nextActions:    { ...DEFAULT_LEADS_SETTINGS.nextActions,     ...(parsed.nextActions    || {}) },
+        analyticsItems: { ...DEFAULT_LEADS_SETTINGS.analyticsItems,  ...(parsed.analyticsItems || {}) },
+        goalDefaults:   { ...DEFAULT_LEADS_SETTINGS.goalDefaults,    ...(parsed.goalDefaults   || {}) },
+      };
+    }
   } catch {}
   return { ...DEFAULT_LEADS_SETTINGS };
 }
@@ -633,19 +645,20 @@ function loadLeadsCfg() {
 function LeadsSettingsSection() {
   const [cfg, setCfg] = useState(loadLeadsCfg);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [activeTab, setActiveTab] = useState("dropdowns");
 
-  const set = (key, val) => setCfg(p => ({ ...p, [key]: val }));
-  const setNested = (key, subKey, val) => setCfg(p => ({ ...p, [key]: { ...p[key], [subKey]: val } }));
+  const set = (key, val) => { setCfg(p => ({ ...p, [key]: val })); setDirty(true); };
+  const setNested = (key, subKey, val) => { setCfg(p => ({ ...p, [key]: { ...p[key], [subKey]: val } })); setDirty(true); };
 
   const saveCfg = async () => {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 280));
     localStorage.setItem(LEADS_SETTINGS_KEY, JSON.stringify(cfg));
-    // Notify LeadsTab (same tab) via custom event
     window.dispatchEvent(new Event("crm_leads_settings_updated"));
     setSaving(false);
-    toast("Leads Tab settings saved — changes applied instantly!", "success");
+    setDirty(false);
+    toast("Leads settings saved — applied instantly!", "success");
   };
 
   const resetCfg = () => {
@@ -653,94 +666,107 @@ function LeadsSettingsSection() {
     setCfg({ ...DEFAULT_LEADS_SETTINGS });
     localStorage.removeItem(LEADS_SETTINGS_KEY);
     window.dispatchEvent(new Event("crm_leads_settings_updated"));
+    setDirty(false);
     toast("Leads Tab settings reset to defaults", "info");
   };
 
-  // Helper: editable list of options (add/remove/reorder)
-  const OptionListEditor = ({ label, value, onChange }) => {
+  // ── Shared helper components ───────────────────────────────────────────────
+
+  // Editable chip list: add/remove items
+  const OptionListEditor = ({ label, hint, value, onChange }) => {
     const [draft, setDraft] = useState("");
     const items = value || [];
+    const add = () => { if (draft.trim() && !items.includes(draft.trim())) { onChange([...items, draft.trim()]); setDraft(""); } };
     return (
       <div>
-        <label style={labelStyle}>{label}</label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        {label && <label style={labelStyle}>{label}</label>}
+        {hint && <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 8px" }}>{hint}</p>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, minHeight: 32 }}>
           {items.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#F1F5F9", borderRadius: 6, padding: "3px 8px", fontSize: 12 }}>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 6, padding: "3px 8px", fontSize: 12, color: "#3730A3" }}>
               <span>{item}</span>
-              <button onClick={() => onChange(items.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+              <button onClick={() => onChange(items.filter((_, j) => j !== i))}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#818CF8", fontSize: 14, lineHeight: 1, padding: "0 0 0 2px" }}>×</button>
             </div>
           ))}
+          {items.length === 0 && <span style={{ fontSize: 11, color: "#CBD5E1", lineHeight: "28px" }}>No items yet</span>}
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <input value={draft} onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && draft.trim()) { onChange([...items, draft.trim()]); setDraft(""); e.preventDefault(); }}}
-            placeholder="Type option then press Enter…"
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+            placeholder="Type and press Enter or + Add…"
             style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
-          <button onClick={() => { if (draft.trim()) { onChange([...items, draft.trim()]); setDraft(""); }}}
-            style={{ padding: "8px 12px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>+ Add</button>
+          <button onClick={add}
+            style={{ padding: "7px 14px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>+ Add</button>
         </div>
       </div>
     );
   };
 
-  // Helper: color map editor (object of key→hex)
+  // Color swatch grid for a key→hex map
   const ColorMapEditor = ({ label, value, keys, onChange }) => (
     <div>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-        {keys.map(k => (
-          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: "#F8FAFC", borderRadius: 7, padding: "6px 10px", border: "1px solid #E2E8F0" }}>
-            <input type="color" value={(value || {})[k] || "#000000"}
-              onChange={e => onChange({ ...(value || {}), [k]: e.target.value })}
-              style={{ width: 28, height: 28, border: "none", borderRadius: 6, cursor: "pointer", padding: 0, background: "none" }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{k}</span>
-          </div>
-        ))}
+      {label && <label style={labelStyle}>{label}</label>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 6 }}>
+        {(keys || []).map(k => {
+          const color = (value || {})[k] || "#94A3B8";
+          return (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: "#F8FAFC", borderRadius: 8, padding: "7px 10px", border: `1.5px solid ${color}40`, cursor: "pointer" }}>
+              <input type="color" value={color}
+                onChange={e => onChange({ ...(value || {}), [k]: e.target.value })}
+                style={{ width: 26, height: 26, border: "none", borderRadius: 5, cursor: "pointer", padding: 0, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
+            </label>
+          );
+        })}
       </div>
     </div>
   );
 
-  // Helper: number field
-  const NumField = ({ label, cfgKey, min = 0, max = 999, step = 1 }) => (
+  // Number input
+  const NumField = ({ label, hint, cfgKey, min = 0, max = 999, step = 1, wide = false }) => (
     <div>
       <label style={labelStyle}>{label}</label>
+      {hint && <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 4px" }}>{hint}</p>}
       <input type="number" min={min} max={max} step={step} value={cfg[cfgKey] ?? 0}
         onChange={e => set(cfgKey, Number(e.target.value))}
-        style={{ ...inputStyle, width: 100 }} />
+        style={{ ...inputStyle, width: wide ? "100%" : 110 }} />
     </div>
   );
 
-  // Helper: toggle field
+  // Boolean toggle
   const BoolField = ({ label, desc, cfgKey }) => (
     <Toggle label={label} desc={desc} checked={!!cfg[cfgKey]} onChange={v => set(cfgKey, v)} />
   );
 
-  // Helper: text field
-  const TextField = ({ label, cfgKey }) => (
+  // Single-line text
+  const TextField = ({ label, hint, cfgKey, placeholder = "" }) => (
     <div>
       <label style={labelStyle}>{label}</label>
-      <input type="text" value={cfg[cfgKey] || ""}
+      {hint && <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 4px" }}>{hint}</p>}
+      <input type="text" value={cfg[cfgKey] || ""} placeholder={placeholder}
         onChange={e => set(cfgKey, e.target.value)}
         style={inputStyle} />
     </div>
   );
 
-  // Helper: toast list editor (array of strings)
-  const ToastListEditor = ({ label, cfgKey }) => {
+  // Editable list of toast strings
+  const ToastListEditor = ({ label, hint, cfgKey }) => {
     const items = cfg[cfgKey] || [];
     return (
       <div>
-        <label style={labelStyle}>{label}</label>
+        {label && <label style={labelStyle}>{label}</label>}
+        {hint && <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 8px" }}>{hint}</p>}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {items.map((t, i) => (
             <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input value={t} onChange={e => { const next = [...items]; next[i] = e.target.value; set(cfgKey, next); }}
+              <input value={t} onChange={e => { const n = [...items]; n[i] = e.target.value; set(cfgKey, n); }}
                 style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
               <button onClick={() => set(cfgKey, items.filter((_, j) => j !== i))}
                 style={{ padding: "6px 10px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>✕</button>
             </div>
           ))}
-          <button onClick={() => set(cfgKey, [...items, "🎉 New toast message"])}
+          <button onClick={() => set(cfgKey, [...items, "New message"])}
             style={{ padding: "6px 12px", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, cursor: "pointer", color: "#475569", fontWeight: 600, width: "fit-content" }}>
             + Add Message
           </button>
@@ -749,20 +775,32 @@ function LeadsSettingsSection() {
     );
   };
 
-  // Helper: next-action map editor
+  // Next-action map: status → { icon, text }
   const NextActionEditor = () => {
     const na = cfg.nextActions || DEFAULT_LEADS_SETTINGS.nextActions;
-    const keys = Object.keys(na);
+    const allStatuses = [
+      ...Object.keys(na),
+      ...(cfg.statusOptions || []).filter(s => !Object.keys(na).includes(s)),
+    ];
     return (
       <div>
-        <label style={labelStyle}>Next Action Messages (by Status)</label>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {keys.map(k => (
-            <div key={k} style={{ display: "grid", gridTemplateColumns: "90px 50px 1fr", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>{k}</span>
-              <input value={na[k]?.icon || ""} onChange={e => set("nextActions", { ...na, [k]: { ...na[k], icon: e.target.value } })}
-                style={{ ...inputStyle, fontSize: 18, textAlign: "center" }} />
-              <input value={na[k]?.text || ""} onChange={e => set("nextActions", { ...na, [k]: { ...na[k], text: e.target.value } })}
+        <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 10px" }}>
+          Define the suggested next action shown under each lead's follow-up date in the table and cards. <code style={{ background: "#F1F5F9", padding: "1px 4px", borderRadius: 3 }}>overdue</code> fires when a follow-up is past due.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "160px 48px 1fr", gap: 8, padding: "4px 8px", background: "#F8FAFC", borderRadius: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>Status</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>Icon</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>Action text</span>
+          </div>
+          {allStatuses.map(k => (
+            <div key={k} style={{ display: "grid", gridTemplateColumns: "160px 48px 1fr", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={k}>{k}</span>
+              <input value={na[k]?.icon || ""}
+                onChange={e => set("nextActions", { ...na, [k]: { ...na[k], icon: e.target.value } })}
+                style={{ ...inputStyle, fontSize: 17, textAlign: "center", padding: "5px 4px" }} />
+              <input value={na[k]?.text || ""}
+                onChange={e => set("nextActions", { ...na, [k]: { ...na[k], text: e.target.value } })}
                 style={{ ...inputStyle, fontSize: 12 }} />
             </div>
           ))}
@@ -771,24 +809,26 @@ function LeadsSettingsSection() {
     );
   };
 
-  // Helper: WhatsApp templates editor
+  // WhatsApp quick-reply templates
   const WATemplatesEditor = () => {
     const templates = cfg.waTemplates || [];
     return (
       <div>
-        <label style={labelStyle}>WhatsApp Quick-Reply Templates</label>
+        <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 10px" }}>
+          Use <code style={{ background: "#F1F5F9", padding: "1px 4px", borderRadius: 3 }}>{"{name}"}</code> as a placeholder for the lead's name.
+        </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {templates.map((t, i) => (
             <div key={i} style={{ background: "#F8FAFC", borderRadius: 8, padding: 12, border: "1px solid #E2E8F0" }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <input value={t.label} placeholder="Label (e.g. 📄 Docs Reminder)"
-                  onChange={e => { const next = [...templates]; next[i] = { ...t, label: e.target.value }; set("waTemplates", next); }}
+                <input value={t.label} placeholder="Button label (e.g. 📄 Docs Reminder)"
+                  onChange={e => { const n = [...templates]; n[i] = { ...t, label: e.target.value }; set("waTemplates", n); }}
                   style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
                 <button onClick={() => set("waTemplates", templates.filter((_, j) => j !== i))}
                   style={{ padding: "6px 10px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>✕</button>
               </div>
-              <textarea value={t.text} rows={2} placeholder="Message text… use {name} for lead name"
-                onChange={e => { const next = [...templates]; next[i] = { ...t, text: e.target.value }; set("waTemplates", next); }}
+              <textarea value={t.text} rows={2} placeholder="Message body…"
+                onChange={e => { const n = [...templates]; n[i] = { ...t, text: e.target.value }; set("waTemplates", n); }}
                 style={{ ...inputStyle, resize: "vertical", fontSize: 12, fontFamily: "inherit" }} />
             </div>
           ))}
@@ -801,37 +841,89 @@ function LeadsSettingsSection() {
     );
   };
 
+  // Closed-stages multi-select (lostStages array)
+  const ClosedStagesEditor = () => {
+    const all = cfg.statusOptions || DEFAULT_LEADS_SETTINGS.statusOptions;
+    const closed = cfg.lostStages || DEFAULT_LEADS_SETTINGS.lostStages;
+    return (
+      <div>
+        <label style={labelStyle}>Closed / Lost Stage Names</label>
+        <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 8px" }}>
+          These statuses are treated as "closed" — SLA timers stop, reopen button appears, and they count toward lost-reason analytics.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {all.map(s => {
+            const on = closed.includes(s);
+            return (
+              <button key={s} onClick={() => set("lostStages", on ? closed.filter(x => x !== s) : [...closed, s])}
+                style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: on ? 700 : 400, border: `1.5px solid ${on ? "#EF4444" : "#E2E8F0"}`, background: on ? "#FEF2F2" : "#F8FAFC", color: on ? "#DC2626" : "#64748B", cursor: "pointer", transition: "all 0.12s" }}>
+                {s}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Column visibility toggles (admin-level)
+  const ColumnVisibilityEditor = () => {
+    const cols = [
+      { key: "showColScore",       label: "Score column",           desc: "Lead score badge (Hot/Warm/Cold)" },
+      { key: "showColHealth",      label: "Health column",          desc: "Health % pill" },
+      { key: "showColTemperature", label: "Temperature column",     desc: "🔥 Hot / 🧊 Cold temp badge" },
+      { key: "showColEstClose",    label: "Est. Close Date column", desc: "Estimated close date" },
+      { key: "showColTags",        label: "Tags column",            desc: "Multi-tag chip display" },
+    ];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {cols.map(c => (
+          <BoolField key={c.key} label={c.label} desc={c.desc} cfgKey={c.key} />
+        ))}
+      </div>
+    );
+  };
+
   const TABS = [
-    { id: "dropdowns",  label: "📋 Dropdowns" },
-    { id: "colors",     label: "🎨 Colors" },
-    { id: "thresholds", label: "⚙️ Thresholds" },
-    { id: "funlayer",   label: "🎮 Fun Layer" },
-    { id: "visibility", label: "👁 Visibility" },
-    { id: "messages",   label: "💬 Messages" },
-    { id: "actions",    label: "⚡ Actions & Auto" },
+    { id: "dropdowns",  label: "📋 Dropdowns"      },
+    { id: "stages",     label: "🔀 Stages"          },
+    { id: "colors",     label: "🎨 Colors"           },
+    { id: "thresholds", label: "⚙️ Thresholds"      },
+    { id: "display",    label: "🖥️ Display"         },
+    { id: "visibility", label: "👁 Visibility"       },
+    { id: "funlayer",   label: "🎮 Fun Layer"        },
+    { id: "messages",   label: "💬 Messages"         },
+    { id: "actions",    label: "⚡ Auto Rules"       },
   ];
+
+  // Shared header/footer save bar
+  const SaveBar = ({ top = false }) => (
+    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", ...(top ? {} : { paddingTop: 10, borderTop: "1px solid #E2E8F0" }) }}>
+      <button onClick={resetCfg}
+        style={{ padding: "7px 14px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        ↺ Reset to Defaults
+      </button>
+      <button onClick={saveCfg} disabled={saving}
+        style={{ padding: "8px 22px", background: saving ? "#94A3B8" : dirty ? "#10B981" : "#64748B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", transition: "background 0.2s" }}>
+        {saving ? "Saving…" : dirty ? "💾 Save Leads Settings" : "✓ Saved"}
+      </button>
+    </div>
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* Header controls */}
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <button onClick={resetCfg} style={{ padding: "7px 14px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          ↺ Reset to Defaults
-        </button>
-        <button onClick={saveCfg} disabled={saving} style={{ padding: "8px 20px", background: saving ? "#94A3B8" : "#10B981", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer" }}>
-          {saving ? "Saving…" : "💾 Save Leads Settings"}
-        </button>
-      </div>
+      <SaveBar top />
 
       {/* Sub-tabs */}
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", borderBottom: "2px solid #E2E8F0", paddingBottom: 0 }}>
+      <div style={{ display: "flex", gap: 0, flexWrap: "wrap", borderBottom: "2px solid #E2E8F0" }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-            padding: "8px 14px", border: "none", background: "none", fontSize: 12, fontWeight: activeTab === t.id ? 700 : 400,
-            color: activeTab === t.id ? "#2563EB" : "#64748B", cursor: "pointer",
-            borderBottom: activeTab === t.id ? "2px solid #2563EB" : "2px solid transparent",
-            marginBottom: -2, transition: "all 0.12s",
+            padding: "8px 14px", border: "none", background: "none", fontSize: 12,
+            fontWeight: activeTab === t.id ? 700 : 400,
+            color: activeTab === t.id ? "#2563EB" : "#64748B",
+            borderBottom: activeTab === t.id ? "2.5px solid #2563EB" : "2.5px solid transparent",
+            marginBottom: -2, cursor: "pointer", transition: "all 0.12s", whiteSpace: "nowrap",
           }}>{t.label}</button>
         ))}
       </div>
@@ -839,48 +931,79 @@ function LeadsSettingsSection() {
       {/* ── DROPDOWNS ── */}
       {activeTab === "dropdowns" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <Card title="Service Options">
-            <OptionListEditor label="Services (shown in all Service dropdowns)" value={cfg.serviceOptions} onChange={v => set("serviceOptions", v)} />
+          <Card title="Services" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Shown in all Service dropdowns across the leads table, add form, and filters."
+              value={cfg.serviceOptions} onChange={v => set("serviceOptions", v)} />
           </Card>
-          <Card title="Status / Pipeline Stages">
-            <OptionListEditor label="Statuses (the stages in your pipeline)" value={cfg.statusOptions} onChange={v => set("statusOptions", v)} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 16 }}>
-              <TextField label="Won Stage Name (used for conversions & XP)" cfgKey="wonStage" />
-              <TextField label="Lost Stage Name (used for SLA & auto-rules)" cfgKey="lostStage" />
-            </div>
+          <Card title="Lead Sources" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Where leads come from — Facebook, Referral, Walk-in, etc."
+              value={cfg.sourceOptions} onChange={v => set("sourceOptions", v)} />
           </Card>
-          <Card title="Lead Sources">
-            <OptionListEditor label="Sources" value={cfg.sourceOptions} onChange={v => set("sourceOptions", v)} />
+          <Card title="Lost Reasons" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Reasons shown when a lead is moved to a closed stage."
+              value={cfg.lostOptions} onChange={v => set("lostOptions", v)} />
           </Card>
-          <Card title="Lost Reasons">
-            <OptionListEditor label="Lost Reasons" value={cfg.lostOptions} onChange={v => set("lostOptions", v)} />
+          <Card title="Priority Levels" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Ordered list of priority levels. VIP should be first or last depending on your preference."
+              value={cfg.priorityOptions} onChange={v => set("priorityOptions", v)} />
           </Card>
-          <Card title="Priority Levels">
-            <OptionListEditor label="Priorities (highest last, VIP first)" value={cfg.priorityOptions} onChange={v => set("priorityOptions", v)} />
+          <Card title="Staff / Assigned To" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Staff members who can be assigned to leads. Shown in the Assigned To dropdown and the Owner filter."
+              value={cfg.staffOptions} onChange={v => set("staffOptions", v)} />
           </Card>
-          <Card title="Staff / Assigned To">
-            <OptionListEditor label="Staff Members" value={cfg.staffOptions} onChange={v => set("staffOptions", v)} />
+          <Card title="Tags" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Tags that can be applied to leads. Used for filtering and quick identification."
+              value={cfg.tagOptions} onChange={v => set("tagOptions", v)} />
           </Card>
-          <Card title="Tags">
-            <OptionListEditor label="Tag Options" value={cfg.tagOptions} onChange={v => set("tagOptions", v)} />
+          <Card title="Document Checklist Items" collapsible defaultOpen>
+            <OptionListEditor
+              hint="Documents required from the lead — shown in the detail drawer's Docs tab."
+              value={cfg.docChecklistItems} onChange={v => set("docChecklistItems", v)} />
           </Card>
-          <Card title="Doc Checklist Items">
-            <OptionListEditor label="Required Documents (shown in lead detail drawer)" value={cfg.docChecklistItems} onChange={v => set("docChecklistItems", v)} />
-          </Card>
-          <Card title="Snooze & Recurrence Options">
+          <Card title="Snooze & Recurrence Options" collapsible>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
-                <label style={labelStyle}>Snooze Options (days)</label>
-                <input value={(cfg.snoozeOptions || []).join(", ")} onChange={e => set("snoozeOptions", e.target.value.split(",").map(x => Number(x.trim())).filter(Boolean))} style={inputStyle} placeholder="1, 3, 7, 14" />
+                <label style={labelStyle}>Snooze options (days, comma-separated)</label>
+                <input value={(cfg.snoozeOptions || []).join(", ")}
+                  onChange={e => set("snoozeOptions", e.target.value.split(",").map(x => Number(x.trim())).filter(Boolean))}
+                  style={inputStyle} placeholder="1, 3, 7, 14" />
               </div>
               <div>
-                <label style={labelStyle}>Recurrence Options (days)</label>
-                <input value={(cfg.recurrenceOptions || []).join(", ")} onChange={e => set("recurrenceOptions", e.target.value.split(",").map(x => Number(x.trim())).filter(Boolean))} style={inputStyle} placeholder="3, 7, 14, 30" />
+                <label style={labelStyle}>Recurrence options (days, comma-separated)</label>
+                <input value={(cfg.recurrenceOptions || []).join(", ")}
+                  onChange={e => set("recurrenceOptions", e.target.value.split(",").map(x => Number(x.trim())).filter(Boolean))}
+                  style={inputStyle} placeholder="3, 7, 14, 30" />
               </div>
             </div>
           </Card>
-          <Card title="Currency">
-            <TextField label="Currency Label (e.g. AED, USD, EUR)" cfgKey="currencyLabel" />
+          <Card title="Currency" collapsible>
+            <TextField label="Currency label (e.g. AED, USD, EUR)" cfgKey="currencyLabel" placeholder="AED" />
+          </Card>
+        </div>
+      )}
+
+      {/* ── STAGES ── */}
+      {activeTab === "stages" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Pipeline Status List">
+            <OptionListEditor
+              hint="All statuses available in the Status dropdown. Order matters — they appear in this order throughout the UI."
+              value={cfg.statusOptions} onChange={v => set("statusOptions", v)} />
+          </Card>
+          <Card title="Stage Identification">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <TextField label="Won stage name" hint="Used for conversion, XP awards, and confetti." cfgKey="wonStage" placeholder="Won" />
+              <TextField label="Lost stage name (legacy single)" hint="Used in some internal helpers. Prefer lostStages for multi-stage closed logic." cfgKey="lostStage" placeholder="Lost" />
+            </div>
+          </Card>
+          <Card title="Closed / Lost Stages">
+            <ClosedStagesEditor />
           </Card>
         </div>
       )}
@@ -889,17 +1012,20 @@ function LeadsSettingsSection() {
       {activeTab === "colors" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <Card title="Pipeline Stage Colors">
-            <ColorMapEditor label="Stage → Color" value={cfg.stageColors}
+            <ColorMapEditor label="One color per stage — used for badges, kanban columns, left-border accents, and stat cards."
+              value={cfg.stageColors}
               keys={cfg.statusOptions || DEFAULT_LEADS_SETTINGS.statusOptions}
               onChange={v => set("stageColors", v)} />
           </Card>
           <Card title="Priority Colors">
-            <ColorMapEditor label="Priority → Color" value={cfg.priorityColors}
+            <ColorMapEditor label="One color per priority level."
+              value={cfg.priorityColors}
               keys={cfg.priorityOptions || DEFAULT_LEADS_SETTINGS.priorityOptions}
               onChange={v => set("priorityColors", v)} />
           </Card>
-          <Card title="Score Colors">
-            <ColorMapEditor label="Score Label → Color" value={cfg.scoreColors}
+          <Card title="Lead Score Colors">
+            <ColorMapEditor label="Colors for the Hot / Warm / Cold score labels."
+              value={cfg.scoreColors}
               keys={["Hot", "Warm", "Cold"]}
               onChange={v => set("scoreColors", v)} />
           </Card>
@@ -909,116 +1035,115 @@ function LeadsSettingsSection() {
       {/* ── THRESHOLDS ── */}
       {activeTab === "thresholds" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <Card title="Follow-up Thresholds">
-            <NumField label="Follow-up 'Soon' window (days — shown as blue pill)" cfgKey="followUpSoonDays" min={1} max={30} />
+          <Card title="Follow-up">
+            <NumField label="'Soon' window (days — shown as blue pill before turning green)" cfgKey="followUpSoonDays" min={1} max={30} />
           </Card>
           <Card title="SLA / Response Time">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <NumField label="SLA Warning (hours since last contact → yellow)" cfgKey="slaWarningHours" min={1} max={240} />
-              <NumField label="SLA Breach (hours since last contact → red)" cfgKey="slaBreachHours" min={1} max={720} />
+              <NumField label="Warning threshold (hours since last contact → yellow)" cfgKey="slaWarningHours" min={1} max={240} />
+              <NumField label="Breach threshold (hours since last contact → red)" cfgKey="slaBreachHours" min={1} max={720} />
             </div>
           </Card>
-          <Card title="Lead Health Score Thresholds">
+          <Card title="Lead Health Score">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <NumField label="Healthy threshold (score ≥ → green Healthy)" cfgKey="healthThresholdHealthy" min={0} max={100} />
-              <NumField label="Attention threshold (score ≥ → yellow; below → red Neglected)" cfgKey="healthThresholdAttention" min={0} max={100} />
+              <NumField label="Healthy (score ≥ → green)" cfgKey="healthThresholdHealthy" min={0} max={100} />
+              <NumField label="Needs Attention (score ≥ → yellow; below → Neglected red)" cfgKey="healthThresholdAttention" min={0} max={100} />
             </div>
           </Card>
           <Card title="Stage Age Pills">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <NumField label="Warn after (days in stage → yellow)" cfgKey="stageAgeWarnDays" min={1} max={90} />
-              <NumField label="Danger after (days in stage → red)" cfgKey="stageAgeDangerDays" min={1} max={180} />
+              <NumField label="Warn after (days in same stage → yellow pill)" cfgKey="stageAgeWarnDays" min={1} max={90} />
+              <NumField label="Danger after (days in same stage → red pill)" cfgKey="stageAgeDangerDays" min={1} max={180} />
             </div>
           </Card>
           <Card title="Temperature Algorithm">
+            <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 12px" }}>
+              Temperature starts at 100 and decays daily. Boosts and penalties adjust it based on follow-up status, priority, and contact recency.
+            </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-              <NumField label="Decay rate (pts/day inactivity)" cfgKey="tempDecayRate" min={0} max={20} />
-              <NumField label="Boost: follow-up upcoming (green)" cfgKey="tempBoostGreen" min={0} max={50} />
-              <NumField label="Boost: follow-up soon (blue)" cfgKey="tempBoostBlue" min={0} max={50} />
+              <NumField label="Decay rate (pts lost per day of inactivity)" cfgKey="tempDecayRate" min={0} max={20} />
+              <NumField label="Boost: upcoming follow-up (green)" cfgKey="tempBoostGreen" min={0} max={50} />
+              <NumField label="Boost: follow-up soon ≤ Soon days (blue)" cfgKey="tempBoostBlue" min={0} max={50} />
               <NumField label="Penalty: overdue follow-up (red)" cfgKey="tempPenaltyRed" min={0} max={50} />
               <NumField label="Boost: VIP priority" cfgKey="tempBoostVIP" min={0} max={50} />
               <NumField label="Boost: High priority" cfgKey="tempBoostHigh" min={0} max={50} />
-              <NumField label="Boost: high-value lead" cfgKey="tempBoostValue" min={0} max={50} />
-              <NumField label="Boost: contacted ≤1 day ago" cfgKey="tempBoostContact1d" min={0} max={50} />
-              <NumField label="Boost: contacted ≤3 days ago" cfgKey="tempBoostContact3d" min={0} max={50} />
-              <NumField label="High-value threshold (currency units)" cfgKey="highValueThreshold" min={0} max={1000000} step={1000} />
+              <NumField label="Boost: lead value above threshold" cfgKey="tempBoostValue" min={0} max={50} />
+              <NumField label="Boost: contacted within 1 day" cfgKey="tempBoostContact1d" min={0} max={50} />
+              <NumField label="Boost: contacted within 3 days" cfgKey="tempBoostContact3d" min={0} max={50} />
+              <NumField label="High-value threshold (lead value to earn boost)" cfgKey="highValueThreshold" min={0} max={1000000} step={1000} wide />
             </div>
           </Card>
-          <Card title="Temperature Labels">
+          <Card title="Temperature Label Thresholds">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-              <NumField label="🔥 Hot threshold (score ≥)" cfgKey="tempHotThreshold" min={0} max={100} />
-              <NumField label="🌡 Warm threshold (score ≥)" cfgKey="tempWarmThreshold" min={0} max={100} />
-              <NumField label="❄ Cool threshold (score ≥; below = 🧊 Cold)" cfgKey="tempCoolThreshold" min={0} max={100} />
+              <NumField label="🔥 Hot (score ≥)" cfgKey="tempHotThreshold" min={0} max={100} />
+              <NumField label="🌡 Warm (score ≥)" cfgKey="tempWarmThreshold" min={0} max={100} />
+              <NumField label="❄ Cool (score ≥; below → 🧊 Cold)" cfgKey="tempCoolThreshold" min={0} max={100} />
             </div>
           </Card>
-          <Card title="Pipeline Health Score Weights (must total 100)">
+          <Card title="Pipeline Health Score Weights">
+            <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 12px" }}>
+              Weights are used when calculating the pipeline health % shown in the Pipeline Health modal. They should add up to 100.
+            </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <NumField label="Overdue weight" cfgKey="healthWeightOverdue" min={0} max={100} />
-              <NumField label="Stale weight" cfgKey="healthWeightStale" min={0} max={100} />
+              <NumField label="Overdue follow-ups weight" cfgKey="healthWeightOverdue" min={0} max={100} />
+              <NumField label="Stale leads weight" cfgKey="healthWeightStale" min={0} max={100} />
               <NumField label="Duplicates weight" cfgKey="healthWeightDupes" min={0} max={100} />
-              <NumField label="Unassigned weight" cfgKey="healthWeightUnassigned" min={0} max={100} />
-              <NumField label="No-value weight" cfgKey="healthWeightNoValue" min={0} max={100} />
+              <NumField label="Unassigned leads weight" cfgKey="healthWeightUnassigned" min={0} max={100} />
+              <NumField label="Leads with no value weight" cfgKey="healthWeightNoValue" min={0} max={100} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
               <NumField label="Healthy score (≥ → green)" cfgKey="healthScoreGood" min={0} max={100} />
               <NumField label="Attention score (≥ → yellow; below → red critical)" cfgKey="healthScoreWarn" min={0} max={100} />
-            </div>
-          </Card>
-          <Card title="Display Defaults">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <div>
-                <label style={labelStyle}>Default Display Mode</label>
-                <select value={cfg.defaultDisplayMode || "table"} onChange={e => set("defaultDisplayMode", e.target.value)} style={inputStyle}>
-                  <option value="table">Table</option>
-                  <option value="kanban">Kanban</option>
-                </select>
-              </div>
-              <NumField label="Default Page Size" cfgKey="defaultPageSize" min={5} max={200} step={5} />
-            </div>
-          </Card>
-          <Card title="Heatmap">
-            <NumField label="Heatmap days to show" cfgKey="heatmapDays" min={7} max={365} step={7} />
-          </Card>
-          <Card title="Goal Tracker Defaults">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-              <div>
-                <label style={labelStyle}>Won target (count)</label>
-                <input type="number" min={1} value={cfg.goalDefaults?.wonTarget ?? 10}
-                  onChange={e => set("goalDefaults", { ...(cfg.goalDefaults || {}), wonTarget: Number(e.target.value) })}
-                  style={{ ...inputStyle, width: 100 }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Revenue target</label>
-                <input type="number" min={0} step={1000} value={cfg.goalDefaults?.revenueTarget ?? 100000}
-                  onChange={e => set("goalDefaults", { ...(cfg.goalDefaults || {}), revenueTarget: Number(e.target.value) })}
-                  style={{ ...inputStyle, width: 120 }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Leads target (count)</label>
-                <input type="number" min={1} value={cfg.goalDefaults?.leadsTarget ?? 30}
-                  onChange={e => set("goalDefaults", { ...(cfg.goalDefaults || {}), leadsTarget: Number(e.target.value) })}
-                  style={{ ...inputStyle, width: 100 }} />
-              </div>
             </div>
           </Card>
         </div>
       )}
 
-      {/* ── FUN LAYER ── */}
-      {activeTab === "funlayer" && (
+      {/* ── DISPLAY ── */}
+      {activeTab === "display" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <Card title="Fun Layer Toggles">
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <BoolField label="XP System" desc="Enable experience points for adding, winning, and converting leads" cfgKey="xpEnabled" />
-              <BoolField label="Confetti" desc="Confetti explosion when a lead is Won" cfgKey="confettiEnabled" />
-              <BoolField label="Achievements" desc="Show achievement shelf with unlockable badges" cfgKey="achievementsEnabled" />
-              <BoolField label="Vibe Bar" desc="Daily motivational vibe bar at the top of the Leads tab" cfgKey="vibeBarEnabled" />
+          <Card title="Default View">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Default display mode</label>
+                <select value={cfg.defaultDisplayMode || "table"} onChange={e => set("defaultDisplayMode", e.target.value)} style={inputStyle}>
+                  <option value="table">Table</option>
+                  <option value="kanban">Kanban</option>
+                  <option value="cards">Cards</option>
+                </select>
+              </div>
+              <NumField label="Default page size (rows per page)" cfgKey="defaultPageSize" min={5} max={200} step={5} wide />
             </div>
           </Card>
-          <Card title="XP Values">
+          <Card title="Heatmap">
+            <NumField label="Days to display in the activity heatmap" cfgKey="heatmapDays" min={7} max={365} step={7} wide />
+          </Card>
+          <Card title="Goal Tracker Defaults">
+            <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 12px" }}>Default targets pre-filled in the Goal Tracker modal when no custom goal is set.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Won target (count)</label>
+                <input type="number" min={1} value={cfg.goalDefaults?.wonTarget ?? 10}
+                  onChange={e => setNested("goalDefaults", "wonTarget", Number(e.target.value))}
+                  style={{ ...inputStyle, width: "100%" }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Revenue target ({cfg.currencyLabel || "AED"})</label>
+                <input type="number" min={0} step={1000} value={cfg.goalDefaults?.revenueTarget ?? 100000}
+                  onChange={e => setNested("goalDefaults", "revenueTarget", Number(e.target.value))}
+                  style={{ ...inputStyle, width: "100%" }} />
+              </div>
+              <div>
+                <label style={labelStyle}>New leads target (count)</label>
+                <input type="number" min={1} value={cfg.goalDefaults?.leadsTarget ?? 30}
+                  onChange={e => setNested("goalDefaults", "leadsTarget", Number(e.target.value))}
+                  style={{ ...inputStyle, width: "100%" }} />
+              </div>
+            </div>
+          </Card>
+          <Card title="Stat Cards">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <NumField label="XP per lead added" cfgKey="xpPerAdd" min={0} max={500} />
-              <NumField label="XP per Won lead" cfgKey="xpPerWin" min={0} max={500} />
-              <NumField label="XP per conversion" cfgKey="xpPerConvert" min={0} max={500} />
-              <NumField label="XP per stage move" cfgKey="xpPerStageMove" min={0} max={100} />
+              <NumField label="Number of pipeline stat cards to show (max 6)" cfgKey="statCardCount" min={1} max={6} wide />
             </div>
           </Card>
         </div>
@@ -1027,25 +1152,67 @@ function LeadsSettingsSection() {
       {/* ── VISIBILITY ── */}
       {activeTab === "visibility" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <Card title="Widget Visibility">
+          <Card title="UI Widgets">
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <BoolField label="Stat Cards Row" desc="Show pipeline stage stat cards at the top" cfgKey="showStatCards" />
-              <BoolField label="Duplicates Stat Card" desc="Show the Dupes count card" cfgKey="showDupesCard" />
-              <BoolField label="Overdue Stat Card" desc="Show the Overdue follow-ups count card" cfgKey="showOverdueCard" />
-              <BoolField label="Lost Reasons Breakdown" desc="Show the lost reasons footer section" cfgKey="showLostReasons" />
-              <BoolField label="Speed Dial" desc="Show the floating quick-action speed dial button" cfgKey="showSpeedDial" />
+              <BoolField label="Stat Cards Row" desc="Pipeline stage KPI cards at the top of the Leads tab" cfgKey="showStatCards" />
+              <BoolField label="Duplicates Stat Card" desc="Show the duplicate leads count card" cfgKey="showDupesCard" />
+              <BoolField label="Overdue Stat Card" desc="Show the overdue follow-ups count card" cfgKey="showOverdueCard" />
+              <BoolField label="Lost Reasons Breakdown" desc="Show the lost reasons footer section below the table" cfgKey="showLostReasons" />
+              <BoolField label="Speed Dial FAB" desc="Floating quick-action button (bottom-right corner)" cfgKey="showSpeedDial" />
             </div>
           </Card>
-          <Card title="Stat Card Count">
-            <NumField label="Number of pipeline stat cards to show (max 6)" cfgKey="statCardCount" min={1} max={6} />
+          <Card title="Extra Table Columns (admin-controlled)">
+            <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 12px" }}>
+              These columns are hidden by default to keep the table clean. Enable them here to make them available to all users. Users can further toggle columns via the column picker.
+            </p>
+            <ColumnVisibilityEditor />
           </Card>
           <Card title="Analytics Menu Items">
-            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>Toggle which items appear in the Analytics (⚡) dropdown menu.</p>
+            <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>Toggle which items appear in the Analytics (⚡) dropdown menu in the toolbar.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {Object.entries(cfg.analyticsItems || DEFAULT_LEADS_SETTINGS.analyticsItems).map(([key, val]) => (
-                <Toggle key={key} label={key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase())} checked={!!val}
-                  onChange={v => set("analyticsItems", { ...(cfg.analyticsItems || DEFAULT_LEADS_SETTINGS.analyticsItems), [key]: v })} />
-              ))}
+              {Object.entries(cfg.analyticsItems || DEFAULT_LEADS_SETTINGS.analyticsItems).map(([key, val]) => {
+                const friendlyLabel = {
+                  reminders: "Reminder Center",
+                  funnel: "Funnel Visualizer",
+                  goals: "Goal Tracker",
+                  health: "Pipeline Health",
+                  sourceROI: "Source ROI",
+                  staffROI: "Staff ROI",
+                  forecast: "Pipeline Forecast",
+                  winLoss: "Win/Loss Report",
+                  heatmap: "Activity Heatmap",
+                  compare: "Lead Compare",
+                  columns: "Column Picker",
+                  customFields: "Custom Fields",
+                  importCSV: "Import CSV",
+                }[key] || key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase());
+                return (
+                  <Toggle key={key} label={friendlyLabel} checked={!!val}
+                    onChange={v => set("analyticsItems", { ...(cfg.analyticsItems || DEFAULT_LEADS_SETTINGS.analyticsItems), [key]: v })} />
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── FUN LAYER ── */}
+      {activeTab === "funlayer" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <Card title="Feature Toggles">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <BoolField label="XP System" desc="Grant experience points for adding, winning, and converting leads" cfgKey="xpEnabled" />
+              <BoolField label="Confetti" desc="Confetti explosion when a lead is Won or converted" cfgKey="confettiEnabled" />
+              <BoolField label="Achievements" desc="Show the achievement shelf — unlock badges for pipeline milestones" cfgKey="achievementsEnabled" />
+              <BoolField label="Vibe Bar" desc="Daily motivational message bar at the top of the Leads tab" cfgKey="vibeBarEnabled" />
+            </div>
+          </Card>
+          <Card title="XP Award Amounts">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <NumField label="XP per lead added" cfgKey="xpPerAdd" min={0} max={500} />
+              <NumField label="XP per Won lead" cfgKey="xpPerWin" min={0} max={500} />
+              <NumField label="XP per lead converted to client" cfgKey="xpPerConvert" min={0} max={500} />
+              <NumField label="XP per stage move" cfgKey="xpPerStageMove" min={0} max={100} />
             </div>
           </Card>
         </div>
@@ -1054,56 +1221,50 @@ function LeadsSettingsSection() {
       {/* ── MESSAGES ── */}
       {activeTab === "messages" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <Card title="Add Lead Toast Messages">
-            <ToastListEditor label="Shown randomly when a lead is added" cfgKey="addToasts" />
+          <Card title="Add Lead Toasts">
+            <ToastListEditor hint="One is picked at random each time a lead is added." cfgKey="addToasts" />
           </Card>
-          <Card title="Won Lead Toast Messages">
-            <ToastListEditor label="Shown randomly when a lead is Won" cfgKey="winToasts" />
+          <Card title="Won Lead Toasts">
+            <ToastListEditor hint="One is picked at random when a lead reaches the Won stage." cfgKey="winToasts" />
           </Card>
-          <Card title="Convert Lead Toast Messages">
-            <ToastListEditor label="Shown randomly when a lead is converted to client" cfgKey="convertToasts" />
+          <Card title="Convert to Client Toasts">
+            <ToastListEditor hint="One is picked at random when a lead is converted to a client." cfgKey="convertToasts" />
           </Card>
-          <Card title="Next Action Messages">
+          <Card title="Next Action Messages" collapsible>
             <NextActionEditor />
           </Card>
-          <Card title="WhatsApp Templates">
+          <Card title="WhatsApp Quick-Reply Templates" collapsible>
             <WATemplatesEditor />
           </Card>
         </div>
       )}
 
-      {/* ── ACTIONS & AUTO RULES ── */}
+      {/* ── AUTO RULES ── */}
       {activeTab === "actions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <Card title="Auto Rules">
+          <Card title="Auto Rules Engine">
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <BoolField label="Enable Auto Rules" desc="Automatically move stale leads to Lost and escalate Won leads to VIP" cfgKey="autoRulesEnabled" />
+              <BoolField label="Enable Auto Rules" desc="Runs on mount: stale New Leads → Lost; Won leads with no activity → VIP priority" cfgKey="autoRulesEnabled" />
               {cfg.autoRulesEnabled !== false && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                  <NumField label="Auto-Lost after (days in New with no activity)" cfgKey="autoLostDays" min={1} max={365} />
-                  <NumField label="Auto-escalate to VIP after (days in Won stage)" cfgKey="autoEscalateDays" min={1} max={90} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, paddingTop: 4 }}>
+                  <NumField label="Auto-Lost after (days in New Lead with no activity)" cfgKey="autoLostDays" min={1} max={365} wide />
+                  <NumField label="Auto-escalate to VIP after (days in Won stage)" cfgKey="autoEscalateDays" min={1} max={90} wide />
                 </div>
               )}
             </div>
           </Card>
           <div style={{ background: "#F0FDF4", borderRadius: 12, padding: 20, border: "1px solid #BBF7D0" }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46", marginBottom: 6 }}>💡 How settings apply</div>
-            <div style={{ fontSize: 12, color: "#047857", lineHeight: 1.6 }}>
-              Settings are saved to localStorage under <code>crm_leads_settings</code> and applied instantly to the Leads Tab via a custom event. No page reload needed. The Leads Tab re-reads settings whenever you save here.
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46", marginBottom: 6 }}>💡 How settings propagate</div>
+            <div style={{ fontSize: 12, color: "#047857", lineHeight: 1.7 }}>
+              All settings are stored under <code style={{ background: "#DCFCE7", padding: "1px 5px", borderRadius: 3 }}>crm_leads_settings</code> in localStorage.
+              Clicking <strong>Save</strong> fires a <code style={{ background: "#DCFCE7", padding: "1px 5px", borderRadius: 3 }}>crm_leads_settings_updated</code> custom window event that LeadsTab listens to,
+              so every dropdown, color, threshold, and toggle takes effect instantly — no page reload required.
             </div>
           </div>
         </div>
       )}
 
-      {/* Save button at bottom too */}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10, borderTop: "1px solid #E2E8F0" }}>
-        <button onClick={resetCfg} style={{ padding: "7px 14px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          ↺ Reset to Defaults
-        </button>
-        <button onClick={saveCfg} disabled={saving} style={{ padding: "8px 22px", background: saving ? "#94A3B8" : "#10B981", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
-          {saving ? "Saving…" : "💾 Save Leads Settings"}
-        </button>
-      </div>
+      <SaveBar />
     </div>
   );
 }

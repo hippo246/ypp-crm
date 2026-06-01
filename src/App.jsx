@@ -1744,22 +1744,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             }
           </div>
 
-          {/* Pomodoro timer */}
-          {(pomodoroActive || pomodoroSecs !== 25 * 60) && (
-            <div onClick={() => setPomodoroActive(a => !a)}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 7, background: pomodoroBreak ? "#16a34a22" : "#ef444422", border: `1px solid ${pomodoroBreak ? "#16a34a44" : "#ef444444"}`, cursor: "pointer", flexShrink: 0 }}>
-              <span style={{ fontSize: 10 }}>{pomodoroBreak ? "☕" : "🍅"}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: pomodoroBreak ? "#16a34a" : "#ef4444", fontVariantNumeric: "tabular-nums" }}>
-                {String(Math.floor(pomodoroSecs / 60)).padStart(2,"0")}:{String(pomodoroSecs % 60).padStart(2,"0")}
-              </span>
-            </div>
-          )}
-          <button onClick={() => { setPomodoroActive(a => !a); setPomodoroBreak(false); if (pomodoroSecs === 25*60 && !pomodoroActive) toast("Pomodoro started — 25 min focus", "info"); }}
-            title={pomodoroActive ? "Pause timer" : "Start focus timer (25 min)"}
-            className="desktop-only-btn"
-            style={{ width: 26, height: 26, borderRadius: 6, background: pomodoroActive ? "#ef444418" : T.input, border: `1px solid ${pomodoroActive ? "#ef444444" : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>
-            {pomodoroActive ? "⏸" : "🍅"}
-          </button>
+
 
           {/* Auto-save indicator — desktop only */}
           <div className="desktop-only-btn" title={autoSaveStatus} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: autoSaveStatus === "saved" ? B.green : autoSaveStatus === "saving" ? B.orange : T.muted }}>
@@ -1822,68 +1807,47 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             </>
           )}
 
-          {/* Role picker */}
-          <div className="topbar-role-picker" style={{ position: "relative" }}>
-            <button onClick={() => setShowRolePicker(!showRolePicker)}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: ROLE_COLORS[role], transition: "all 0.15s" }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: ROLE_COLORS[role] }} />{role} ▾
+          {/* Account switcher / logout — avatar circle */}
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setShowRolePicker(!showRolePicker)} title={`${currentUser.name} · ${role}`}
+              style={{ width: 30, height: 30, borderRadius: "50%", background: ROLE_COLORS[role], border: `2px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0, transition: "box-shadow 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 0 3px " + ROLE_COLORS[role] + "44"}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
+              {currentUser.avatar || currentUser.name?.[0]}
             </button>
             {showRolePicker && (
-              <div style={{ position: "absolute", top: 36, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 8px 24px rgba(0,0,0,0.14)", zIndex: 999, minWidth: 140, overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 36, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.16)", zIndex: 999, minWidth: 180, overflow: "hidden", animation: "fadeIn 0.12s ease" }}>
+                <div style={{ padding: "10px 14px 8px", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{currentUser.name}</div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>Switch account role</div>
+                </div>
                 {ROLES.map((r) => (
-                  <div key={r} onClick={() => { onRoleChange(r); setShowRolePicker(false); toast(`Role changed to ${r}`, "success"); }}
-                    style={{ padding: "8px 14px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: r === role ? T.hover : "transparent", fontWeight: r === role ? 600 : 400, color: T.text, transition: "background 0.1s" }}
+                  <div key={r} onClick={() => { onRoleChange(r); setShowRolePicker(false); toast(`Switched to ${r}`, "success"); }}
+                    style={{ padding: "8px 14px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: r === role ? T.hover : "transparent", fontWeight: r === role ? 700 : 400, color: T.text, transition: "background 0.1s" }}
                     onMouseEnter={(e) => e.currentTarget.style.background = T.hover}
                     onMouseLeave={(e) => e.currentTarget.style.background = r === role ? T.hover : "transparent"}>
-                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: ROLE_COLORS[r] }} />{r}
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: ROLE_COLORS[r] }} />
+                    {r}
+                    {r === role && <span style={{ marginLeft: "auto", fontSize: 9, color: T.muted }}>✓ active</span>}
                   </div>
                 ))}
-              </div>
-            )}
-          </div>
-
-          {/* Export — desktop only */}
-          {["leads","clients","tasks","accounting","inventory","suppliers"].includes(activeTab) && (
-            <button onClick={exportCurrentTab} title="Export current view as CSV"
-              className="desktop-only-btn"
-              style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: T.muted, flexShrink: 0, transition: "all 0.15s" }}>
-              ⬇
-            </button>
-          )}
-
-          {/* Sticky note — desktop only */}
-          <div className="desktop-only-btn" style={{ position: "relative" }}>
-            <button onClick={() => setShowStickyNote(s => !s)} title={`Notes for ${titles[activeTab]}`}
-              style={{ width: 30, height: 30, borderRadius: 7, background: showStickyNote || stickyNotes[activeTab] ? "#fde04733" : T.input, border: `1px solid ${showStickyNote || stickyNotes[activeTab] ? "#fde04788" : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, transition: "all 0.15s" }}>
-              📌
-            </button>
-            {showStickyNote && (
-              <div style={{ position: "absolute", top: 38, right: 0, width: 240, background: "#fffde7", border: "1px solid #fde047", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", zIndex: 1000, animation: "fadeIn 0.12s ease", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
-                <div style={{ padding: "7px 10px", background: "#fde047", fontSize: 10, fontWeight: 700, letterSpacing: "0.4px", color: "#713f12", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>📌 {titles[activeTab]} Notes</span>
-                  <button onClick={() => setShowStickyNote(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#713f12", padding: 0 }}>✕</button>
-                </div>
-                <textarea
-                  value={stickyNotes[activeTab] || ""}
-                  onChange={e => setStickyNotes(prev => ({ ...prev, [activeTab]: e.target.value }))}
-                  placeholder="Jot down notes for this tab…"
-                  style={{ width: "100%", height: 120, border: "none", outline: "none", padding: "10px", fontSize: 12, background: "transparent", resize: "none", fontFamily: "inherit", color: "#713f12", boxSizing: "border-box" }}
-                />
-                {stickyNotes[activeTab] && (
-                  <div style={{ padding: "4px 10px 8px", display: "flex", justifyContent: "flex-end" }}>
-                    <button onClick={() => setStickyNotes(prev => { const n = {...prev}; delete n[activeTab]; return n; })} style={{ fontSize: 10, color: "#ef4444", background: "none", border: "none", cursor: "pointer", padding: 0 }}>Clear</button>
+                <div style={{ borderTop: `1px solid ${T.border}`, padding: "6px 0" }}>
+                  <div onClick={() => { setShowRolePicker(false); if (autoSaveStatus === "unsaved") { if (!window.confirm("You have unsaved changes. Sign out anyway?")) return; } onLogout(); }}
+                    style={{ padding: "8px 14px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#ef4444", transition: "background 0.1s" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#fef2f2"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                    ⎋ Sign out
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Split view toggle — desktop only */}
-          <button onClick={() => setSplitView(s => !s)} title="Split view (⌘⇧S)"
-            className="desktop-only-btn"
-            style={{ width: 30, height: 30, borderRadius: 7, background: splitView ? `${B.accent}22` : T.input, border: `1px solid ${splitView ? B.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, color: splitView ? B.accent : T.muted, transition: "all 0.15s" }}>
-            ⧉
-          </button>
+
+
+
+
+
 
           {/* Bell + badges — each in their own relative container, in a flex row */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -1900,17 +1864,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
               </div>
             )}
 
-            {/* Stale records — desktop only */}
-            {(staleRecords.leads.length > 0 || staleRecords.tasks.length > 0) && (
-              <div className="desktop-only-btn" title={`${staleRecords.leads.length} stale leads, ${staleRecords.tasks.length} stale tasks`}
-                style={{ position: "relative", width: 30, height: 30, borderRadius: 7, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, transition: "all 0.15s", flexShrink: 0 }}
-                onClick={() => { toast(`${staleRecords.leads.length} stale leads, ${staleRecords.tasks.length} stale tasks need attention.`, "warning"); }}>
-                🕐
-                <div style={{ position: "absolute", top: -4, right: -4, width: 14, height: 14, borderRadius: "50%", background: "#f59e0b", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {staleRecords.leads.length + staleRecords.tasks.length}
-                </div>
-              </div>
-            )}
+
 
             {/* Bell */}
             <div style={{ position: "relative", flexShrink: 0 }}>
@@ -1928,10 +1882,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
 
           </div>
 
-          {/* Avatar */}
-          <div style={{ width: 28, height: 28, borderRadius: "50%", background: ROLE_COLORS[role], display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
-            {currentUser.avatar}
-          </div>
+
         </div>
 
         {/* Content */}

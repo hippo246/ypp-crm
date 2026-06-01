@@ -11,6 +11,13 @@ import {
   getStaleLeads,
   getLostReasons,
 } from "../services/crmEngine";
+import workflowEngine from "../services/workflowEngine";
+import { useMultiUserSync } from "../hooks/useMultiUserSync";
+import { toast } from "../App";
+import Badge from "../components/Badge";
+import StatCard from "../components/StatCard";
+import SectionCard from "../components/SectionCard";
+import { EnterpriseLoader, TableSkeleton, CardSkeleton } from "../components/EnterpriseLoader";
 
 // ─── Pipeline definition (overrides crmEngine) ────────────────────────────────
 // Kanban columns — merged orientation stages for cleaner board
@@ -44,13 +51,6 @@ const ALL_STATUS_STAGES = [
 ];
 const CLOSED_STAGES = ["Not Interested", "Lost", "No Response", "Duplicate"];
 const ALL_PIPELINE_STAGES = [...ALL_STATUS_STAGES, ...CLOSED_STAGES];
-import workflowEngine from "../services/workflowEngine";
-import { useMultiUserSync } from "../hooks/useMultiUserSync";
-import { toast } from "../App";
-import Badge from "../components/Badge";
-import StatCard from "../components/StatCard";
-import SectionCard from "../components/SectionCard";
-import { EnterpriseLoader, TableSkeleton, CardSkeleton } from "../components/EnterpriseLoader";
 // FormModal intentionally removed — Add Lead now uses the 3-step AddLeadModal
 
 // ─── Window width hook ─────────────────────────────────────────────────────────
@@ -143,14 +143,14 @@ export const DEFAULT_LEADS_SETTINGS = {
   healthScoreWarn:        50,  // score >= → "needs attention" (yellow); below → "critical" (red)
 
   // ── Display defaults ─────────────────────────────────────────────────────────
-  defaultDisplayMode: "table",   // "table" | "kanban"
+  defaultDisplayMode: "table",   // "table" | "kanban" | "cards"
   defaultPageSize:    25,
 
   // ── Fun layer toggles ─────────────────────────────────────────────────────────
-  xpEnabled:           true,
-  confettiEnabled:     true,
-  achievementsEnabled: true,
-  vibeBarEnabled:      true,
+  xpEnabled:           false,
+  confettiEnabled:     false,
+  achievementsEnabled: false,
+  vibeBarEnabled:      false,
   xpPerAdd:            10,
   xpPerWin:            25,
   xpPerConvert:        40,
@@ -225,9 +225,9 @@ export const DEFAULT_LEADS_SETTINGS = {
   },
 
   // ── Toast messages ────────────────────────────────────────────────────────────
-  addToasts:     ["🎯 New lead in the pipeline. Let's go.", "📥 Fresh blood! Work it.", "🚀 Lead launched into orbit.", "💼 Another one for the board.", "📣 New lead added. Your future self thanks you.", "🌱 Planted a seed. Now water it.", "🎪 The circus grows. New act incoming.", "🧲 Attracted another one. Magnetic.", "📊 Pipeline looking thicc.", "🎉 Fresh lead! Don't let it go cold."],
-  winToasts:     ["🏆 WON! Absolute legend move.", "💰 Ka-ching! That's revenue, baby.", "🎯 Direct hit. Client incoming.", "🥇 First place finish. Won and done.", "🚀 Deal closed! To the moon.", "✨ They said yes! Effortlessly elite.", "🎉 Winner winner, client dinner.", "😎 Another W for the board.", "💎 Diamond secured. Boss is shook.", "🦁 Closed like a predator. Respect."],
-  convertToasts: ["↗️ Lead → Client. The dream.", "🎊 Conversion achieved! That's the whole point.", "🌟 They're officially a client now. Treat them well.", "💼 New client added to the roster.", "🏅 Converted! Someone's getting a bonus (not you, but still).", "📈 Conversion rate just went up. You're welcome.", "🤝 Deal sealed, client locked in. Smooth.", "🎯 Pipeline to revenue. Textbook execution.", "🥂 Client acquired. Cheers.", "👑 Another conversion. The pipeline bows to you."],
+  addToasts:     ["Lead added to pipeline.", "New lead created.", "Lead registered successfully.", "Added to pipeline."],
+  winToasts:     ["Lead marked as Won.", "Deal closed successfully.", "Won — ready for handover.", "Closed and won."],
+  convertToasts: ["Lead converted to client.", "Client record created.", "Conversion complete."],
 
   // ── WhatsApp quick-reply templates ───────────────────────────────────────────
   waTemplates: [
@@ -327,7 +327,9 @@ function getHealthLabel(score, cfg) {
 function getDaysInStage(lead) {
   const ref = lead.updatedAt || lead.date;
   if (!ref) return 0;
-  return Math.floor((Date.now() - new Date(ref).getTime()) / 86_400_000);
+  const ts = new Date(ref).getTime();
+  if (isNaN(ts)) return 0;
+  return Math.floor((Date.now() - ts) / 86_400_000);
 }
 
 // ─── Next action suggestions ───────────────────────────────────────────────────
@@ -352,10 +354,13 @@ function getTemperature(lead, cfg) {
   if (lead.priority === "High") temp += (c.tempBoostHigh ?? 10);
   if ((lead.value || 0) > (c.highValueThreshold ?? 10000)) temp += (c.tempBoostValue ?? 10);
   if (lead.lastContactedAt || lead.lastContacted) {
-    const d = Math.floor((Date.now() - new Date(lead.lastContactedAt || lead.lastContacted)) / 86400000);
-    if (d <= 1) temp += (c.tempBoostContact1d ?? 15);
-    else if (d <= 3) temp += (c.tempBoostContact3d ?? 8);
-    else temp -= d;
+    const ts = new Date(lead.lastContactedAt || lead.lastContacted).getTime();
+    if (!isNaN(ts)) {
+      const d = Math.floor((Date.now() - ts) / 86400000);
+      if (d <= 1) temp += (c.tempBoostContact1d ?? 15);
+      else if (d <= 3) temp += (c.tempBoostContact3d ?? 8);
+      else temp -= d;
+    }
   }
   return Math.max(0, Math.min(100, Math.round(temp)));
 }
@@ -376,7 +381,9 @@ function getSLAStatus(lead, cfg) {
   const closedStages = ["Not Interested","Lost","No Response","Duplicate"];
   const ref = lead.lastContactedAt || lead.lastContacted || lead.date;
   if (!ref) return null;
-  const hours = Math.floor((Date.now() - new Date(ref)) / 3600000);
+  const refTs = new Date(ref).getTime();
+  if (isNaN(refTs)) return null;
+  const hours = Math.floor((Date.now() - refTs) / 3600000);
   if (lead.status === wonStage || closedStages.includes(lead.status)) return null;
   if (hours < warnH)  return { label: `${hours}h ago`,                  color: "#10b981", bg: "#f0fdf4", urgent: false };
   if (hours < breachH) return { label: `${Math.floor(hours/24)}d ago`,  color: "#f59e0b", bg: "#fffbeb", urgent: false };
@@ -436,13 +443,14 @@ function spawnConfetti(x, y) {
     };
     requestAnimationFrame(animate);
   }
-  setTimeout(() => document.body.removeChild(container), 1600);
+  setTimeout(() => { if (document.body.contains(container)) document.body.removeChild(container); }, 1600);
 }
 
+let _toastCounter = 0;
 function useLeadToasts() {
   const [toasts, setToasts] = useState([]);
   const push = useCallback((msg, icon = "🎯", type = "lead", title = null) => {
-    const id = Date.now() + Math.random();
+    const id = ++_toastCounter;
     setToasts(t => [...t.slice(-4), { id, msg, icon, type, title }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3800);
   }, []);
@@ -459,17 +467,18 @@ function LeadToastStack({ toasts }) {
           fontSize: 13, fontWeight: 600, maxWidth: 320,
           boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
           borderLeft: t.type === "achievement" ? "4px solid #f59e0b" : "4px solid #10b981",
-          animation: "leadSlideIn 0.3s ease",
+          animation: "leadSlideIn 0.35s cubic-bezier(0.34,1.56,0.64,1)",
           display: "flex", alignItems: "center", gap: 10,
+          pointerEvents: "all",
         }}>
-          <span style={{ fontSize: 20 }}>{t.icon}</span>
-          <div>
+          <span style={{ fontSize: 20, flexShrink: 0 }}>{t.icon}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
             {t.title && <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>{t.title}</div>}
-            {t.msg}
+            <div style={{ lineHeight: 1.4, wordBreak: "break-word" }}>{t.msg}</div>
           </div>
         </div>
       ))}
-      <style>{`@keyframes leadSlideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      <style>{`@keyframes leadSlideIn{from{transform:translateX(120%) scale(0.9);opacity:0}to{transform:translateX(0) scale(1);opacity:1}}`}</style>
     </div>
   );
 }
@@ -481,21 +490,24 @@ function LeadXPBar({ xp }) {
   const title   = titles[Math.min(level - 1, titles.length - 1)];
   const colors  = ["#94a3b8","#60a5fa","#34d399","#a78bfa","#f59e0b","#f97316","#ef4444","#ec4899","#06b6d4","#fbbf24"];
   const color   = colors[Math.min(level - 1, colors.length - 1)];
+  const xpToNext = 100 - pct;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 14px" }}>
-      <div style={{ textAlign: "center", minWidth: 40 }}>
-        <div style={{ fontSize: 18, lineHeight: 1 }}>⚡</div>
-        <div style={{ fontSize: 9, fontWeight: 800, color, letterSpacing: 0.5, textTransform: "uppercase" }}>Lv.{level}</div>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 14px", transition: "box-shadow 0.2s" }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.08)"}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
+      <div style={{ width: 36, height: 36, borderRadius: 9, background: `${color}18`, border: `2px solid ${color}40`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <div style={{ fontSize: 15, lineHeight: 1 }}>⚡</div>
+        <div style={{ fontSize: 8, fontWeight: 900, color, letterSpacing: 0.3, textTransform: "uppercase", marginTop: 1 }}>{level}</div>
       </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color }}>{title}</span>
-          <span style={{ fontSize: 10, color: "#94a3b8" }}>{xp} XP</span>
+          <span style={{ fontSize: 10, color: "#94a3b8", background: "#f8fafc", borderRadius: 4, padding: "1px 5px" }}>{xp.toLocaleString()} XP</span>
         </div>
-        <div style={{ height: 5, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg,${color},${color}cc)`, borderRadius: 99, transition: "width 0.6s ease" }} />
+        <div style={{ height: 6, background: "#e2e8f0", borderRadius: 99, overflow: "hidden", position: "relative" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg,${color}99,${color})`, borderRadius: 99, transition: "width 0.8s cubic-bezier(0.34,1.2,0.64,1)", boxShadow: `0 0 6px ${color}60` }} />
         </div>
-        <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 2 }}>{100 - pct} XP to next level</div>
+        <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 3 }}>{xpToNext} XP to Lv.{level + 1}</div>
       </div>
     </div>
   );
@@ -527,7 +539,12 @@ function LeadAchievementShelf({ leads, newlyUnlocked }) {
           );
         })}
       </div>
-      <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 6 }}>{unlocked.length}/{LEAD_ACHIEVEMENTS.length} unlocked — hover for details</div>
+      <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 6 }}>
+        <span style={{ color: unlocked.length === LEAD_ACHIEVEMENTS.length ? "#10b981" : "#94a3b8", fontWeight: unlocked.length === LEAD_ACHIEVEMENTS.length ? 700 : 400 }}>
+          {unlocked.length}/{LEAD_ACHIEVEMENTS.length} unlocked
+        </span>
+        {" "}— hover for details
+      </div>
     </div>
   );
 }
@@ -540,11 +557,49 @@ function LeadDailyVibeBar() {
   const isFriday = new Date().getDay() === 5;
   const bonus = isMonday ? " Monday? More like money day." : isFriday ? " Friday! Close at least one before you clock out." : "";
   return (
-    <div style={{ background: "linear-gradient(135deg,#0f172a,#1e293b)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-      <span style={{ fontSize: 22 }}>{vibe.emoji}</span>
+    <div style={{ background: "linear-gradient(135deg,#0f172a,#1e293b)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, border: "1px solid #334155" }}>
+      <span style={{ fontSize: 22, flexShrink: 0 }}>{vibe.emoji}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", lineHeight: 1.4 }}>{vibe.msg}{bonus}</div>
+        <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>{day} · Your boss has no idea how hard you're working right now.</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick follow-up date helper ──────────────────────────────────────────────
+function _dateOffset(days) {
+  const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10);
+}
+
+// ─── Service-specific hints ────────────────────────────────────────────────────
+const SERVICE_HINTS = {
+  "Divorce":             "Marital status is required for this service.",
+  "Online Wedding":      "Marital status + partner details recommended.",
+  "OFW Loan":            "Monthly income & employer important for approval.",
+  "Business License":    "Trade License and MOA documents likely needed.",
+  "Family Visa":         "Passport & Emirates ID for all family members required.",
+  "Self Sponsored Visa": "Visa status & passport are required.",
+  "A2A Visa Change":     "Current visa copy and passport required.",
+  "B2B Visa Change":     "Current visa copy and passport required.",
+};
+
+// ─── Duplicate detection banner ────────────────────────────────────────────────
+function DupeBanner({ leads, phone, email }) {
+  const dupes = (leads || []).filter(l => {
+    const lp = (l.phone || "").replace(/\s/g, "");
+    const le = (l.email || "").toLowerCase();
+    const cp = (phone || "").replace(/\s/g, "");
+    const ce = (email || "").toLowerCase();
+    return (cp && lp && lp === cp) || (ce && le && le === ce);
+  });
+  if (!dupes.length) return null;
+  return (
+    <div style={{ display: "flex", gap: 10, padding: "10px 14px", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, fontSize: 12 }}>
+      <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
       <div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{vibe.msg}{bonus}</div>
-        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>{day} · Your boss has no idea how hard you're working right now.</div>
+        <div style={{ fontWeight: 700, color: "#c2410c" }}>{dupes.length} existing lead{dupes.length > 1 ? "s" : ""} match this phone/email</div>
+        <div style={{ color: "#9a3412", marginTop: 2 }}>{dupes.map(d => `${d.name} (${d.status})`).join(" · ")}</div>
       </div>
     </div>
   );
@@ -552,7 +607,7 @@ function LeadDailyVibeBar() {
 
 // ─── 3-Step Add Lead Modal ────────────────────────────────────────────────────
 
-function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
+function AddLeadModal({ onSave, onClose, cfg: cfgProp, existingLeads }) {
   const cfg = cfgProp || DEFAULT_LEADS_SETTINGS;
   const _serviceOptions  = cfg.serviceOptions  || SERVICE_OPTIONS;
   const _statusOptions   = cfg.statusOptions   || STATUS_OPTIONS;
@@ -602,23 +657,53 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
   const [whatsappOptIn,  setWhatsappOptIn]  = useState(true);
   const [language,       setLanguage]       = useState("");
 
+  // ── NEW: extra flexibility fields ────────────────────────────────────────────
+  const [firstCallNote, setFirstCallNote] = useState("");
+
   const toggleTag = (t) => setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
 
-  const inp = (extra = {}) => ({
+  // Auto-fill WhatsApp from phone on blur
+  const handlePhoneBlur = () => { if (phone && !whatsapp) setWhatsapp(phone); };
+
+  const inp = (extra = {}, fieldKey) => ({
     style: {
       width: "100%", padding: "9px 12px", fontSize: 13,
-      border: "1.5px solid #e2e8f0", borderRadius: 8, fontFamily: "inherit",
-      outline: "none", boxSizing: "border-box", background: "#fff",
+      border: `1.5px solid ${fieldKey && errors[fieldKey] ? "#fca5a5" : "#e2e8f0"}`,
+      borderRadius: 8, fontFamily: "inherit",
+      outline: "none", boxSizing: "border-box",
+      background: fieldKey && errors[fieldKey] ? "#fff5f5" : "#fff",
+      transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
       ...extra,
-    }
+    },
+    onFocus: e => {
+      e.target.style.borderColor = fieldKey && errors[fieldKey] ? "#f87171" : "#6366f1";
+      e.target.style.boxShadow = fieldKey && errors[fieldKey] ? "0 0 0 3px #fee2e2" : "0 0 0 3px #eef2ff";
+      e.target.style.background = "#fafbff";
+    },
+    onBlur: e => {
+      e.target.style.borderColor = fieldKey && errors[fieldKey] ? "#fca5a5" : "#e2e8f0";
+      e.target.style.boxShadow = "none";
+      e.target.style.background = fieldKey && errors[fieldKey] ? "#fff5f5" : "#fff";
+    },
   });
-  const sel = (extra = {}) => ({
+  const sel = (extra = {}, fieldKey) => ({
     style: {
       width: "100%", padding: "9px 12px", fontSize: 13,
-      border: "1.5px solid #e2e8f0", borderRadius: 8, fontFamily: "inherit",
-      outline: "none", background: "#fff", cursor: "pointer",
+      border: `1.5px solid ${fieldKey && errors[fieldKey] ? "#fca5a5" : "#e2e8f0"}`,
+      borderRadius: 8, fontFamily: "inherit",
+      outline: "none", background: fieldKey && errors[fieldKey] ? "#fff5f5" : "#fff",
+      cursor: "pointer",
+      transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
       ...extra,
-    }
+    },
+    onFocus: e => {
+      e.target.style.borderColor = fieldKey && errors[fieldKey] ? "#f87171" : "#6366f1";
+      e.target.style.boxShadow = fieldKey && errors[fieldKey] ? "0 0 0 3px #fee2e2" : "0 0 0 3px #eef2ff";
+    },
+    onBlur: e => {
+      e.target.style.borderColor = fieldKey && errors[fieldKey] ? "#fca5a5" : "#e2e8f0";
+      e.target.style.boxShadow = "none";
+    },
   });
   const lbl = (text, required, hint) => (
     <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 5, display: "flex", alignItems: "center", gap: 5 }}>
@@ -627,7 +712,7 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
     </div>
   );
   const sectionHdr = (icon, text) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 4px", borderBottom: "1.5px solid #f1f5f9", marginBottom: 4 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 4px", borderBottom: "1.5px solid #f1f5f9", marginBottom: 4, marginTop: 4 }}>
       <span style={{ fontSize: 14 }}>{icon}</span>
       <span style={{ fontSize: 11, fontWeight: 800, color: "#0f172a", textTransform: "uppercase", letterSpacing: 0.6 }}>{text}</span>
     </div>
@@ -637,25 +722,51 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
     const e = {};
     if (!name.trim()) e.name = "Name is required";
     if (!phone.trim() && !email.trim()) e.phone = "Phone or email required";
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Invalid email";
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Invalid email format";
     return e;
   };
 
-  const handleBasicSave = () => {
+  const _buildLeadObj = (overrides = {}) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const timeline = firstCallNote ? [{ date: today, text: `📞 Initial note: ${firstCallNote}` }] : [];
+    return {
+      name, email, phone, whatsapp: whatsapp || phone, source, service, status, priority,
+      value: value ? Number(value) : "", assignedTo, notes, nationality, dob, gender,
+      address, passportNo, emiratesId, campaign, followUpDate, estimatedClose, lastContacted,
+      tags, lostReason, reservationAmount: reservationAmt ? Number(reservationAmt) : "",
+      orientationType, maritalStatus, occupation, employer,
+      monthlyIncome: monthlyIncome ? Number(monthlyIncome) : "", visaStatus, referredBy,
+      whatsappOptIn, language, timeline, callLog: firstCallNote ? [{ date: today, note: firstCallNote, staff: assignedTo || "" }] : [],
+      quickNotes: [],
+      ...overrides,
+    };
+  };
+
+  const _resetForm = () => {
+    setName(""); setEmail(""); setPhone(""); setWhatsapp(""); setSource(_sourceOptions[0] || "Other");
+    setNationality(""); setDob(""); setGender(""); setAddress(""); setPassportNo(""); setEmiratesId(""); setCampaign("");
+    setService(_serviceOptions[0] || "Self Sponsored Visa"); setStatus(_statusOptions[0] || "New Lead");
+    setPriority(""); setValue(""); setAssignedTo(""); setNotes(""); setFollowUpDate("");
+    setEstimatedClose(""); setLastContacted(""); setTags([]); setLostReason(""); setReservationAmt("");
+    setOrientationType(""); setMaritalStatus(""); setOccupation(""); setEmployer(""); setMonthlyIncome("");
+    setVisaStatus(""); setReferredBy(""); setWhatsappOptIn(true); setLanguage(""); setFirstCallNote(""); setErrors({});
+  };
+
+  const handleBasicSave = (andAnother = false) => {
     const e = validateStep1();
     if (Object.keys(e).length) { setErrors(e); return; }
-    onSave({ name, phone, email, whatsapp: whatsapp || phone, source, service, status: "New Lead", priority: "", value: "", assignedTo: "", notes: "", nationality: "", dob: "", gender: "", tags: [] });
-    onClose();
+    onSave(_buildLeadObj({ status: "New Lead", priority: "", value: "", assignedTo: "", notes: "", nationality: "", dob: "", gender: "", tags: [] }));
+    if (andAnother) { _resetForm(); } else { onClose(); }
   };
   const handleNext = () => {
     if (step === 1) { const e = validateStep1(); if (Object.keys(e).length) { setErrors(e); return; } setErrors({}); }
     setStep(s => s + 1);
   };
-  const handleSave = () => {
+  const handleSave = (andAnother = false) => {
     const e = validateStep1();
     if (Object.keys(e).length) { setErrors(e); setStep(1); return; }
-    onSave({ name, email, phone, whatsapp: whatsapp || phone, source, service, status, priority, value: value ? Number(value) : "", assignedTo, notes, nationality, dob, gender, address, passportNo, emiratesId, campaign, followUpDate, estimatedClose, lastContacted, tags, lostReason, reservationAmount: reservationAmt ? Number(reservationAmt) : "", orientationType, maritalStatus, occupation, employer, monthlyIncome: monthlyIncome ? Number(monthlyIncome) : "", visaStatus, referredBy, whatsappOptIn, language });
-    onClose();
+    onSave(_buildLeadObj());
+    if (andAnother) { _resetForm(); setStep(1); } else { onClose(); }
   };
 
   const STEP_LABELS = ["Identity & Personal", "Deal & Operations", "Review & Confirm"];
@@ -665,8 +776,29 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
     return Math.round((filled / 10) * 100);
   })();
 
+  // ── Cmd+Enter to save ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (mode === "basic") handleBasicSave(false);
+        else if (step === 3) handleSave(false);
+        else if (step < 3) handleNext();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [mode, step, handleBasicSave, handleSave, handleNext]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Close guard ────────────────────────────────────────────────────────────
+  const handleClose = () => {
+    const dirty = name || phone || email || notes || nationality || campaign || value || assignedTo;
+    if (dirty && !window.confirm("You have unsaved changes. Discard and close?")) return;
+    onClose();
+  };
+
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={handleClose}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(2,8,23,0.55)", backdropFilter: "blur(4px)" }} />
       <div style={{ position: "relative", zIndex: 1, background: "#fff", borderRadius: 18, width: mode === "basic" ? 440 : 600, maxWidth: "96vw", maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.28)" }} onClick={e => e.stopPropagation()}>
 
@@ -681,21 +813,23 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                 Add New Lead
               </div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                {mode === "basic" ? "Quick add — essentials only" : `Step ${step} of 3 · ${STEP_LABELS[step - 1]}`}
+                {mode === "basic" ? "⚡ Quick add — name, phone & service · ⌘↵ to save" : `Step ${step} of 3 · ${STEP_LABELS[step - 1]} · ⌘↵ to ${step < 3 ? "advance" : "save"}`}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 2, gap: 1 }}>
-                {["basic", "advanced"].map(m => (
+                {[["basic","Quick"], ["advanced","Full"]].map(([m, label]) => (
                   <button key={m} onClick={() => { setMode(m); setStep(1); }} style={{
                     padding: "5px 12px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: mode === m ? 700 : 400,
                     background: mode === m ? "#fff" : "none", color: mode === m ? "#2563eb" : "#94a3b8",
                     cursor: "pointer", fontFamily: "inherit", boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
                     transition: "all 0.12s", textTransform: "capitalize",
-                  }}>{m}</button>
+                  }}>{label}</button>
                 ))}
               </div>
-              <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 14, cursor: "pointer", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              <button onClick={handleClose} aria-label="Close" style={{ width: 28, height: 28, borderRadius: 7, background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 14, cursor: "pointer", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s, color 0.12s" }}
+                onMouseEnter={e => { e.currentTarget.style.background = "#fee2e2"; e.currentTarget.style.color = "#ef4444"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.color = "#94a3b8"; }}>✕</button>
             </div>
           </div>
 
@@ -730,7 +864,9 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
               <div style={{ flex: 1, height: 4, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
                 <div style={{ width: `${completeness}%`, height: "100%", background: completeness >= 80 ? "#10b981" : completeness >= 40 ? "#f59e0b" : "#6366f1", borderRadius: 99, transition: "width 0.3s ease" }} />
               </div>
-              <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, minWidth: 40 }}>{completeness}% full</span>
+              <span style={{ fontSize: 10, fontWeight: 700, minWidth: 72, color: completeness >= 80 ? "#059669" : completeness >= 40 ? "#d97706" : "#4f46e5" }}>
+                {completeness >= 80 ? "✓ Excellent" : completeness >= 40 ? "Good" : `${completeness}% filled`}
+              </span>
             </div>
           )}
         </div>
@@ -738,23 +874,26 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
         {/* ── Body ── */}
         <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", flex: 1 }}>
 
+          {/* ── Duplicate banner (always visible) ── */}
+          <DupeBanner leads={existingLeads} phone={phone} email={email} />
+
           {/* ── BASIC MODE ── */}
           {mode === "basic" && (
             <>
               <div>
                 {lbl("Full Name", true)}
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ahmed Al Mansouri" autoFocus {...inp()} />
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ahmed Al Mansouri" autoFocus {...inp({}, "name")} />
                 {errors.name && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.name}</div>}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   {lbl("Phone", true)}
-                  <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+971 50 000 0000" {...inp()} />
+                  <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+971 50 000 0000" {...inp({}, "phone")} />
                   {errors.phone && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.phone}</div>}
                 </div>
                 <div>
                   {lbl("Email")}
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" {...inp()} />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" {...inp({}, "email")} />
                   {errors.email && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.email}</div>}
                 </div>
               </div>
@@ -772,8 +911,12 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                   </select>
                 </div>
               </div>
-              <div style={{ padding: "10px 14px", background: "#eff6ff", borderRadius: 8, fontSize: 11, color: "#1d4ed8", border: "1px solid #dbeafe" }}>
-                💡 Switch to <strong>Advanced</strong> for 20+ fields: priority, value, tags, personal info, docs, orientation details & more.
+              <div>
+                {lbl("Initial Note", false, "logged to timeline")}
+                <input value={firstCallNote} onChange={e => setFirstCallNote(e.target.value)} placeholder="First contact context, what they asked about…" {...inp()} />
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center" }}>
+                Need priority, value, tags or docs? Switch to <button onClick={() => { setMode("advanced"); setStep(1); }} style={{ background: "none", border: "none", color: "#6366f1", fontWeight: 700, fontSize: 11, cursor: "pointer", padding: 0, fontFamily: "inherit" }}>Full mode</button>.
               </div>
             </>
           )}
@@ -787,24 +930,24 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                   {sectionHdr("👤", "Contact Details")}
                   <div>
                     {lbl("Full Name", true)}
-                    <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ahmed Al Mansouri" autoFocus {...inp()} />
+                    <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ahmed Al Mansouri" autoFocus {...inp({}, "name")} />
                     {errors.name && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.name}</div>}
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
                       {lbl("Phone", true)}
-                      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+971 50 000 0000" {...inp()} />
+                      <input value={phone} onChange={e => setPhone(e.target.value)} onBlur={handlePhoneBlur} placeholder="+971 50 000 0000" {...inp({}, "phone")} />
                       {errors.phone && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.phone}</div>}
                     </div>
                     <div>
-                      {lbl("WhatsApp", false, "if different")}
+                      {lbl("WhatsApp", false, "auto-filled from phone")}
                       <input value={whatsapp} onChange={e => setWhatsapp(e.target.value)} placeholder="Same as phone if blank" {...inp()} />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
                       {lbl("Email")}
-                      <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" {...inp()} />
+                      <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" {...inp({}, "email")} />
                       {errors.email && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{errors.email}</div>}
                     </div>
                     <div>
@@ -906,6 +1049,13 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
               {/* ── Step 2: Deal & Operations ── */}
               {step === 2 && (
                 <>
+                  {/* Service hint */}
+                  {SERVICE_HINTS[service] && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#fffbeb", border: "1px solid #fed7aa", borderRadius: 7, fontSize: 11, color: "#92400e" }}>
+                      <span style={{ fontSize: 13, flexShrink: 0 }}>💡</span>
+                      <span><strong>{service}:</strong> {SERVICE_HINTS[service]}</span>
+                    </div>
+                  )}
                   {sectionHdr("💼", "Service & Pipeline")}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
@@ -960,6 +1110,14 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                     <div>
                       {lbl("Follow-up Date")}
+                      <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap" }}>
+                        {[["Today",0],["Tomorrow",1],["+3d",3],["+1w",7],["+2w",14]].map(([label,days]) => (
+                          <button key={label} type="button" onClick={() => setFollowUpDate(_dateOffset(days))}
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, border: `1px solid ${followUpDate === _dateOffset(days) ? "#6366f1" : "#e2e8f0"}`, background: followUpDate === _dateOffset(days) ? "#eef2ff" : "#f8fafc", cursor: "pointer", color: followUpDate === _dateOffset(days) ? "#6366f1" : "#64748b", fontWeight: 600 }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)} {...inp()} />
                     </div>
                     <div>
@@ -992,6 +1150,10 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                   <div>
                     <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add any notes, context, or requirements about this lead…"
                       style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: "1.5px solid #e2e8f0", borderRadius: 8, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical", minHeight: 80 }} />
+                  </div>
+                  <div>
+                    {lbl("Initial Note", false, "logged as first call entry")}
+                    <input value={firstCallNote} onChange={e => setFirstCallNote(e.target.value)} placeholder="What did they ask? Key context from first contact…" {...inp()} />
                   </div>
                   {["Not Interested","Lost","No Response","Duplicate"].includes(status) && (
                     <div>
@@ -1039,7 +1201,7 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                       {[["Service", service], ["Status", status], ["Priority", priority||"—"], ["Value", value ? `AED ${Number(value).toLocaleString()}` : "—"], ["Reservation", reservationAmt ? `AED ${Number(reservationAmt).toLocaleString()}` : "—"], ["Assigned To", assignedTo||"—"], ["Follow-up", followUpDate||"—"], ["Est. Close", estimatedClose||"—"], ["Last Contact", lastContacted||"—"], ["Orientation", orientationType||"—"], ["Lost Reason", lostReason||"—"]].map(([k,v]) => (
                         <div key={k}>
                           <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{k}</div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: k === "Status" ? (stageColor[v]||"#334155") : "#334155", marginTop: 1 }}>{v}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: k === "Status" ? (stageColor[v]||"#334155") : "#334155", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={v}>{v}</div>
                         </div>
                       ))}
                     </div>
@@ -1070,14 +1232,25 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
 
         {/* ── Footer ── */}
         <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fafafa", borderRadius: "0 0 18px 18px", flexShrink: 0 }}>
-          <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 600, background: "#fff", border: "1px solid #e2e8f0", cursor: "pointer", color: "#64748b", fontFamily: "inherit" }}>
+          <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 600, background: "#fff", border: "1px solid #e2e8f0", cursor: "pointer", color: "#64748b", fontFamily: "inherit", transition: "background 0.12s, border-color 0.12s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0"; }}>
             Cancel
           </button>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {mode === "basic" ? (
-              <button onClick={handleBasicSave} style={{ padding: "9px 26px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 8px rgba(16,185,129,0.35)" }}>
-                ✓ Add Lead
-              </button>
+              <>
+                <button onClick={() => handleBasicSave(true)} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 12, fontWeight: 600, background: "#fff", border: "1px solid #e2e8f0", cursor: "pointer", color: "#64748b", fontFamily: "inherit", transition: "background 0.12s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
+                  onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                  + Add Another
+                </button>
+                <button onClick={() => handleBasicSave(false)} style={{ padding: "9px 26px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 8px rgba(16,185,129,0.35)", transition: "box-shadow 0.15s, transform 0.1s" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 14px rgba(16,185,129,0.5)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(16,185,129,0.35)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                  ✓ Add Lead
+                </button>
+              </>
             ) : (
               <>
                 {step > 1 && (
@@ -1090,9 +1263,18 @@ function AddLeadModal({ onSave, onClose, cfg: cfgProp }) {
                     Next Step →
                   </button>
                 ) : (
-                  <button onClick={handleSave} style={{ padding: "9px 26px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 8px rgba(16,185,129,0.35)" }}>
-                    ✓ Save Lead
-                  </button>
+                  <>
+                    <button onClick={() => handleSave(true)} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 12, fontWeight: 600, background: "#fff", border: "1px solid #e2e8f0", cursor: "pointer", color: "#64748b", fontFamily: "inherit", transition: "background 0.12s" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
+                      onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                      + Add Another
+                    </button>
+                    <button onClick={() => handleSave(false)} style={{ padding: "9px 26px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 8px rgba(16,185,129,0.35)", transition: "box-shadow 0.15s, transform 0.1s" }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 14px rgba(16,185,129,0.5)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(16,185,129,0.35)"; e.currentTarget.style.transform = "translateY(0)"; }}>
+                      ✓ Save Lead
+                    </button>
+                  </>
                 )}
               </>
             )}
@@ -1148,6 +1330,7 @@ const pill = (color, bg) => ({
   padding: "2px 9px", borderRadius: 20, fontSize: 10, fontWeight: 700,
   color: color, background: bg,
   letterSpacing: 0.3, whiteSpace: "nowrap",
+  border: `1px solid ${color}30`,
   transition: "background 0.15s, color 0.15s",
 });
 
@@ -1157,7 +1340,8 @@ const inlineSelect = (accent) => ({
   fontFamily: "inherit", background: accent + "0d",
   color: accent, fontWeight: 600, cursor: "pointer",
   width: "100%", outline: "none",
-  transition: "border-color 0.15s, background 0.15s",
+  transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+  boxShadow: "none",
 });
 
 const inlineInput = (opts = {}) => ({
@@ -1172,19 +1356,47 @@ const inlineInput = (opts = {}) => ({
 
 const actionBtn = (color, bg) => ({
   padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
-  border: `1px solid ${color}40`, background: bg,
+  border: `1px solid ${color}50`, background: bg,
   color: color, cursor: "pointer", fontFamily: "inherit",
-  transition: "opacity 0.15s",
+  transition: "opacity 0.15s, transform 0.1s, box-shadow 0.1s",
   whiteSpace: "nowrap",
   minHeight: "unset",
   lineHeight: "1.4",
+  outline: "none",
 });
+
+const ADD_LEAD_TOASTS  = ["Lead added to pipeline.", "New lead created.", "Lead registered successfully.", "Added to pipeline."];
+const WIN_LEAD_TOASTS  = ["Lead marked as Won.", "Deal closed successfully.", "Won — ready for handover.", "Closed and won."];
+const CONVERT_TOASTS   = ["Lead converted to client.", "Client record created.", "Conversion complete."];
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function LeadsTab({ search }) {
   const { data, setData } = useAppData();
   // ── Load live settings from localStorage (SettingsTab writes here) ───────────
   const cfg = useLeadsSettings();
+  const { toasts, push: pushToast } = useLeadToasts();
+
+  // ── XP + Achievement helpers (only active when cfg flags are on) ───────────
+  const [xpTotal, setXpTotal] = useState(() => { try { return Number(localStorage.getItem("crm_xp") || 0); } catch { return 0; } });
+  const [newlyUnlocked, setNewlyUnlocked] = useState([]);
+  const grantXP = useCallback((amount) => {
+    if (!cfg.xpEnabled) return;
+    setXpTotal(prev => { const next = prev + amount; try { localStorage.setItem("crm_xp", String(next)); } catch {} return next; });
+  }, [cfg.xpEnabled]);
+  const checkAchievements = useCallback((currentLeads) => {
+    if (!cfg.achievementsEnabled) return;
+    const prev = (() => { try { return JSON.parse(localStorage.getItem("crm_achievements") || "[]"); } catch { return []; } })();
+    const justUnlocked = LEAD_ACHIEVEMENTS.filter(a => !prev.includes(a.id) && a.check(currentLeads)).map(a => a.id);
+    if (justUnlocked.length > 0) {
+      const next = [...prev, ...justUnlocked];
+      try { localStorage.setItem("crm_achievements", JSON.stringify(next)); } catch {}
+      setNewlyUnlocked(justUnlocked);
+      justUnlocked.forEach(id => {
+        const a = LEAD_ACHIEVEMENTS.find(x => x.id === id);
+        if (a) pushToast(`${a.title}: ${a.desc}`, a.icon, "achievement", "Achievement Unlocked");
+      });
+    }
+  }, [cfg.achievementsEnabled, pushToast]);
   // Derive option arrays from settings so every dropdown, filter, and widget
   // immediately reflects what the user configured in Settings → Leads Tab.
   const serviceOptions  = cfg.serviceOptions  || SERVICE_OPTIONS;
@@ -1209,86 +1421,222 @@ export default function LeadsTab({ search }) {
   // Workflow integration
   const leadWorkflow = workflowEngine.getWorkflowByEntityType("lead");
   const [slaAlerts, setSlaAlerts] = useState([]);
-  const [workflowHistory, setWorkflowHistory] = useState([]);
+  const [workflowHistory, setWorkflowHistory] = useState(() => workflowEngine.getEntityHistory ? [] : []);
 
-  // Check SLA alerts on mount and when leads change
+  // Sync workflowHistory from engine whenever leads change
   useEffect(() => {
-    if (leadWorkflow) {
-      const alerts = workflowEngine.getSLAAlerts(leadWorkflow.id, data.leads);
-      setSlaAlerts(alerts);
-    }
+    if (!leadWorkflow) return;
+    // Refresh SLA alerts — engine's SLATracker uses entity.id, not createdAt
+    const alerts = workflowEngine.getSLAAlerts(leadWorkflow.id, data.leads);
+    setSlaAlerts(alerts);
+    // Pull full history from engine for display
+    const allHistory = data.leads.flatMap(l => workflowEngine.getEntityHistory(l.id));
+    allHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    setWorkflowHistory(allHistory);
   }, [data.leads, leadWorkflow]);
+
+  // Subscribe to workflow engine events once on mount
+  useEffect(() => {
+    if (!leadWorkflow) return;
+    const offBreach = workflowEngine.events.on("sla:breach", ({ entityId, stage, overdueBy, severity }) => {
+      const lead = data.leads.find(l => l.id === entityId);
+      const name = lead?.name || entityId;
+      toast(`⏰ SLA ${severity === "critical" ? "critical" : "warning"}: ${name} overdue in ${stage} by ${Math.round(overdueBy)}h`, severity === "critical" ? "error" : "warning");
+    });
+    const offRolledBack = workflowEngine.events.on("transition:rolledBack", ({ entityId }) => {
+      const lead = data.leads.find(l => l.id === entityId);
+      toast(`↩️ Transition rolled back for ${lead?.name || entityId}`, "info");
+    });
+    return () => { offBreach(); offRolledBack(); };
+  }, [leadWorkflow]); // eslint-disable-line
 
   // Broadcast tab change for multi-user sync
   useEffect(() => {
     broadcastTabChange("leads");
   }, [broadcastTabChange]);
 
-  // Handle workflow stage transition
-  const handleStageTransition = async (lead, newStage) => {
-    if (!leadWorkflow) return;
-    
-    const canProceed = workflowEngine.canTransition(leadWorkflow.id, lead.status, newStage, currentUser.userRole);
-    if (!canProceed.allowed) {
-      toast(`Cannot transition: ${canProceed.reason}`, "warning");
+  // Handle workflow stage transition — the single authoritative path for all stage changes
+  const handleStageTransition = async (lead, newStage, additionalData = {}) => {
+    if (!leadWorkflow) {
+      // Fallback: no workflow configured, allow freely
+      handleChange(lead.id, "status", newStage);
       return;
     }
 
+    // 1. Permission + condition check (passes lead data for conditional transitions)
+    const canProceed = workflowEngine.canTransition(
+      leadWorkflow.id, lead.status, newStage, currentUser.userRole, lead
+    );
+    if (!canProceed.allowed) {
+      toast(`⛔ Cannot move to ${newStage}: ${canProceed.reason}`, "warning");
+      return;
+    }
+
+    // 2. Required-field + custom validator check
     const validation = workflowEngine.validateStageFields(leadWorkflow.id, newStage, lead);
     if (!validation.valid) {
-      toast(`Missing required fields: ${validation.missingFields.join(", ")}`, "error");
+      const issues = [
+        ...validation.missingFields.map(f => `missing: ${f}`),
+        ...validation.errors,
+      ];
+      toast(`📋 Fix before advancing — ${issues.join(", ")}`, "error");
+      return;
+    }
+
+    // 3. Approval gate — show a confirmation for transitions that requiresApproval
+    if (canProceed.requiresApproval) {
+      const ok = window.confirm(`"${newStage}" requires approval.\nProceed and log as pending approval?`);
+      if (!ok) return;
+    }
+
+    // 3b. SOP gate — show field-collection modal for stages that require data entry
+    const STAGE_GATES = {
+      "Orientation Payment Pending": ["followUpDate"],
+      "Orientation Paid":            ["paymentDate", "paymentAmount", "paymentMethod"],
+      "Orientation Scheduled":       ["orientationDate", "orientationTime", "orientationType", "assignedTo"],
+      "Orientation Attended":        ["attendanceConfirmed", "followUpDate"],
+      "Interested":                  ["service", "notes"],
+      "Reservation Pending":         ["reservationAmount", "followUpDate"],
+      "Reserved":                    ["reservationAmount", "reservationDate"],
+      "Won":                         ["service", "handoverNote"],
+      "Lost":                        ["lostReason"],
+      "No Response":                 ["followUpDate"],
+    };
+    if (STAGE_GATES[newStage] && !additionalData._gateConfirmed) {
+      setPendingTransition({ lead, newStage });
       return;
     }
 
     setIsLoading(true);
     try {
-      // Request lock for this lead
+      // 4. Optimistic lock via multi-user sync
       const lockAcquired = await requestLock(lead.id, "lead");
       if (!lockAcquired) {
-        toast("This lead is being edited by another user", "warning");
+        toast("⚠️ This lead is being edited by another user", "warning");
         setIsLoading(false);
         return;
       }
 
-      // Execute workflow transition
+      // 5. Execute through workflow engine (handles SLA start/stop + history)
       await workflowEngine.executeTransition(
         leadWorkflow.id,
         lead.id,
         lead.status,
         newStage,
         currentUser.userId,
-        currentUser.userName
+        currentUser.userName,
+        additionalData
       );
 
-      // Update lead status
+      // 6. Persist new status into app state + timeline
+      const today = new Date().toISOString().slice(0, 10);
       setData(prev => ({
         ...prev,
-        leads: prev.leads.map(l => 
-          l.id === lead.id 
-            ? { ...l, status: newStage, updatedAt: new Date().toISOString() }
-            : l
-        )
+        leads: prev.leads.map(l =>
+          l.id !== lead.id ? l : {
+            ...l,
+            status: newStage,
+            updatedAt: today,
+            timeline: [...(l.timeline || []), { date: today, text: `Status changed: ${lead.status} → ${newStage}` }],
+          }
+        ),
       }));
 
-      // Broadcast update to other users
+      // 7. Broadcast to other users
       broadcastUpdate("lead_stage_change", { leadId: lead.id, oldStage: lead.status, newStage });
-
-      // Release lock
       releaseLock(lead.id, "lead");
 
-      toast(`Lead moved to ${newStage}`, "success");
-      grantXP(5);
+      toast(`✅ Moved to ${newStage}`, "success");
+      if (cfg.xpEnabled !== false) grantXP(cfg.xpPerStageMove ?? 5);
+
+      // 8. Won confetti
+      if (newStage === (cfg.wonStage || "Won") && lead.status !== (cfg.wonStage || "Won")) {
+        if (cfg.confettiEnabled !== false) spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
+        const winToasts = cfg.winToasts || WIN_LEAD_TOASTS;
+        pushToast(winToasts[Math.floor(Math.random() * winToasts.length)], "🏆", "win");
+        if (cfg.xpEnabled !== false) { grantXP((cfg.xpPerWin ?? 25) - (cfg.xpPerStageMove ?? 5)); } // top-up
+        checkAchievements(data.leads.map(l => l.id === lead.id ? { ...l, status: newStage } : l));
+      }
+
+      // 9. Stage-change automations (same as handleChange)
+      _runStageAutomations(lead.id, newStage, today);
+
     } catch (error) {
-      toast("Failed to transition lead", "error");
+      toast(`Failed to transition: ${error.message}`, "error");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Rollback the last recorded workflow transition for a lead
+  const handleRollbackTransition = async (lead) => {
+    if (!leadWorkflow) return;
+    const history = workflowEngine.getEntityHistory(lead.id);
+    if (history.length === 0) { toast("No transitions to roll back.", "info"); return; }
+    if (!window.confirm(`Roll back "${lead.name}" from "${lead.status}" to "${history[0].fromStage}"?`)) return;
+    setIsLoading(true);
+    try {
+      const entry = await workflowEngine.rollbackTransition(lead.id, currentUser.userId, currentUser.userName, "Manual rollback");
+      const today = new Date().toISOString().slice(0, 10);
+      setData(prev => ({
+        ...prev,
+        leads: prev.leads.map(l =>
+          l.id !== lead.id ? l : {
+            ...l,
+            status: entry.toStage,
+            updatedAt: today,
+            timeline: [...(l.timeline || []), { date: today, text: `↩️ Rolled back: ${entry.fromStage} → ${entry.toStage}` }],
+          }
+        ),
+      }));
+      toast(`↩️ Rolled back to ${entry.toStage}`, "info");
+    } catch (e) {
+      toast(`Rollback failed: ${e.message}`, "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Returns available transitions for a lead given current user role
+  const getLeadAvailableTransitions = useCallback((lead) => {
+    if (!leadWorkflow) return [];
+    return workflowEngine.getAvailableTransitions(leadWorkflow.id, lead.status, currentUser.userRole, lead);
+  }, [leadWorkflow, currentUser.userRole]);
+
+  // Stage-change automations extracted so both handleChange and handleStageTransition can call them
+  const _runStageAutomations = useCallback((leadId, newStage, today) => {
+    const in24h = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    if (newStage === "Orientation Paid") {
+      setData(prev => ({ ...prev, leads: prev.leads.map(l =>
+        l.id !== leadId ? l : { ...l, followUpDate: in24h, timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Orientation reminder scheduled" }] }
+      )}));
+      toast && toast("📅 Orientation reminder set automatically", "info");
+    }
+    if (newStage === "Orientation Attended") {
+      setData(prev => ({ ...prev, leads: prev.leads.map(l =>
+        l.id !== leadId ? l : { ...l, followUpDate: in24h, timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Follow-up task created for 24h" }] }
+      )}));
+      toast && toast("📞 24h follow-up task created", "info");
+    }
+    if (newStage === "Interested") {
+      setData(prev => ({ ...prev, leads: prev.leads.map(l =>
+        l.id !== leadId ? l : { ...l, timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Quotation generation triggered" }] }
+      )}));
+      toast && toast("📄 Generate a quotation for this client", "warning");
+    }
+    if (newStage === "Reserved") {
+      setData(prev => ({ ...prev, leads: prev.leads.map(l =>
+        l.id !== leadId ? l : { ...l, timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Onboarding checklist sent" }] }
+      )}));
+      toast && toast("📋 Explain requirements & send onboarding checklist", "info");
+    }
+  }, []);
+
   const [filter,         setFilter]         = useState("All");
   const [staffFilter,    setStaffFilter]    = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [tagFilter,      setTagFilter]      = useState("All");
+
   const [savedFilters,   setSavedFilters]   = useState(() => { try { return JSON.parse(localStorage.getItem("crm_saved_filters") || "[]"); } catch { return []; } });
   const [showSavedFilters, setShowSavedFilters] = useState(false);
   const [displayMode,    setDisplayModeRaw] = useState(() => getCachedView());
@@ -1315,45 +1663,10 @@ export default function LeadsTab({ search }) {
   const [bulkTarget,     setBulkTarget]     = useState("");
   const [bulkAssign,     setBulkAssign]     = useState("");
   const [bulkTag,        setBulkTag]        = useState("");
-  const [hoverLead,      setHoverLead]      = useState(null);
-  const [hoverPos,       setHoverPos]       = useState({ x: 0, y: 0 });
-  const [isLoading,      setIsLoading]      = useState(false);
-
-  // ── Fun layer: XP, achievements, toasts ─────────────────────────────────────
-  const [xp,             setXp]             = useState(() => { try { return Number(localStorage.getItem("xp_leads") || 0); } catch { return 0; } });
-  const [newlyUnlocked,  setNewlyUnlocked]  = useState([]);
-  const { toasts, push: pushToast }         = useLeadToasts();
-  const [showFunLayer,   setShowFunLayer]   = useState(false); // vibe bar / XP / achievements — collapsed by default
-
-  const grantXP = useCallback((amount) => {
-    setXp(prev => {
-      const next = prev + amount;
-      try { localStorage.setItem("xp_leads", String(next)); } catch {}
-      return next;
-    });
-  }, []);
-
-  const checkAchievements = useCallback((nextLeads) => {
-    const raw = localStorage.getItem("xp_leads_achievements");
-    const already = raw ? new Set(JSON.parse(raw)) : new Set();
-    const fresh = [];
-    LEAD_ACHIEVEMENTS.forEach(a => {
-      if (!already.has(a.id) && a.check(nextLeads)) {
-        fresh.push(a.id);
-        already.add(a.id);
-      }
-    });
-    if (fresh.length) {
-      const updated = JSON.stringify([...already]);
-      try { localStorage.setItem("xp_leads_achievements", updated); } catch {}
-      setNewlyUnlocked(fresh);
-      fresh.forEach(id => {
-        const a = LEAD_ACHIEVEMENTS.find(x => x.id === id);
-        if (a) pushToast(`${a.title} — ${a.desc}`, a.icon, "achievement", "Achievement Unlocked");
-      });
-      setTimeout(() => setNewlyUnlocked([]), 4000);
-    }
-  }, [pushToast]);
+  const [hoverLead,        setHoverLead]        = useState(null);
+  const [hoverPos,         setHoverPos]         = useState({ x: 0, y: 0 });
+  const [isLoading,        setIsLoading]        = useState(false);
+  const [pendingTransition, setPendingTransition] = useState(null); // { lead, newStage }
 
   const winW         = useWindowWidth();
   const isPhone      = winW < 640;
@@ -1420,7 +1733,8 @@ export default function LeadsTab({ search }) {
   const [globalNote,         setGlobalNote]          = useState("");
   const [showPipelineHealth, setShowPipelineHealth]  = useState(false);
   const [expandedCards,      setExpandedCards]       = useState(new Set());
-  const toggleCardExpand = (id, e) => { e.stopPropagation(); setExpandedCards(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  // Exclusive expand: clicking "More" on one card collapses all others first
+  const toggleCardExpand = (id, e) => { e.stopPropagation(); setExpandedCards(prev => { const wasOpen = prev.has(id); const n = new Set(); if (!wasOpen) n.add(id); return n; }); };
 
   const leads        = data.leads || [];
   const statuses     = ["All", ...ALL_PIPELINE_STAGES];
@@ -1435,19 +1749,26 @@ export default function LeadsTab({ search }) {
   const { suggestions, showSuggestions, onSuggestionSelect } = useSearchSuggestions(localSearch, LEAD_SUGGESTION_FIELDS, setLocalSearch);
 
   // ── Filtered rows ────────────────────────────────────────────────────────────
-  let rows = filter === "All" ? leads : leads.filter((l) => l.status === filter);
-  // Archived filter
-  rows = showArchived ? rows.filter(l => l.archived) : rows.filter(l => !l.archived);
-  if (staffFilter !== "All")    rows = rows.filter(l => (l.assignedTo || "") === staffFilter);
-  if (priorityFilter !== "All") rows = rows.filter(l => (l.priority   || "") === priorityFilter);
-  if (tagFilter !== "All")      rows = rows.filter(l => (l.tags || []).includes(tagFilter));
-  if (showDupesOnly) rows = rows.filter((l) => dupeIds.has(l.id));
-  if (showStaleOnly) rows = rows.filter((l) => staleLeads.some((s) => s.id === l.id));
-  rows = useTableFilterV2(rows, parsedQuery, ["name", "email", "phone", "service", "source", "notes"]);
+  const preFilteredRows = useMemo(() => {
+    let rows = filter === "All" ? leads : leads.filter((l) => l.status === filter);
+    rows = showArchived ? rows.filter(l => l.archived) : rows.filter(l => !l.archived);
+    if (staffFilter === "__unassigned__") rows = rows.filter(l => !l.assignedTo);
+    else if (staffFilter !== "All")    rows = rows.filter(l => (l.assignedTo || "") === staffFilter);
+    if (priorityFilter !== "All") rows = rows.filter(l => (l.priority   || "") === priorityFilter);
+    if (tagFilter !== "All")      rows = rows.filter(l => (l.tags || []).includes(tagFilter));
+    if (showDupesOnly) rows = rows.filter((l) => dupeIds.has(l.id));
+    if (showStaleOnly) rows = rows.filter((l) => staleLeads.some((s) => s.id === l.id));
+    return rows;
+  }, [leads, filter, showArchived, staffFilter, priorityFilter, tagFilter, showDupesOnly, showStaleOnly, dupeIds, staleLeads]);
 
-  const { sortedData: sortedLeadRows, sortKey: leadSortKey, sortDir: leadSortDir, toggleSort: toggleLeadSort } = useSortedData(rows);
-  rows = sortedLeadRows;
-  const { page: leadPage, setPage: setLeadPage, pageSize: leadPageSize, setPageSize: setLeadPageSize, pageData: leadPageData, pageCount: leadPageCount } = usePagination(rows);
+  // Hooks must always be called unconditionally, outside any conditional branches
+  const searchFilteredRows = useTableFilterV2(preFilteredRows, parsedQuery, ["name", "email", "phone", "service", "source", "notes"]);
+  const { sortedData: sortedLeadRows, sortKey: leadSortKey, sortDir: leadSortDir, toggleSort: toggleLeadSort } = useSortedData(searchFilteredRows);
+  const { page: leadPage, setPage: setLeadPage, pageSize: leadPageSize, setPageSize: setLeadPageSize, pageData: leadPageData, pageCount: leadPageCount } = usePagination(sortedLeadRows);
+  const rows = sortedLeadRows;
+
+  // Reset to page 1 whenever filters or search change so you never land on a non-existent page
+  useEffect(() => { setLeadPage(0); }, [filter, staffFilter, priorityFilter, tagFilter, localSearch, showDupesOnly, showStaleOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -1460,11 +1781,16 @@ export default function LeadsTab({ search }) {
       lead = data.leads.find(l => l.id === leadIdOrIndex);
     }
     if (!lead) return;
+
+    // ── Status changes route through the workflow engine ────────────────────────
+    if (key === "status" && val !== lead.status) {
+      handleStageTransition(lead, val);
+      return;
+    }
+
     const today = new Date().toISOString().slice(0, 10);
     let timelineEntry = null;
-    if (key === "status" && lead.status !== val)
-      timelineEntry = { date: today, text: `Status changed: ${lead.status} → ${val}` };
-    else if (key === "assignedTo" && lead.assignedTo !== val)
+    if (key === "assignedTo" && lead.assignedTo !== val)
       timelineEntry = { date: today, text: `Assigned to ${val || "nobody"}` };
     else if (key === "value" && lead.value !== Number(val))
       timelineEntry = { date: today, text: `Value updated: ${aed(lead.value)} → ${aed(Number(val))}` };
@@ -1474,65 +1800,6 @@ export default function LeadsTab({ search }) {
       return { ...l, [key]: val, updatedAt: today, timeline };
     });
     setData({ ...data, leads: updated });
-
-    // ── Stage-change automations ─────────────────────────────────────────────
-    if (key === "status" && val !== lead.status) {
-      const todayFull = new Date().toISOString();
-      const in24h = new Date(Date.now() + 86400000).toISOString().slice(0,10);
-
-      if (val === "Orientation Paid") {
-        // Auto-create orientation reminder follow-up
-        setData(prev => ({ ...prev, leads: prev.leads.map(l =>
-          l.id !== lead.id ? l : { ...l,
-            followUpDate: in24h,
-            timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Orientation reminder scheduled" }]
-          }
-        )}));
-        toast && toast("📅 Orientation reminder set automatically", "info");
-      }
-
-      if (val === "Orientation Attended") {
-        // Auto-set follow-up for next day
-        setData(prev => ({ ...prev, leads: prev.leads.map(l =>
-          l.id !== lead.id ? l : { ...l,
-            followUpDate: in24h,
-            timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Follow-up task created for 24h" }]
-          }
-        )}));
-        toast && toast("📞 24h follow-up task created", "info");
-      }
-
-      if (val === "Interested") {
-        // Auto-log quotation prompt
-        setData(prev => ({ ...prev, leads: prev.leads.map(l =>
-          l.id !== lead.id ? l : { ...l,
-            timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Quotation generation triggered" }]
-          }
-        )}));
-        toast && toast("📄 Generate a quotation for this client", "warning");
-      }
-
-      if (val === "Reserved") {
-        // Auto-log onboarding checklist prompt
-        setData(prev => ({ ...prev, leads: prev.leads.map(l =>
-          l.id !== lead.id ? l : { ...l,
-            timeline: [...(l.timeline||[]), { date: today, text: "⚙️ Auto: Onboarding checklist sent" }]
-          }
-        )}));
-        toast && toast("📋 Explain requirements & send onboarding checklist", "info");
-      }
-    }
-
-    // 🎉 Fun layer — Won confetti + toast
-    if (key === "status" && val === (cfg.wonStage || "Won") && lead.status !== (cfg.wonStage || "Won")) {
-      if (cfg.confettiEnabled !== false) spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
-      if (cfg.xpEnabled !== false) {
-        const winToasts = cfg.winToasts || WIN_LEAD_TOASTS;
-        pushToast(winToasts[Math.floor(Math.random() * winToasts.length)], "🏆", "win");
-        grantXP(cfg.xpPerWin ?? 25);
-        checkAchievements(updated);
-      }
-    }
   };
 
   const handleDelete = (leadIdOrIndex) => {
@@ -1556,17 +1823,23 @@ export default function LeadsTab({ search }) {
       status:  "New Lead",
       service: "Self Sponsored Visa",
       source:  "Other",
+      timeline: [{ date: today, text: "Lead created" }],
+      callLog: [],
+      quickNotes: [],
       ...vals,
       value:   Number(vals.value) || 0,
       date:    today,
       updatedAt: today,
-      timeline: [{ date: today, text: "Lead created" }],
       tags: Array.isArray(vals.tags) ? vals.tags : [],
-      callLog: [],
-      quickNotes: [],
     };
     const nextLeads = [...data.leads, newLead];
     setData({ ...data, leads: nextLeads });
+
+    // Start SLA clock for the initial stage
+    if (leadWorkflow) {
+      workflowEngine.slaTracker.start(newLead.id, newLead.status);
+    }
+
     // 🎯 Fun layer — add toast + XP + achievements
     if (cfg.xpEnabled !== false) {
       const addToasts = cfg.addToasts || ADD_LEAD_TOASTS;
@@ -1577,13 +1850,26 @@ export default function LeadsTab({ search }) {
   };
 
   /** Save all edits from the edit modal */
-  const handleEditSave = (vals, timelineEntries = []) => {
+  const handleEditSave = async (vals, timelineEntries = []) => {
     if (!editLead) return;
     const today = new Date().toISOString().slice(0, 10);
     const wasWon = editLead.status !== (cfg.wonStage || "Won") && vals.status === (cfg.wonStage || "Won");
+    const statusChanged = vals.status && vals.status !== editLead.status;
+
+    // If status changed, route through workflow engine
+    if (statusChanged) {
+      await handleStageTransition(editLead, vals.status);
+      // handleStageTransition updates status in data; proceed to save the rest of the fields
+    }
+
     const updated = data.leads.map(l => {
       if (l.id !== editLead.id) return l;
       const timeline = [...(l.timeline || []), ...timelineEntries];
+      // If status was routed through the workflow engine, omit it here to avoid overwriting the engine's result
+      if (statusChanged) {
+        const { status: _omit, ...rest } = vals;
+        return { ...l, ...rest, value: Number(vals.value) || 0, updatedAt: today, timeline };
+      }
       return { ...l, ...vals, value: Number(vals.value) || 0, updatedAt: today, timeline };
     });
     setData({ ...data, leads: updated });
@@ -1622,16 +1908,24 @@ export default function LeadsTab({ search }) {
   };
 
   // Auto Status Rules — run whenever leads change
-  const runAutoRules = useCallback((leads) => {
+  const runAutoRules = useCallback(async (leads) => {
     if (cfg.autoRulesEnabled === false) return;
     const autoLostDays     = cfg.autoLostDays     ?? 30;
     const autoEscalateDays = cfg.autoEscalateDays ?? 7;
     const wonStage         = cfg.wonStage          || "Won";
     const today = new Date().toISOString().slice(0, 10);
     let changed = 0;
-    const updated = leads.map(l => {
+    const updated = await Promise.all(leads.map(async l => {
       const days = getDaysInStage(l);
       if (l.status === "New Lead" && days >= autoLostDays && !l.archived) {
+        if (leadWorkflow) {
+          try {
+            await workflowEngine.executeTransition(
+              leadWorkflow.id, l.id, l.status, "Lost",
+              "system", "Auto-Rules", { reason: `${autoLostDays} days no activity` }
+            );
+          } catch { /* transition may not be defined — still apply */ }
+        }
         changed++;
         return { ...l, status: "Lost", lostReason: "No response", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Auto-moved to Lost: ${autoLostDays} days no activity` }] };
       }
@@ -1640,13 +1934,13 @@ export default function LeadsTab({ search }) {
         return { ...l, priority: "VIP", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Auto-escalated to VIP: ${wonStage} for ${autoEscalateDays}+ days` }] };
       }
       return l;
-    });
+    }));
     if (changed > 0) {
       setData(d => ({ ...d, leads: updated }));
       setAutoRulesAlert(`Auto-rules applied: ${changed} lead(s) updated`);
       setTimeout(() => setAutoRulesAlert(null), 4000);
     }
-  }, [cfg]);
+  }, [cfg, leadWorkflow]);
 
   // Run auto rules on mount
   useEffect(() => { if (leads.length) runAutoRules(leads); }, []); // eslint-disable-line
@@ -1665,13 +1959,40 @@ export default function LeadsTab({ search }) {
   };
 
   const handleDocChecklist = (leadId, item, checked) => {
-    const updated = data.leads.map(l => {
+    setData(prev => ({ ...prev, leads: prev.leads.map(l => {
       if (l.id !== leadId) return l;
-      const docs = { ...(l.docChecklist || {}) };
-      docs[item] = checked;
-      return { ...l, docChecklist: docs };
-    });
-    setData({ ...data, leads: updated });
+      return { ...l, docChecklist: { ...(l.docChecklist || {}), [item]: checked } };
+    })}));
+  };
+
+  const handleDocAttachment = (leadId, item, file) => {
+    if (!file) return;
+    const allowed = ["image/jpeg","image/png","image/gif","image/webp","application/pdf"];
+    if (!allowed.includes(file.type)) { toast("Only images and PDFs are supported", "error"); return; }
+    if (file.size > 8 * 1024 * 1024) { toast("File must be under 8 MB", "error"); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const storageKey = `crm_doc_attachments_${leadId}`;
+        const existing = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        existing[item] = [...(existing[item] || []), { name: file.name, type: file.type, data: e.target.result, uploadedAt: new Date().toISOString().slice(0, 10) }];
+        localStorage.setItem(storageKey, JSON.stringify(existing));
+        // nudge a re-render so the drawer re-reads localStorage
+        setData(prev => ({ ...prev, leads: prev.leads.map(l => l.id === leadId ? { ...l, _attachTs: Date.now() } : l) }));
+        toast(`${file.name} attached`, "success");
+      } catch { toast("Storage full — try a smaller file", "error"); }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDocAttachmentDelete = (leadId, item, idx) => {
+    try {
+      const storageKey = `crm_doc_attachments_${leadId}`;
+      const existing = JSON.parse(localStorage.getItem(storageKey) || "{}");
+      existing[item] = (existing[item] || []).filter((_, i) => i !== idx);
+      localStorage.setItem(storageKey, JSON.stringify(existing));
+      setData(prev => ({ ...prev, leads: prev.leads.map(l => l.id === leadId ? { ...l, _attachTs: Date.now() } : l) }));
+    } catch {}
   };
 
   const handleSetRecurrence = (leadId, days) => {
@@ -1722,18 +2043,31 @@ export default function LeadsTab({ search }) {
 
   const handleBulkExport = () => {
     const sel = bulkSelected.size > 0 ? data.leads.filter(l => bulkSelected.has(l.id)) : data.leads.filter(l => !l.archived);
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = ["ID,Name,Email,Phone,Status,Service,Value,Source,Priority,Assigned,Follow-up",
-      ...sel.map(l => [l.id,l.name,l.email,l.phone,l.status,l.service,l.value,l.source,l.priority||"",l.assignedTo||"",l.followUpDate||""].join(","))
+      ...sel.map(l => [l.id,l.name,l.email,l.phone,l.status,l.service,l.value,l.source,l.priority||"",l.assignedTo||"",l.followUpDate||""].map(q).join(","))
     ].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `leads_export_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const a = document.createElement("a"); a.href = url; a.download = `leads_export_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
     toast(`Exported ${sel.length} lead${sel.length !== 1 ? "s" : ""} to CSV`, "success");
   };
 
-  const handleReopenLead = (lead, reason) => {
+  const handleReopenLead = async (lead, reason) => {
     const today = new Date().toISOString().slice(0, 10);
+    // Log the reopen as a workflow transition if engine has the workflow
+    if (leadWorkflow) {
+      try {
+        await workflowEngine.executeTransition(
+          leadWorkflow.id, lead.id, lead.status, "New Lead",
+          currentUser.userId, currentUser.userName, { reason, action: "reopen" }
+        );
+      } catch { /* transition may not be in engine's defined list — that's OK, still reopen */ }
+    }
     const updated = data.leads.map(l =>
       l.id === lead.id ? { ...l, status: "New Lead", lostReason: "", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Lead reopened — ${reason}` }] } : l
     );
@@ -1773,10 +2107,39 @@ export default function LeadsTab({ search }) {
     setShowSavedFilters(false);
   };
 
-  const handleConvertToClient = (lead) => {
-    const already = data.clients?.some(c => c.name === lead.name || c.email === lead.email);
+  const handleConvertToClient = async (lead) => {
+    const already = data.clients?.some(c =>
+      (c.name?.toLowerCase().trim() === lead.name?.toLowerCase().trim()) ||
+      (lead.email && c.email?.toLowerCase().trim() === lead.email?.toLowerCase().trim()) ||
+      (lead.phone && c.phone?.replace(/\s/g,"") === lead.phone?.replace(/\s/g,""))
+    );
     if (already) { toast(`${lead.name} is already a client.`, "warning"); return; }
-    const today = new Date().toISOString().slice(0,10);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const wonStage = cfg.wonStage || "Won";
+
+    // If not already Won, run through the workflow engine first
+    if (lead.status !== wonStage && leadWorkflow) {
+      const canProceed = workflowEngine.canTransition(leadWorkflow.id, lead.status, wonStage, currentUser.userRole, lead);
+      if (!canProceed.allowed) {
+        toast(`⛔ Cannot convert: ${canProceed.reason}`, "warning");
+        return;
+      }
+      if (canProceed.requiresApproval) {
+        const ok = window.confirm(`Converting to client requires approval. Proceed?`);
+        if (!ok) return;
+      }
+      try {
+        await workflowEngine.executeTransition(
+          leadWorkflow.id, lead.id, lead.status, wonStage,
+          currentUser.userId, currentUser.userName, { convertedToClient: true }
+        );
+      } catch (e) {
+        toast(`Workflow error: ${e.message}`, "error");
+        return;
+      }
+    }
+
     const newClient = {
       id:            nextId("C"),
       name:          lead.name,
@@ -1793,7 +2156,7 @@ export default function LeadsTab({ search }) {
       started:       today,
     };
     const updatedLeads = data.leads.map(l =>
-      l.id === lead.id ? { ...l, status: "Won", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: "Converted to client 🎉" }] } : l
+      l.id === lead.id ? { ...l, status: wonStage, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: "Converted to client 🎉" }] } : l
     );
     setData({ ...data, clients: [...(data.clients || []), newClient], leads: updatedLeads });
     // 🌟 Fun layer — convert toast + confetti + XP
@@ -1807,13 +2170,20 @@ export default function LeadsTab({ search }) {
   };
 
   const handleMergeDupes = () => {
-    const seen = new Map();
+    const seenPhone = new Map();
+    const seenEmail = new Map();
     const toRemove = new Set();
     data.leads.forEach(l => {
-      const key = (l.email || l.phone || "").toLowerCase().trim();
-      if (!key) return;
-      if (seen.has(key)) toRemove.add(l.id);
-      else seen.set(key, l.id);
+      const p = (l.phone || "").replace(/\s/g, "").toLowerCase();
+      const e = (l.email || "").toLowerCase().trim();
+      if (p) {
+        if (seenPhone.has(p)) toRemove.add(l.id);
+        else seenPhone.set(p, l.id);
+      }
+      if (e) {
+        if (seenEmail.has(e)) toRemove.add(l.id);
+        else seenEmail.set(e, l.id);
+      }
     });
     if (toRemove.size === 0) { toast("No duplicates to merge.", "info"); return; }
     if (!window.confirm(`Remove ${toRemove.size} duplicate lead(s)?`)) return;
@@ -1823,31 +2193,65 @@ export default function LeadsTab({ search }) {
 
   const handleKanbanDrop = (leadId, newStatus) => {
     const lead = data.leads.find(l => l.id === leadId);
-    const today = new Date().toISOString().slice(0, 10);
-    const updated = data.leads.map((l) =>
-      l.id === leadId ? { ...l, status: newStatus, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed: ${lead?.status} → ${newStatus}` }] } : l
-    );
-    setData({ ...data, leads: updated });
-    // 🎉 Fun layer — Won confetti on kanban drop
-    if (newStatus === (cfg.wonStage || "Won") && lead?.status !== (cfg.wonStage || "Won") && cfg.xpEnabled !== false) {
-      if (cfg.confettiEnabled !== false) spawnConfetti(window.innerWidth / 2, window.innerHeight / 2);
-      const winToasts = cfg.winToasts || WIN_LEAD_TOASTS;
-      pushToast(winToasts[Math.floor(Math.random() * winToasts.length)], "🏆", "win");
-      grantXP(cfg.xpPerWin ?? 25);
-      checkAchievements(updated);
-    }
+    if (!lead) return;
+    // Route through workflow engine (handles permission, validation, SLA, history)
+    handleStageTransition(lead, newStatus);
   };
 
-  const handleBulkMove = () => {
+  const handleBulkMove = async () => {
     if (!bulkTarget || bulkSelected.size === 0) return;
     const today = new Date().toISOString().slice(0, 10);
-    const updated = data.leads.map(l =>
-      bulkSelected.has(l.id) ? { ...l, status: bulkTarget, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] } : l
-    );
-    setData({ ...data, leads: updated });
-    toast(`Moved ${bulkSelected.size} lead${bulkSelected.size !== 1 ? "s" : ""} to ${bulkTarget}`, "success");
-    setBulkSelected(new Set());
-    setBulkTarget("");
+
+    if (leadWorkflow) {
+      // Use engine's bulkTransition — validates each lead individually
+      const entityIds = [...bulkSelected];
+      // Pre-flight: check every lead has a valid transition defined
+      const leads = data.leads.filter(l => bulkSelected.has(l.id));
+      const blocked = leads.filter(l => {
+        const { allowed } = workflowEngine.canTransition(leadWorkflow.id, l.status, bulkTarget, currentUser.userRole, l);
+        return !allowed;
+      });
+      if (blocked.length > 0) {
+        toast(`⛔ ${blocked.length} lead(s) cannot move to ${bulkTarget} (role/condition blocked)`, "warning");
+        return;
+      }
+
+      setIsLoading(true);
+
+      // Fallback: engine's bulkTransition needs a single fromStage; do it lead-by-lead instead
+      let successCount = 0;
+      const succeededIds = new Set();
+      for (const lead of leads) {
+        try {
+          await workflowEngine.executeTransition(
+            leadWorkflow.id, lead.id, lead.status, bulkTarget,
+            currentUser.userId, currentUser.userName
+          );
+          succeededIds.add(lead.id);
+          successCount++;
+        } catch { /* skip blocked */ }
+      }
+
+      const updated = data.leads.map(l => {
+        if (!bulkSelected.has(l.id)) return l;
+        if (!succeededIds.has(l.id)) return l;
+        return { ...l, status: bulkTarget, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] };
+      });
+      setData({ ...data, leads: updated });
+      toast(`Moved ${successCount} lead${successCount !== 1 ? "s" : ""} to ${bulkTarget}`, "success");
+      setIsLoading(false);
+      setBulkSelected(new Set());
+      setBulkTarget("");
+    } else {
+      // No workflow configured — move freely
+      const updated = data.leads.map(l =>
+        bulkSelected.has(l.id) ? { ...l, status: bulkTarget, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] } : l
+      );
+      setData({ ...data, leads: updated });
+      toast(`Moved ${bulkSelected.size} lead${bulkSelected.size !== 1 ? "s" : ""} to ${bulkTarget}`, "success");
+      setBulkSelected(new Set());
+      setBulkTarget("");
+    }
   };
 
   const toggleBulkSelect = (id) => {
@@ -1956,7 +2360,7 @@ export default function LeadsTab({ search }) {
     {
       key: "stale", label: "Follow-up", width: 135, priority: 0,
       render: (_, r, ri) => {
-        const fu = getFollowUpStatus(r.followUpDate);
+        const fu = getFollowUpStatus(r.followUpDate, cfg);
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {fu
@@ -2136,7 +2540,7 @@ export default function LeadsTab({ search }) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: isPhone ? 8 : 12, height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: isPhone ? 8 : 12, ...(isPhone ? {} : { height: "100%", minHeight: 0 }) }}>
 
 
       {/* ── KPI Widgets ── */}
@@ -2159,9 +2563,9 @@ export default function LeadsTab({ search }) {
           // ── PHONE: 4 compact stat boxes in a single row (matches image screen 1) ──
           const phoneStats = [
             { label: "Follows\nToday",     value: followUpsToday,     color: "#6366f1" },
-            { label: "Domain\nFollow",     value: overdueCount,        color: "#f59e0b" },
+            { label: "Overdue\nFollow-ups", value: overdueCount,        color: "#f59e0b" },
             { label: "Reservtn\nPending",  value: reservationPending,  color: "#10b981" },
-            { label: "3rd\nPending",       value: orientationToday,    color: "#ef4444" },
+            { label: "Orientation\nPending", value: orientationToday,    color: "#ef4444" },
           ];
           return (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
@@ -2213,11 +2617,15 @@ export default function LeadsTab({ search }) {
         const callTodayCount    = leads.filter(l => { const fu = getFollowUpStatus(l.followUpDate, cfg); return fu && (fu.color === "#f59e0b" || fu.color === "#ef4444"); }).length;
         const orientTomorrow    = leads.filter(l => { if (l.status !== "Orientation Scheduled") return false; const d = new Date(l.followUpDate || ""); const tom = new Date(); tom.setDate(tom.getDate() + 1); return d.toDateString() === tom.toDateString(); }).length;
         const awaitingPayment   = leads.filter(l => l.status === "Orientation Payment Pending").length;
+        const wonNotHandedOver  = leads.filter(l => l.status === "Won" && getDaysInStage(l) > 3).length;
+        const unassignedCount   = leads.filter(l => !l.assignedTo && !CLOSED_STAGES.includes(l.status)).length;
         const aqItems = [
-          { label: "Call Today",           count: callTodayCount,  color: "#10b981", bg: "#f0fdf4", icon: "ti-phone",          onClick: () => setShowReminderCenter(true) },
-          { label: "Overdue Follow Ups",   count: overdueCount,    color: "#ef4444", bg: "#fef2f2", icon: "ti-alert-triangle",  onClick: () => setShowReminderCenter(true) },
-          { label: "Orientation Tomorrow", count: orientTomorrow,  color: "#3b82f6", bg: "#eff6ff", icon: "ti-calendar",       onClick: () => setFilter("Orientation Scheduled") },
-          { label: "Awaiting Payment",     count: awaitingPayment, color: "#f59e0b", bg: "#fffbeb", icon: "ti-credit-card",    onClick: () => setFilter("Orientation Payment Pending") },
+          { label: "Call Today",              count: callTodayCount,    color: "#10b981", bg: "#f0fdf4", icon: "ti-phone",          onClick: () => setShowReminderCenter(true) },
+          { label: "Overdue Follow Ups",      count: overdueCount,      color: "#ef4444", bg: "#fef2f2", icon: "ti-alert-triangle",  onClick: () => setShowReminderCenter(true) },
+          { label: "Orientation Tomorrow",    count: orientTomorrow,    color: "#3b82f6", bg: "#eff6ff", icon: "ti-calendar",        onClick: () => setFilter("Orientation Scheduled") },
+          { label: "Awaiting Payment",        count: awaitingPayment,   color: "#f59e0b", bg: "#fffbeb", icon: "ti-credit-card",     onClick: () => setFilter("Orientation Payment Pending") },
+          { label: "Won — Not Handed Over",   count: wonNotHandedOver,  color: "#7c3aed", bg: "#f5f3ff", icon: "ti-arrow-right",     onClick: () => setFilter("Won") },
+          { label: "Unassigned",              count: unassignedCount,   color: "#ef4444", bg: "#fef2f2", icon: "ti-user-off",        onClick: () => setStaffFilter("__unassigned__") },
         ];
         return (
           <>{isPhone ? (
@@ -2384,21 +2792,24 @@ export default function LeadsTab({ search }) {
                 <i className="ti ti-chevron-down" style={{ fontSize: 14, color: "#94a3b8" }} />
               </div>
               <div style={{ flex: 1 }} />
-              {/* Kanban / Table pill toggle */}
+              {/* Cards / Table pill toggle — Kanban is tablet/desktop only */}
               <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 2 }}>
                 {[
-                  { id: "kanban", label: "Kanban" },
-                  { id: "table",  label: "Table"  },
-                ].map(v => (
-                  <button key={v.id} onClick={() => setDisplayMode(v.id)} style={{
-                    padding: "5px 14px", borderRadius: 6, border: "none",
-                    background: displayMode === v.id ? "#fff" : "none",
-                    color: displayMode === v.id ? "#1d4ed8" : "#94a3b8",
-                    fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    boxShadow: displayMode === v.id ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
-                    transition: "all 0.12s", fontFamily: "inherit",
-                  }}>{v.label}</button>
-                ))}
+                  { id: "cards", label: "Cards" },
+                  { id: "table", label: "Table" },
+                ].map(v => {
+                  const active = displayMode === v.id || (displayMode === "kanban" && v.id === "cards");
+                  return (
+                    <button key={v.id} onClick={() => setDisplayMode(v.id)} style={{
+                      padding: "5px 12px", borderRadius: 6, border: "none",
+                      background: active ? "#fff" : "none",
+                      color: active ? "#4f46e5" : "#94a3b8",
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      boxShadow: active ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                      transition: "all 0.12s", fontFamily: "inherit",
+                    }}>{v.label}</button>
+                  );
+                })}
               </div>
               {/* Filter icon */}
               <button onClick={() => {}} style={{ width: 34, height: 34, borderRadius: 8, background: "#fff", border: "1.5px solid #e8ecf1", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2436,22 +2847,24 @@ export default function LeadsTab({ search }) {
             <i className="ti ti-chevron-down" style={{ fontSize: 11, color: "#94a3b8" }} />
           </div>
 
-          {/* View toggles — kanban | table | list */}
-          <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
+          {/* View toggles — kanban | cards | table */}
+          <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 2, flexShrink: 0 }}>
             {[
-              { id: "kanban", icon: "ti-layout-columns" },
-              { id: "table",  icon: "ti-layout-rows" },
-              { id: "list",   icon: "ti-list" },
+              { id: "kanban", icon: "ti-layout-columns", label: "Kanban" },
+              { id: "cards",  icon: "ti-layout-grid",    label: "Cards"  },
+              { id: "table",  icon: "ti-table",          label: "Table"  },
             ].map(v => (
-              <button key={v.id} onClick={() => setDisplayMode(v.id === "list" ? "table" : v.id)} style={{
-                width: 28, height: 26, borderRadius: 5, border: "none",
-                background: (displayMode === v.id || (v.id === "list" && displayMode === "table" && false)) ? "#fff" : "none",
-                color: displayMode === v.id ? "#1d4ed8" : "#94a3b8",
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: displayMode === v.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                transition: "all 0.12s",
+              <button key={v.id} onClick={() => setDisplayMode(v.id)} style={{
+                padding: "4px 10px", borderRadius: 6, border: "none",
+                background: displayMode === v.id ? "#fff" : "none",
+                color: displayMode === v.id ? "#4f46e5" : "#94a3b8",
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                boxShadow: displayMode === v.id ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                fontWeight: displayMode === v.id ? 700 : 500,
+                fontSize: 11, transition: "all 0.12s", whiteSpace: "nowrap",
               }}>
-                <i className={`ti ${v.icon}`} style={{ fontSize: 13 }} />
+                <i className={`ti ${v.icon}`} style={{ fontSize: 12 }} />
+                {v.label}
               </button>
             ))}
           </div>
@@ -2492,9 +2905,15 @@ export default function LeadsTab({ search }) {
               value={localSearch}
               onChange={e => setLocalSearch(e.target.value)}
               placeholder="Search leads…"
-              style={{ width: "100%", padding: "6px 36px 6px 30px", fontSize: 12, border: "1.5px solid #e8ecf1", borderRadius: 7, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+              style={{ width: "100%", padding: "6px 36px 6px 30px", fontSize: 12, border: "1.5px solid #e8ecf1", borderRadius: 7, outline: "none", boxSizing: "border-box", fontFamily: "inherit", transition: "border-color 0.15s" }}
+              onFocus={e => e.target.style.borderColor = "#93c5fd"}
+              onBlur={e => e.target.style.borderColor = "#e8ecf1"}
             />
-            <span onClick={() => setShowGlobalSearch(true)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: "#94a3b8", background: "#f1f5f9", borderRadius: 4, padding: "2px 5px", fontWeight: 600, cursor: "pointer" }}>⌘K</span>
+            {localSearch ? (
+              <button onClick={() => setLocalSearch("")} title="Clear search" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: "#94a3b8", background: "#e2e8f0", border: "none", borderRadius: "50%", width: 16, height: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>✕</button>
+            ) : (
+              <span onClick={() => setShowGlobalSearch(true)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: "#94a3b8", background: "#f1f5f9", borderRadius: 4, padding: "2px 5px", fontWeight: 600, cursor: "pointer" }}>⌘K</span>
+            )}
             {showSuggestions && suggestions.length > 0 && (
               <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 400, background: "#fff", border: `1px solid ${B.border}`, borderRadius: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", maxHeight: 200, overflowY: "auto" }}>
                 {suggestions.map((s, i) => (
@@ -2507,8 +2926,10 @@ export default function LeadsTab({ search }) {
           </div>
 
           {/* Filter icon */}
-          <button style={{ width: 32, height: 32, border: "1.5px solid #e8ecf1", borderRadius: 7, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <i className="ti ti-adjustments-horizontal" style={{ fontSize: 15, color: "#64748b" }} />
+          <button
+            title="Advanced filters"
+            style={{ width: 32, height: 32, border: `1.5px solid ${filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All" ? "#93c5fd" : "#e8ecf1"}`, borderRadius: 7, background: filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All" ? "#eff6ff" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+            <i className="ti ti-adjustments-horizontal" style={{ fontSize: 15, color: filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All" ? "#2563eb" : "#64748b" }} />
           </button>
 
           {/* ── + Add Lead button ── */}
@@ -2603,56 +3024,100 @@ export default function LeadsTab({ search }) {
         <>
           {/* ── Table tab strip + toolbar ── */}
           {!isPhone && (
-            <div style={{ background: "#fff", borderRadius: "10px 10px 0 0", border: "1px solid #e8ecf1", borderBottom: "none", padding: "0 14px", display: "flex", alignItems: "center" }}>
+            <div style={{ background: "linear-gradient(135deg, #f8faff 0%, #eef2ff 100%)", borderRadius: "10px 10px 0 0", border: "1px solid #c7d2fe", borderBottom: "none", padding: "0 14px", display: "flex", alignItems: "center" }}>
               {/* Tab strip */}
               <div style={{ display: "flex", alignItems: "center", flex: 1, gap: 0 }}>
                 {[
-                  { label: "All Leads",        active: filter === "All" && !showDupesOnly && !showStaleOnly, onClick: () => { setFilter("All"); setShowDupesOnly(false); setShowStaleOnly(false); } },
-                  { label: "My Leads",         active: staffFilter !== "All", onClick: () => { setStaffFilter(staffFilter !== "All" ? "All" : (cfg.staffOptions?.[0] || "Ahmed")); } },
-                  { label: "Hot Leads",        active: priorityFilter === "High" || priorityFilter === "VIP", onClick: () => setPriorityFilter(priorityFilter === "High" ? "All" : "High") },
-                  { label: "Orientation Paid", active: filter === "Orientation Paid", onClick: () => setFilter(filter === "Orientation Paid" ? "All" : "Orientation Paid") },
+                  { label: "All Leads",        icon: "ti-users",        count: data.leads?.filter(l => !l.archived).length, active: filter === "All" && !showDupesOnly && !showStaleOnly, onClick: () => { setFilter("All"); setShowDupesOnly(false); setShowStaleOnly(false); } },
+                  { label: "My Leads",         icon: "ti-user",         count: null, active: staffFilter !== "All", onClick: () => { setStaffFilter(staffFilter !== "All" ? "All" : (cfg.staffOptions?.[0] || "Ahmed")); } },
+                  { label: "🔥 Hot Leads",     icon: null,              count: null, active: priorityFilter === "High" || priorityFilter === "VIP", onClick: () => setPriorityFilter(priorityFilter === "High" ? "All" : "High") },
+                  { label: "Orientation Paid", icon: "ti-credit-card",  count: null, active: filter === "Orientation Paid", onClick: () => setFilter(filter === "Orientation Paid" ? "All" : "Orientation Paid") },
                 ].map(tab => (
                   <button key={tab.label} onClick={tab.onClick} style={{
-                    padding: "10px 16px", fontSize: 12, fontWeight: tab.active ? 700 : 500,
-                    color: tab.active ? "#2563eb" : "#64748b",
-                    borderBottom: tab.active ? "2px solid #2563eb" : "2px solid transparent",
+                    padding: "11px 16px", fontSize: 12, fontWeight: tab.active ? 700 : 500,
+                    color: tab.active ? "#4f46e5" : "#64748b",
+                    borderBottom: tab.active ? "2.5px solid #4f46e5" : "2.5px solid transparent",
                     borderTop: "none", borderLeft: "none", borderRight: "none",
-                    background: "none", cursor: "pointer", whiteSpace: "nowrap",
-                    transition: "color 0.12s, border-color 0.12s",
-                  }}>{tab.label}</button>
+                    background: tab.active ? "rgba(79,70,229,0.06)" : "none",
+                    cursor: "pointer", whiteSpace: "nowrap",
+                    transition: "color 0.12s, border-color 0.12s, background 0.12s",
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    {tab.icon && <i className={`ti ${tab.icon}`} style={{ fontSize: 12 }} />}
+                    {tab.label}
+                    {tab.count != null && <span style={{ fontSize: 10, fontWeight: 700, background: tab.active ? "#e0e7ff" : "#f1f5f9", color: tab.active ? "#4f46e5" : "#94a3b8", borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>{tab.count}</span>}
+                  </button>
                 ))}
-                <button style={{ padding: "10px 12px", fontSize: 12, color: "#94a3b8", background: "none", border: "none", borderBottom: "2px solid transparent", cursor: "pointer" }}>+ New View</button>
-              </div>
-              {/* Export / Import / Columns */}
-              <div style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: 12, borderLeft: "1px solid #e8ecf1", marginLeft: 8 }}>
-                <button onClick={handleBulkExport} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", fontSize: 11, fontWeight: 600, color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
-                  <i className="ti ti-upload" style={{ fontSize: 12 }} /> Export
-                </button>
-                <button onClick={() => setShowBulkImport(true)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", fontSize: 11, fontWeight: 600, color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
-                  <i className="ti ti-download" style={{ fontSize: 12 }} /> Import
-                </button>
-                <button onClick={() => setShowColumnPicker(true)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", fontSize: 11, fontWeight: 600, color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
-                  <i className="ti ti-columns" style={{ fontSize: 12 }} /> Columns
-                </button>
-                <button style={{ padding: "5px 6px", fontSize: 16, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}>···</button>
               </div>
             </div>
           )}
-          <SectionCard title={`Leads — ${rows.length} record${rows.length !== 1 ? "s" : ""}`} style={{ flex: 1, minHeight: 0, overflow: isPhone ? "visible" : "hidden", borderRadius: isPhone ? 10 : "0 0 10px 10px" }}>
           {isPhone ? (
-            /* ── Mobile card list ── */
-            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 0, padding: "4px 0" }}>
-              {rows.length === 0 && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "48px 20px", gap: 12 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: 14, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <i className="ti ti-users" aria-hidden style={{ fontSize: 24, color: "#94a3b8" }} />
+            /* ── PHONE: plain scrollable list, no SectionCard wrapper ── */
+            <div style={{ borderRadius: 10, overflow: "hidden", background: "#fff", border: "1px solid #e8ecf1" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {isPhone && displayMode === "table" ? (
+              /* ── PHONE TABLE: compact list rows ── */
+              <div>
+                {rows.length === 0 ? (
+                  <div style={{ padding: "40px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No leads found</div>
+                ) : leadPageData.map(r => {
+                  const fu = getFollowUpStatus(r.followUpDate, cfg);
+                  const sc2 = scoreLead(r); const sl2 = scoreLabel(sc2);
+                  const _sc = stageColors[r.status] || STAGE_COLORS[r.status] || "#64748b";
+                  return (
+                    <div key={r.id} onClick={() => setDetailLead(r)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid #f1f5f9", cursor: "pointer", borderLeft: `3px solid ${_sc}`, background: "#fff" }}
+                      onTouchStart={e => e.currentTarget.style.background = "#f8fafc"}
+                      onTouchEnd={e => e.currentTarget.style.background = "#fff"}>
+                      {/* Avatar */}
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: `${_sc}18`, border: `1.5px solid ${_sc}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: _sc, flexShrink: 0 }}>
+                        {(r.name||"?").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()||"?"}
+                      </div>
+                      {/* Name + service */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
+                          {r.service || "—"}{r.assignedTo ? ` · ${r.assignedTo}` : ""}
+                        </div>
+                      </div>
+                      {/* Right: status + follow-up */}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: `${_sc}18`, color: _sc, border: `1px solid ${_sc}44`, whiteSpace: "nowrap" }}>{r.status}</span>
+                        {fu && <span style={{ fontSize: 10, fontWeight: 600, color: fu.color, whiteSpace: "nowrap" }}>{fu.icon} {fu.label}</span>}
+                        {r.value > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981" }}>{cfg.currencyLabel||"AED"} {Number(r.value).toLocaleString()}</span>}
+                      </div>
+                      {/* Quick actions */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                        <button onClick={() => setEditLead(r)} style={{ padding: "5px 8px", background: "#eff6ff", border: "none", borderRadius: 7, fontSize: 13, cursor: "pointer" }}>✏️</button>
+                        {r.phone && <a href={`https://wa.me/${r.phone.replace(/\D/g,"")}`} target="_blank" rel="noreferrer" style={{ padding: "5px 8px", background: "#f0fdf4", border: "none", borderRadius: 7, fontSize: 13, textDecoration: "none", textAlign: "center" }}>💬</a>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {leadPageCount > 1 && (
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, padding:"12px 0", borderTop: "1px solid #f1f5f9" }}>
+                    <button onClick={() => setLeadPage(p => Math.max(0,p-1))} disabled={leadPage===0} style={{ minWidth:36, minHeight:34, border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", background:"#fff", fontSize:16, opacity: leadPage===0 ? 0.4 : 1 }}>‹</button>
+                    <span style={{ fontSize:12, fontWeight:600, color:"#334155" }}>Page {leadPage+1} / {leadPageCount}</span>
+                    <button onClick={() => setLeadPage(p => Math.min(leadPageCount-1,p+1))} disabled={leadPage===leadPageCount-1} style={{ minWidth:36, minHeight:34, border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", background:"#fff", fontSize:16, opacity: leadPage===leadPageCount-1 ? 0.4 : 1 }}>›</button>
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#334155", textAlign: "center" }}>No leads found</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>
-                    {localSearch || filter !== "All" ? "Try clearing your filters" : "Add your first lead to get started"}
+                )}
+              </div>
+            ) : (
+              /* ── PHONE CARDS: rich card list ── */
+              <div>
+              {rows.length === 0 && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "56px 20px", gap: 14 }}>
+                  <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,#eff6ff,#dbeafe)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(37,99,235,0.12)" }}>
+                    <i className="ti ti-users" aria-hidden style={{ fontSize: 28, color: "#2563eb" }} />
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>No leads found</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                      {localSearch || filter !== "All" ? "Try clearing your filters" : "Add your first lead to get started"}
+                    </div>
                   </div>
                   {!localSearch && filter === "All" && (
-                    <button onClick={() => setAddModal(true)} style={{ marginTop: 4, padding: "8px 20px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    <button onClick={() => setAddModal(true)} style={{ padding: "10px 28px", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(37,99,235,0.35)" }}>
                       + Add Lead
                     </button>
                   )}
@@ -2665,40 +3130,50 @@ export default function LeadsTab({ search }) {
                 const _stageColor = stageColors[r.status] || STAGE_COLORS[r.status] || "#64748b";
                 return (
                   <div key={r.id} onClick={() => setDetailLead(r)}
-                    style={{ background: "#fff", borderRadius: 0, border: "none", borderBottom: "1px solid #f1f5f9", padding: "10px 14px", cursor: "pointer", borderLeft: `3px solid ${_stageColor}` }}>
-                    {/* Row 1: name + priority badge */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                      <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                    style={{ background: "#fff", borderRadius: 0, border: "none", borderBottom: "1px solid #f1f5f9", padding: "11px 14px", cursor: "pointer", borderLeft: `3px solid ${_stageColor}`, transition: "background 0.12s" }}
+                    onTouchStart={e => e.currentTarget.style.background = "#f8fafc"}
+                    onTouchEnd={e => e.currentTarget.style.background = "#fff"}>
+                    {/* Row 1: avatar + name + priority badge */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 8, background: `${_stageColor}18`, border: `1.5px solid ${_stageColor}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: _stageColor, flexShrink: 0, letterSpacing: -0.5 }}>
+                        {(r.name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?"}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                        <div style={{ fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.service || "—"}{r.phone ? <span style={{ color: "#94a3b8" }}> · {r.phone}</span> : null}</div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
                         {r.priority && <span style={pill((cfg.priorityColors||PRIORITY_COLORS)[r.priority], (cfg.priorityColors||PRIORITY_COLORS)[r.priority] + "18")}>{r.priority}</span>}
                         <span style={pill(_stageColor, _stageColor + "18")}>{r.status}</span>
                       </div>
                     </div>
-                    {/* Row 2: service + value */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                      <span style={{ fontSize: 12, color: "#64748b" }}>{r.service || "—"}</span>
-                      {r.value > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>{aed(r.value)}</span>}
-                    </div>
-                    {/* Row 3: follow-up + owner */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: na ? 6 : 0 }}>
+                    {/* Row 2: value + follow-up */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                       {fu
                         ? <span style={pill(fu.color, fu.bg)}>{fu.icon} {fu.label}</span>
-                        : <span style={{ fontSize: 11, color: "#cbd5e1" }}>No follow-up</span>}
-                      {r.assignedTo && <span style={{ fontSize: 11, color: "#64748b" }}>👤 {r.assignedTo}</span>}
+                        : <span style={{ fontSize: 11, color: "#cbd5e1" }}>No follow-up set</span>}
+                      <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                        {r.value > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>{cfg.currencyLabel || "AED"} {Number(r.value).toLocaleString()}</span>}
+                      </div>
                     </div>
-                    {/* Row 4: next action */}
-                    {na && <div style={{ fontSize: 11, color: "#334155", borderTop: "1px solid #f1f5f9", paddingTop: 5, marginTop: 2 }}>{na.icon} {na.text}</div>}
+                    {/* Row 3: assigned + next action */}
+                    {(r.assignedTo || na) && (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                        {r.assignedTo && <span style={{ fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 3 }}><i className="ti ti-user" style={{ fontSize: 10 }} />{r.assignedTo}</span>}
+                        {na && <div style={{ fontSize: 10, color: "#334155", background: "#f8fafc", borderRadius: 5, padding: "3px 7px", borderLeft: "2px solid #e2e8f0", maxWidth: "60%", textAlign: "right" }}>{na.icon} {na.text}</div>}
+                      </div>
+                    )}
                     {/* Row 5: quick actions */}
-                    <div style={{ display: "flex", gap: 5, marginTop: 6, paddingTop: 5, borderTop: "1px solid #f1f5f9" }} onClick={e => e.stopPropagation()}>
-                      <button aria-label="Edit lead" onClick={() => setEditLead(r)} style={actionBtn(B.blue, B.blue + "12")}>✏️ Edit</button>
+                    <div style={{ display: "flex", gap: 5, marginTop: 6, paddingTop: 6, borderTop: "1px solid #f1f5f9" }} onClick={e => e.stopPropagation()}>
+                      <button aria-label="Edit lead" onClick={() => setEditLead(r)} style={{ ...actionBtn(B.blue, B.blue + "12"), minHeight: 32, flex: 1, justifyContent: "center", display: "flex", alignItems: "center" }}>✏️ Edit</button>
                       {r.phone && (
-                        <button aria-label="Open WhatsApp" onClick={() => window.open(`https://wa.me/${r.phone.replace(/\D/g,"")}`, "_blank")} style={actionBtn("#25d366", "#25d36612")}>💬 WA</button>
+                        <button aria-label="Open WhatsApp" onClick={() => window.open(`https://wa.me/${r.phone.replace(/\D/g,"")}`, "_blank")} style={{ ...actionBtn("#25d366", "#25d36612"), minHeight: 32, flex: 1, justifyContent: "center", display: "flex", alignItems: "center" }}>💬 WA</button>
                       )}
                       {r.phone && (
-                        <a href={`tel:${r.phone}`} aria-label="Call lead" onClick={e => e.stopPropagation()} style={{ ...actionBtn("#0ea5e9", "#f0f9ff"), textDecoration: "none" }}>📞 Call</a>
+                        <a href={`tel:${r.phone}`} aria-label="Call lead" onClick={e => e.stopPropagation()} style={{ ...actionBtn("#0ea5e9", "#f0f9ff"), textDecoration: "none", minHeight: 32, flex: 1, justifyContent: "center", display: "flex", alignItems: "center" }}>📞 Call</a>
                       )}
                       {r.status === "Won" && (
-                        <button aria-label="Convert to client" onClick={() => handleConvertToClient(r)} style={actionBtn(B.green, B.green + "12")}>↗ Convert</button>
+                        <button aria-label="Convert to client" onClick={() => handleConvertToClient(r)} style={{ ...actionBtn(B.green, B.green + "12"), minHeight: 32, flex: 1, justifyContent: "center", display: "flex", alignItems: "center" }}>↗ Convert</button>
                       )}
                     </div>
                   </div>
@@ -2706,25 +3181,38 @@ export default function LeadsTab({ search }) {
               })}
               {/* Mobile pagination */}
               {leadPageCount > 1 && (
-                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 0", fontSize:12, color:B.muted, justifyContent:"center" }}>
-                  <button onClick={() => setLeadPage(p => Math.max(0,p-1))} disabled={leadPage===0} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>‹</button>
-                  <span>Page {leadPage+1} / {leadPageCount}</span>
-                  <button onClick={() => setLeadPage(p => Math.min(leadPageCount-1,p+1))} disabled={leadPage===leadPageCount-1} style={{ padding:"3px 10px", border:`1px solid ${B.border}`, borderRadius:5, cursor:"pointer", background:"#fff" }}>›</button>
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"12px 0 8px", fontSize:12, color:B.muted, justifyContent:"center" }}>
+                  <button onClick={() => setLeadPage(p => Math.max(0,p-1))} disabled={leadPage===0} style={{ minWidth:40, minHeight:36, border:`1px solid ${B.border}`, borderRadius:8, cursor:"pointer", background:"#fff", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", opacity: leadPage===0 ? 0.4 : 1 }}>‹</button>
+                  <span style={{ fontWeight:600, color:"#334155", fontSize:12, minWidth:80, textAlign:"center" }}>Page {leadPage+1} / {leadPageCount}</span>
+                  <button onClick={() => setLeadPage(p => Math.min(leadPageCount-1,p+1))} disabled={leadPage===leadPageCount-1} style={{ minWidth:40, minHeight:36, border:`1px solid ${B.border}`, borderRadius:8, cursor:"pointer", background:"#fff", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", opacity: leadPage===leadPageCount-1 ? 0.4 : 1 }}>›</button>
                 </div>
               )}
             </div>
+            )}{/* end table/cards ternary */}
+            </div>
+            </div>
           ) : (
-            /* ── Lead card grid — desktop/tablet ── */
+            /* ── Desktop/tablet: SectionCard wraps cards+table ── */
+            <SectionCard title={`Leads — ${rows.length.toLocaleString()} record${rows.length !== 1 ? "s" : ""}${rows.length !== data.leads?.filter(l => !l.archived).length ? ` (filtered from ${data.leads?.filter(l => !l.archived).length})` : ""}`} style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: "0 0 10px 10px" }}>
+          {displayMode === "cards" ? (
+            /* ── Lead card grid — desktop/tablet (cards mode) ── */
             <>
               <style id="leads-card-styles">{`
-                .lc-card { transition: box-shadow 0.15s, transform 0.12s, border-color 0.12s; cursor: pointer; position: relative; }
-                .lc-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.11) !important; transform: translateY(-2px); border-color: #c7d2fe !important; }
+                .lc-card { transition: box-shadow 0.2s ease, transform 0.18s ease, border-color 0.2s ease; cursor: pointer; position: relative; }
+                .lc-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.11) !important; transform: translateY(-1px); }
+                .lc-card:active { transform: translateY(0px) scale(0.99); box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important; }
                 .lc-card:hover .lc-view-hint { opacity: 1 !important; }
-                .lc-card-sel { outline: 2px solid #2563eb; outline-offset: -1px; background: #eff6ff !important; }
+                .lc-card-sel { outline: 2px solid #818cf8; outline-offset: -1px; background: #eef2ff !important; }
                 .lc-add-card { transition: box-shadow 0.15s, background 0.12s; cursor: pointer; }
-                .lc-add-card:hover { box-shadow: 0 4px 16px rgba(37,99,235,0.12) !important; background: #eff6ff !important; }
-                .lc-action-btn { transition: background 0.1s, transform 0.1s; }
-                .lc-action-btn:hover { transform: scale(1.08); }
+                .lc-add-card:hover { box-shadow: 0 4px 16px rgba(99,102,241,0.08) !important; background: #eef2ff !important; }
+                .lc-action-btn { transition: background 0.12s, opacity 0.12s; opacity: 0.85; border-radius: 7px !important; }
+                .lc-action-btn:hover { opacity: 1; }
+                .lc-action-btn:active { opacity: 0.8; }
+                .lc-expand-body { overflow: hidden; transition: max-height 0.32s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease; }
+                .lc-section-hdr { font-size: 10px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; border-left: 2px solid #a5b4fc; padding-left: 6px; }
+                .lc-kv { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; padding: 2px 0; }
+                .lc-kv-key { color: #64748b; font-weight: 500; }
+                .lc-kv-val { font-weight: 600; color: #1e293b; text-align: right; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
               `}</style>
               <div style={{ overflowY: "auto", maxHeight: "calc(100vh - 380px)", padding: "2px 2px 12px" }}>
                 {leadPageData.length === 0 && (
@@ -2735,13 +3223,15 @@ export default function LeadsTab({ search }) {
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>No leads found</div>
                     <div style={{ fontSize: 12, color: "#94a3b8" }}>{localSearch || filter !== "All" ? "Try clearing your filters" : "Add your first lead to get started"}</div>
                     {!localSearch && filter === "All" && (
-                      <button onClick={() => setAddModal(true)} style={{ marginTop: 4, padding: "9px 22px", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(37,99,235,0.35)" }}>
+                      <button onClick={() => setAddModal(true)} style={{ marginTop: 4, padding: "9px 22px", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(37,99,235,0.35)", transition: "box-shadow 0.15s, transform 0.1s" }}
+                        onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 14px rgba(37,99,235,0.5)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(37,99,235,0.35)"; e.currentTarget.style.transform = "translateY(0)"; }}>
                         + Add First Lead
                       </button>
                     )}
                   </div>
                 )}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12, alignItems: "start" }}>
                   {leadPageData.map((r, i) => {
                     const isSel = bulkSelected.has(r.id);
                     const isExpanded = expandedCards.has(r.id);
@@ -2761,16 +3251,20 @@ export default function LeadsTab({ search }) {
                     const lastContactLabel = (() => {
                       const ref = r.lastContacted || r.date;
                       if (!ref) return null;
-                      const h = Math.floor((Date.now() - new Date(ref)) / 3600000);
-                      if (h < 1) return "Just now";
+                      const mins = Math.floor((Date.now() - new Date(ref)) / 60000);
+                      if (mins < 5) return "Just now";
+                      if (mins < 60) return `${mins}m ago`;
+                      const h = Math.floor(mins / 60);
                       if (h < 24) return `${h}h ago`;
                       const d = Math.floor(h / 24);
-                      return `${d}d ago`;
+                      return d === 1 ? "Yesterday" : `${d}d ago`;
                     })();
                     const age = (() => {
                       if (!r.date) return null;
                       const d = Math.floor((Date.now() - new Date(r.date)) / 86400000);
-                      return d === 0 ? "Today" : `${d}d old`;
+                      if (d === 0) return "Today";
+                      if (d === 1) return "Yesterday";
+                      return `${d}d old`;
                     })();
                     return (
                       <div
@@ -2778,305 +3272,302 @@ export default function LeadsTab({ search }) {
                         className={`lc-card${isSel ? " lc-card-sel" : ""}`}
                         onClick={() => setDetailLead(r)}
                         style={{
-                          background: isSel ? "#eff6ff" : "#fff",
-                          borderRadius: 14,
-                          borderTop: `1px solid ${isOverdue ? "#fecaca" : isDupe ? "#e9d5ff" : "#e8ecf1"}`,
-                          borderRight: `1px solid ${isOverdue ? "#fecaca" : isDupe ? "#e9d5ff" : "#e8ecf1"}`,
-                          borderBottom: `1px solid ${isOverdue ? "#fecaca" : isDupe ? "#e9d5ff" : "#e8ecf1"}`,
+                          background: isSel ? "#eef2ff" : isOverdue ? "#fff8f7" : isDupe ? "#faf7ff" : "#fff",
+                          borderRadius: 16,
+                          border: `1.5px solid ${isOverdue ? "#fca5a5" : isDupe ? "#c4b5fd" : "#e0e7ff"}`,
                           borderLeft: `4px solid ${_stageColor}`,
-                          padding: "14px 15px 11px",
-                          boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+                          padding: "14px 16px 12px",
+                          boxShadow: "0 2px 8px rgba(99,102,241,0.06)",
                           display: "flex", flexDirection: "column", gap: 0,
                         }}
                       >
-                        {/* ── Top warning strip ── */}
+                        {/* ── Warning pills — same as table ── */}
                         {(isDupe || isStale || isOverdue) && (
-                          <div style={{ display: "flex", gap: 5, marginBottom: 8, flexWrap: "wrap" }}>
-                            {isDupe   && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#ede9fe", color: "#7c3aed", textTransform: "uppercase", letterSpacing: 0.5 }}>⚠ Duplicate</span>}
-                            {isStale  && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#fff7ed", color: "#ea580c", textTransform: "uppercase", letterSpacing: 0.5 }}>⏰ Stale</span>}
-                            {isOverdue && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#fef2f2", color: "#dc2626", textTransform: "uppercase", letterSpacing: 0.5 }}>🔴 Overdue</span>}
+                          <div style={{ display: "flex", gap: 4, marginBottom: 9, flexWrap: "wrap" }}>
+                            {isDupe    && <span className="lt-warn" style={{ background: "#faf5ff", color: "#7c3aed", borderColor: "#c4b5fd" }}>⚠ Duplicate</span>}
+                            {isStale   && <span className="lt-warn" style={{ background: "#fff7ed", color: "#c2410c", borderColor: "#fed7aa" }}>⏱ Stale</span>}
+                            {isOverdue && <span className="lt-warn" style={{ background: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5" }}>🔴 Overdue</span>}
                           </div>
                         )}
 
-                        {/* ── Header: checkbox + avatar + name + priority ── */}
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                          <div onClick={e => { e.stopPropagation(); setBulkSelected(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; }); }}
-                            style={{ paddingTop: 3, flexShrink: 0 }}>
-                            <input type="checkbox" checked={isSel} onChange={() => {}} style={{ accentColor: "#2563eb", cursor: "pointer", width: 13, height: 13 }} />
+                        {/* ── Header: checkbox + avatar + name + value ── */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                          <div onClick={e => { e.stopPropagation(); setBulkSelected(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; }); }} style={{ flexShrink: 0 }}>
+                            <input type="checkbox" checked={isSel} onChange={() => {}} style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13 }} />
                           </div>
-                          <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg,${_stageColor}25,${_stageColor}10)`, border: `1.5px solid ${_stageColor}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 800, color: _stageColor, flexShrink: 0 }}>
-                            {(r.name || "?").charAt(0).toUpperCase()}
+                          {/* Avatar — same style as table */}
+                          <div style={{ width: 36, height: 36, borderRadius: 10, background: `${_stageColor}20`, border: `2px solid ${_stageColor}50`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: _stageColor, flexShrink: 0 }}>
+                            {(r.name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?"}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>{r.name}</div>
-                            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {r.service || "—"}
-                              {r.phone && <span style={{ color: "#94a3b8" }}> · {r.phone}</span>}
+                            {/* Name — same weight/color as table */}
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || "—"}</div>
+                            {/* Phone/email — same as table sub line */}
+                            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.phone || r.email || "No contact"}</div>
+                          </div>
+                          {/* Value — same bold green as table */}
+                          {r.value > 0 && (
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "#059669", flexShrink: 0, whiteSpace: "nowrap" }}>
+                              {cfg.currencyLabel || "AED"} {Number(r.value).toLocaleString()}
                             </div>
-                            {r.nationality && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>🌍 {r.nationality}{r.gender ? ` · ${r.gender}` : ""}{r.dob ? ` · DOB: ${r.dob}` : ""}</div>}
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-                            {r.priority && _priorityColor && (
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: _priorityColor + "18", color: _priorityColor }}>{r.priority}</span>
-                            )}
-                            {age && <span style={{ fontSize: 9, color: "#94a3b8", fontWeight: 500 }}>{age}</span>}
-                          </div>
+                          )}
                         </div>
 
-                        {/* ── Stage + temperature + follow-up + value ── */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: _stageColor + "18", color: _stageColor }}>{r.status}</span>
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 6, background: tempLabel.bg, color: tempLabel.color }}>{tempLabel.label}</span>
-                          {fu && <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 7px", borderRadius: 6, background: fu.bg, color: fu.color }}>{fu.icon} {fu.label}</span>}
-                          {r.value > 0 && <span style={{ fontSize: 11, fontWeight: 800, color: "#10b981", marginLeft: "auto", background: "#f0fdf4", padding: "2px 7px", borderRadius: 5 }}>AED {Number(r.value).toLocaleString()}</span>}
+                        {/* ── Row 1: Stage + Priority + Follow-up — same badges as table ── */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                          {/* Stage badge — same as table */}
+                          <span className="lt-badge" style={{ background: `${_stageColor}18`, color: _stageColor, borderColor: `${_stageColor}55` }}>{r.status}</span>
+                          {/* Priority badge — same as table */}
+                          {r.priority && _priorityColor && (
+                            <span className="lt-badge" style={{ background: _priorityColor + "18", color: _priorityColor, borderColor: _priorityColor + "55" }}>{r.priority}</span>
+                          )}
+                          {/* Follow-up badge — same as table */}
+                          {fu && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 12, background: fu.bg + "cc", color: fu.color, border: `1px solid ${fu.color}44`, whiteSpace: "nowrap" }}>
+                              {fu.icon} {fu.label}
+                            </span>
+                          )}
+                          {/* Age — right-aligned */}
+                          {age && <span style={{ fontSize: 9, color: "#94a3b8", marginLeft: "auto" }}>{age}</span>}
                         </div>
 
-                        {/* ── SLA + score + stage age ── */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                          {r.source && <span style={{ fontSize: 10, color: "#64748b", background: "#f8fafc", border: "1px solid #e8ecf1", padding: "1px 6px", borderRadius: 4 }}>{r.source}</span>}
-                          {sla && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 5, background: sla.bg, color: sla.color }}>{sla.urgent ? "⚠ " : ""}SLA: {sla.label}</span>}
-                          {stageWarn && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: stageWarn + "18", color: stageWarn }}>⏱ {daysInStage}d in stage</span>}
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 5, background: SCORE_COLORS[sl] + "15", color: SCORE_COLORS[sl], marginLeft: "auto" }}>{sc} {sl}</span>
+                        {/* ── Row 2: Service + Owner + Source — same as table ── */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                          {r.service && <span style={{ fontSize: 11, fontWeight: 500, color: "#334155" }}>{r.service}</span>}
+                          {r.service && r.assignedTo && <span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span>}
+                          {r.assignedTo && (
+                            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ width: 18, height: 18, borderRadius: 5, background: "#e0e7ff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800, color: "#4f46e5" }}>
+                                {r.assignedTo.charAt(0).toUpperCase()}
+                              </span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{r.assignedTo}</span>
+                            </span>
+                          )}
+                          {r.source && <span style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>{r.source}</span>}
                         </div>
 
-                        {/* ── Score bar ── */}
-                        <div style={{ marginBottom: 7 }}>
-                          <div style={{ height: 3, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
-                            <div style={{ width: `${sc}%`, height: "100%", background: SCORE_COLORS[sl] || "#6366f1", borderRadius: 99, transition: "width 0.3s" }} />
-                          </div>
-                        </div>
-
-                        {/* ── Assigned + nationality ── */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 11, color: r.assignedTo ? "#475569" : "#cbd5e1", display: "flex", alignItems: "center", gap: 4 }}>
-                            <i className="ti ti-user" style={{ fontSize: 11, color: r.assignedTo ? "#6366f1" : "#cbd5e1" }} />
-                            {r.assignedTo || "Unassigned"}
-                          </span>
-                          {lastContactLabel && <span style={{ fontSize: 10, color: sla?.urgent ? "#dc2626" : "#94a3b8" }}>🕐 {lastContactLabel}</span>}
-                          {r.estimatedClose && <span style={{ fontSize: 10, color: "#64748b" }}>🎯 Close: {r.estimatedClose}</span>}
-                        </div>
-
-                        {/* ── Tags ── */}
-                        {tags.length > 0 && (
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 7 }}>
-                            {tags.slice(0, 4).map(t => (
-                              <span key={t} style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#e0e7ff", color: "#4338ca" }}>{t}</span>
-                            ))}
-                            {tags.length > 4 && <span style={{ fontSize: 9, color: "#94a3b8" }}>+{tags.length - 4}</span>}
+                        {/* ── Row 3: SLA / stage age warning — same colors as table ── */}
+                        {(sla || stageWarn) && (
+                          <div style={{ marginBottom: 8 }}>
+                            {sla && <span style={{ fontSize: 10, fontWeight: 600, color: sla.urgent ? "#dc2626" : "#64748b" }}>{sla.urgent ? "⚠ " : ""}SLA {sla.label}</span>}
+                            {!sla && stageWarn && <span style={{ fontSize: 9, color: stageWarn, fontWeight: 700 }}>⏱ {daysInStage}d in stage</span>}
                           </div>
                         )}
 
-                        {/* ── Next action ── */}
+                        {/* ── Next action box — same indigo style as table ── */}
                         {na && (
-                          <div style={{ fontSize: 11, color: "#334155", background: "#f8fafc", borderRadius: 6, padding: "5px 8px", marginBottom: 8, borderLeft: "2px solid #e2e8f0" }}>{na.icon} {na.text}</div>
+                          <div style={{ fontSize: 11, color: "#4338ca", background: "#eef2ff", borderRadius: 8, padding: "6px 10px", marginBottom: 9, lineHeight: 1.4, border: "1px solid #c7d2fe", fontWeight: 500 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: "#6366f1", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 2 }}>Next Action</span>
+                            {na.icon} {na.text}
+                          </div>
                         )}
 
-                        {/* ── INLINE EXPAND SECTION ── */}
+                        {/* ── Tags — same green pills as table ── */}
+                        {tags.length > 0 && (
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 9 }}>
+                            {tags.slice(0, 3).map(t => (
+                              <span key={t} className="lt-tag">{t}</span>
+                            ))}
+                            {tags.length > 3 && <span style={{ fontSize: 9, color: "#6366f1", padding: "2px 6px", background: "#eef2ff", borderRadius: 20, border: "1px solid #c7d2fe", fontWeight: 700 }}>+{tags.length - 3} more</span>}
+                          </div>
+                        )}
+
+                        {/* ── Nationality — shown in table, now shown in card too ── */}
+                        {r.nationality && (
+                          <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6 }}>🌍 {r.nationality}</div>
+                        )}
+
+                        {/* ── EXPAND SECTION ── */}
                         {isExpanded && (
-                          <div style={{ borderTop: "1.5px solid #f1f5f9", paddingTop: 10, marginTop: 2, display: "flex", flexDirection: "column", gap: 9 }} onClick={e => e.stopPropagation()}>
+                          <div className="lc-expand-body" style={{ maxHeight: "2000px", opacity: 1 }}>
+                            <div style={{ borderTop: "1px solid #f0f2f5", paddingTop: 10, marginTop: 2, display: "flex", flexDirection: "column", gap: 10 }} onClick={e => e.stopPropagation()}>
+                              <style>{`@keyframes mobileExpand{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-                            {/* Contact info */}
-                            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>📞 Contact</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                {r.phone && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Phone</span><span style={{ fontWeight: 600, color: "#0f172a" }}>{r.phone}</span></div>}
-                                {r.whatsapp && r.whatsapp !== r.phone && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>WhatsApp</span><span style={{ fontWeight: 600, color: "#25d366" }}>{r.whatsapp}</span></div>}
-                                {r.email && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Email</span><span style={{ fontWeight: 600, color: "#2563eb" }}>{r.email}</span></div>}
-                                {r.address && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Address</span><span style={{ fontWeight: 500, color: "#334155", maxWidth: "55%", textAlign: "right" }}>{r.address}</span></div>}
+                              {/* Contact */}
+                              <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                <div className="lc-section-hdr">Contact</div>
+                                {r.phone && <div className="lc-kv"><span className="lc-kv-key">Phone</span><a href={`tel:${r.phone}`} onClick={e => e.stopPropagation()} style={{ fontWeight: 500, color: "#6a9fd8", textDecoration: "none", fontSize: 11 }}>{r.phone}</a></div>}
+                                {r.whatsapp && r.whatsapp !== r.phone && <div className="lc-kv"><span className="lc-kv-key">WhatsApp</span><a href={`https://wa.me/${r.whatsapp.replace(/\D/g,"")}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontWeight: 500, color: "#5bab7e", textDecoration: "none", fontSize: 11 }}>{r.whatsapp}</a></div>}
+                                {r.email && <div className="lc-kv"><span className="lc-kv-key">Email</span><a href={`mailto:${r.email}`} onClick={e => e.stopPropagation()} style={{ fontWeight: 500, color: "#6a9fd8", textDecoration: "none", fontSize: 11, maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{r.email}</a></div>}
+                                {r.address && <div className="lc-kv"><span className="lc-kv-key">Address</span><span className="lc-kv-val">{r.address}</span></div>}
                               </div>
-                            </div>
 
-                            {/* Personal info */}
-                            {(r.nationality || r.dob || r.gender || r.passportNo || r.emiratesId) && (
-                              <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>🪪 Personal</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                  {r.nationality && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Nationality</span><span style={{ fontWeight: 600 }}>{r.nationality}</span></div>}
-                                  {r.gender && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Gender</span><span style={{ fontWeight: 600 }}>{r.gender}</span></div>}
-                                  {r.dob && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>DOB</span><span style={{ fontWeight: 600 }}>{r.dob}</span></div>}
-                                  {r.passportNo && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Passport</span><span style={{ fontWeight: 600, fontFamily: "monospace", fontSize: 10 }}>{r.passportNo}</span></div>}
-                                  {r.emiratesId && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Emirates ID</span><span style={{ fontWeight: 600, fontFamily: "monospace", fontSize: 10 }}>{r.emiratesId}</span></div>}
+                              {/* Personal */}
+                              {(r.nationality || r.dob || r.gender || r.passportNo || r.emiratesId) && (
+                                <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                  <div className="lc-section-hdr">Personal</div>
+                                  {r.nationality && <div className="lc-kv"><span className="lc-kv-key">Nationality</span><span className="lc-kv-val">{r.nationality}</span></div>}
+                                  {r.gender && <div className="lc-kv"><span className="lc-kv-key">Gender</span><span className="lc-kv-val">{r.gender}</span></div>}
+                                  {r.dob && <div className="lc-kv"><span className="lc-kv-key">DOB</span><span className="lc-kv-val">{r.dob}</span></div>}
+                                  {r.passportNo && <div className="lc-kv"><span className="lc-kv-key">Passport</span><span className="lc-kv-val" style={{ fontFamily: "monospace", fontSize: 10 }}>{r.passportNo}</span></div>}
+                                  {r.emiratesId && <div className="lc-kv"><span className="lc-kv-key">Emirates ID</span><span className="lc-kv-val" style={{ fontFamily: "monospace", fontSize: 10 }}>{r.emiratesId}</span></div>}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* Deal details */}
-                            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>💼 Deal</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Service</span><span style={{ fontWeight: 600 }}>{r.service || "—"}</span></div>
-                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Value</span><span style={{ fontWeight: 700, color: r.value ? "#10b981" : "#94a3b8" }}>{r.value ? aed(r.value) : "Not set"}</span></div>
-                                {r.reservationAmount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Reservation</span><span style={{ fontWeight: 600 }}>{aed(r.reservationAmount)}</span></div>}
-                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Source</span><span style={{ fontWeight: 600 }}>{r.source || "—"}</span></div>
-                                {r.campaign && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Campaign</span><span style={{ fontWeight: 600, maxWidth: "55%", textAlign: "right" }}>{r.campaign}</span></div>}
-                                {r.orientationType && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Orientation</span><span style={{ fontWeight: 600 }}>{r.orientationType}</span></div>}
-                                {r.lostReason && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Lost reason</span><span style={{ fontWeight: 600, color: "#ef4444" }}>{r.lostReason}</span></div>}
+                              {/* Deal */}
+                              <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                <div className="lc-section-hdr">Deal</div>
+                                <div className="lc-kv"><span className="lc-kv-key">Service</span><span className="lc-kv-val">{r.service || "—"}</span></div>
+                                <div className="lc-kv"><span className="lc-kv-key">Value</span><span className="lc-kv-val" style={{ color: r.value ? "#4caf88" : undefined }}>{r.value ? `${cfg.currencyLabel || "AED"} ${Number(r.value).toLocaleString()}` : "Not set"}</span></div>
+                                {r.reservationAmount > 0 && <div className="lc-kv"><span className="lc-kv-key">Reservation</span><span className="lc-kv-val">{cfg.currencyLabel || "AED"} {Number(r.reservationAmount).toLocaleString()}</span></div>}
+                                <div className="lc-kv"><span className="lc-kv-key">Source</span><span className="lc-kv-val">{r.source || "—"}</span></div>
+                                {r.campaign && <div className="lc-kv"><span className="lc-kv-key">Campaign</span><span className="lc-kv-val">{r.campaign}</span></div>}
+                                {r.orientationType && <div className="lc-kv"><span className="lc-kv-key">Orientation</span><span className="lc-kv-val">{r.orientationType}</span></div>}
+                                {r.lostReason && <div className="lc-kv"><span className="lc-kv-key">Lost reason</span><span className="lc-kv-val" style={{ color: "#c97474" }}>{r.lostReason}</span></div>}
                               </div>
-                            </div>
 
-                            {/* Dates & timeline */}
-                            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>📅 Dates</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Created</span><span style={{ fontWeight: 600 }}>{r.date || "—"}</span></div>
-                                {r.updatedAt && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Last updated</span><span style={{ fontWeight: 600 }}>{r.updatedAt}</span></div>}
-                                {r.lastContacted && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Last contacted</span><span style={{ fontWeight: 600 }}>{r.lastContacted}</span></div>}
-                                {r.followUpDate && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Follow-up</span><span style={{ fontWeight: 600, color: fu?.color || "#334155" }}>{r.followUpDate}</span></div>}
-                                {r.estimatedClose && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>Est. close</span><span style={{ fontWeight: 600 }}>{r.estimatedClose}</span></div>}
-                                {r.stageEnteredAt && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>In stage</span><span style={{ fontWeight: 600, color: stageWarn || "#334155" }}>{daysInStage}d</span></div>}
+                              {/* Dates */}
+                              <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                <div className="lc-section-hdr">Dates</div>
+                                <div className="lc-kv"><span className="lc-kv-key">Created</span><span className="lc-kv-val">{r.date || "—"}</span></div>
+                                {r.updatedAt && <div className="lc-kv"><span className="lc-kv-key">Updated</span><span className="lc-kv-val">{r.updatedAt}</span></div>}
+                                {r.lastContacted && <div className="lc-kv"><span className="lc-kv-key">Last contact</span><span className="lc-kv-val">{r.lastContacted}</span></div>}
+                                {r.followUpDate && <div className="lc-kv"><span className="lc-kv-key">Follow-up</span><span className="lc-kv-val" style={{ color: fu?.color || undefined }}>{r.followUpDate}</span></div>}
+                                {r.estimatedClose && <div className="lc-kv"><span className="lc-kv-key">Est. close</span><span className="lc-kv-val">{r.estimatedClose}</span></div>}
+                                {r.stageEnteredAt && <div className="lc-kv"><span className="lc-kv-key">In stage</span><span className="lc-kv-val" style={{ color: stageWarn || undefined }}>{daysInStage}d</span></div>}
                               </div>
-                            </div>
 
-                            {/* Notes */}
-                            {r.notes && (
-                              <div style={{ background: "#fffbeb", borderRadius: 8, padding: "10px 12px", borderLeft: "3px solid #f59e0b" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>📝 Notes</div>
-                                <div style={{ fontSize: 11, color: "#334155", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{r.notes}</div>
-                              </div>
-                            )}
+                              {/* Notes */}
+                              {r.notes && (
+                                <div style={{ background: "#fefdf6", borderRadius: 10, padding: "10px 12px", border: "1px solid #f0ead8" }}>
+                                  <div className="lc-section-hdr" style={{ display: "flex", justifyContent: "space-between" }}><span>Notes</span><span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>{r.notes.length} chars</span></div>
+                                  <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{r.notes}</div>
+                                </div>
+                              )}
 
-                            {/* Call log */}
-                            {(r.callLog || []).length > 0 && (
-                              <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>📞 Call Log</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              {/* Call log */}
+                              {(r.callLog || []).length > 0 && (
+                                <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                  <div className="lc-section-hdr">Call Log</div>
                                   {(r.callLog || []).slice(-3).map((c, ci) => (
-                                    <div key={ci} style={{ display: "flex", gap: 8, fontSize: 11 }}>
-                                      <span style={{ color: "#94a3b8", flexShrink: 0 }}>{c.date}</span>
-                                      <span style={{ color: "#334155" }}>{c.note || c.text || "Call logged"}</span>
+                                    <div key={ci} style={{ display: "flex", gap: 8, fontSize: 11, padding: "2px 0" }}>
+                                      <span style={{ color: "#b8c0cc", flexShrink: 0 }}>{c.date}</span>
+                                      <span style={{ color: "#5a6472" }}>{c.note || c.text || "Call logged"}</span>
                                     </div>
                                   ))}
-                                  {(r.callLog || []).length > 3 && <span style={{ fontSize: 10, color: "#94a3b8" }}>+{(r.callLog||[]).length - 3} more calls</span>}
+                                  {(r.callLog || []).length > 3 && <span style={{ fontSize: 10, color: "#b8c0cc" }}>+{(r.callLog||[]).length - 3} more</span>}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* Tasks */}
-                            {(r.tasks || []).length > 0 && (
-                              <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>✅ Tasks</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              {/* Tasks */}
+                              {(r.tasks || []).length > 0 && (
+                                <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                  <div className="lc-section-hdr">Tasks</div>
                                   {(r.tasks || []).slice(0, 4).map((t, ti) => (
-                                    <div key={ti} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11 }}>
-                                      <span style={{ fontSize: 12 }}>{t.done ? "✅" : "⬜"}</span>
-                                      <span style={{ color: t.done ? "#94a3b8" : "#334155", textDecoration: t.done ? "line-through" : "none" }}>{t.text || t}</span>
+                                    <div key={ti} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, padding: "2px 0" }}>
+                                      <span style={{ fontSize: 11, opacity: 0.7 }}>{t.done ? "✓" : "○"}</span>
+                                      <span style={{ color: t.done ? "#b0b8c4" : "#5a6472", textDecoration: t.done ? "line-through" : "none" }}>{t.text || t}</span>
                                     </div>
                                   ))}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* Payments */}
-                            {(r.payments || []).length > 0 && (
-                              <div style={{ background: "#f0fdf4", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>💰 Payments</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              {/* Payments */}
+                              {(r.payments || []).length > 0 && (
+                                <div style={{ background: "#f6fdf9", borderRadius: 10, padding: "10px 12px", border: "1px solid #e0f0e8" }}>
+                                  <div className="lc-section-hdr">Payments</div>
                                   {(r.payments || []).map((p, pi) => (
-                                    <div key={pi} style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                                      <span style={{ color: "#334155" }}>{p.label || `Payment ${pi + 1}`}</span>
-                                      <span style={{ fontWeight: 700, color: "#10b981" }}>AED {(p.amount || 0).toLocaleString()}</span>
+                                    <div key={pi} className="lc-kv">
+                                      <span className="lc-kv-key">{p.label || `Payment ${pi + 1}`}</span>
+                                      <span className="lc-kv-val" style={{ color: "#4caf88" }}>{cfg.currencyLabel || "AED"} {(p.amount || 0).toLocaleString()}</span>
                                     </div>
                                   ))}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* Docs checklist */}
-                            {(r.docChecklist && Object.keys(r.docChecklist).length > 0) && (() => {
-                              const DOC_ITEMS = (loadLeadsSettings().docChecklistItems || ["Emirates ID","Passport","Visa Copy","Trade License","MOA","Proof of Address","Bank Statement","NOC Letter"]);
-                              const checked = DOC_ITEMS.filter(d => r.docChecklist?.[d]);
-                              return (
-                                <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                                  <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>📋 Docs ({checked.length}/{DOC_ITEMS.length})</div>
-                                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                                    {DOC_ITEMS.map(d => (
-                                      <div key={d} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10 }}>
-                                        <span style={{ fontSize: 11 }}>{r.docChecklist?.[d] ? "✅" : "⬜"}</span>
-                                        <span style={{ color: r.docChecklist?.[d] ? "#10b981" : "#94a3b8" }}>{d}</span>
-                                      </div>
-                                    ))}
+                              {/* Docs */}
+                              {(r.docChecklist && Object.keys(r.docChecklist).length > 0) && (() => {
+                                const DOC_ITEMS = (cfg.docChecklistItems || ["Emirates ID","Passport","Visa Copy","Trade License","MOA","Proof of Address","Bank Statement","NOC Letter"]);
+                                const checked = DOC_ITEMS.filter(d => r.docChecklist?.[d]);
+                                return (
+                                  <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                    <div className="lc-section-hdr">Docs {checked.length}/{DOC_ITEMS.length}</div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+                                      {DOC_ITEMS.map(d => (
+                                        <div key={d} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10 }}>
+                                          <span style={{ color: r.docChecklist?.[d] ? "#4caf88" : "#c8d0da", fontSize: 10 }}>{r.docChecklist?.[d] ? "✓" : "○"}</span>
+                                          <span style={{ color: r.docChecklist?.[d] ? "#5a7a6a" : "#9aa5b4" }}>{d}</span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })()}
+                                );
+                              })()}
 
-                            {/* Timeline */}
-                            {(r.timeline || []).length > 0 && (
-                              <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>🕐 Timeline</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              {/* Timeline */}
+                              {(r.timeline || []).length > 0 && (
+                                <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                  <div className="lc-section-hdr">Timeline</div>
                                   {(r.timeline || []).slice(-5).reverse().map((t, ti) => (
-                                    <div key={ti} style={{ display: "flex", gap: 8, fontSize: 10 }}>
-                                      <span style={{ color: "#94a3b8", flexShrink: 0, fontFamily: "monospace" }}>{t.date}</span>
-                                      <span style={{ color: "#334155" }}>{t.text}</span>
+                                    <div key={ti} style={{ display: "flex", gap: 8, fontSize: 10, padding: "2px 0" }}>
+                                      <span style={{ color: "#b8c0cc", flexShrink: 0, fontFamily: "monospace" }}>{t.date}</span>
+                                      <span style={{ color: "#5a6472" }}>{t.text}</span>
                                     </div>
                                   ))}
-                                  {(r.timeline || []).length > 5 && <span style={{ fontSize: 10, color: "#94a3b8" }}>+{(r.timeline||[]).length - 5} earlier events</span>}
+                                  {(r.timeline || []).length > 5 && <span style={{ fontSize: 10, color: "#b8c0cc" }}>+{(r.timeline||[]).length - 5} earlier</span>}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* All tags */}
-                            {tags.length > 0 && (
-                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                                {tags.map(t => (
-                                  <span key={t} style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: "#e0e7ff", color: "#4338ca" }}>{t}</span>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Custom fields */}
-                            {r.customFields && Object.keys(r.customFields).length > 0 && (
-                              <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>⚙️ Custom Fields</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                  {Object.entries(r.customFields).map(([k, v]) => (
-                                    <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#94a3b8" }}>{k}</span><span style={{ fontWeight: 600 }}>{String(v)}</span></div>
+                              {/* All tags (expanded) */}
+                              {tags.length > 0 && (
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                  {tags.map(t => (
+                                    <span key={t} style={{ fontSize: 10, padding: "3px 9px", borderRadius: 20, background: "#f0f1fa", color: "#8892c4", border: "1px solid #e4e7f5" }}>{t}</span>
                                   ))}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {/* Lead ID / meta */}
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#cbd5e1", paddingTop: 2 }}>
-                              <span>ID: {r.id}</span>
-                              {r.archived && <span style={{ background: "#f1f5f9", padding: "1px 5px", borderRadius: 3, color: "#94a3b8", fontWeight: 700 }}>ARCHIVED</span>}
+                              {/* Custom fields */}
+                              {r.customFields && Object.keys(r.customFields).length > 0 && (
+                                <div style={{ background: "#f8f9fc", borderRadius: 10, padding: "10px 12px" }}>
+                                  <div className="lc-section-hdr">Custom Fields</div>
+                                  {Object.entries(r.customFields).map(([k, v]) => (
+                                    <div key={k} className="lc-kv"><span className="lc-kv-key">{k}</span><span className="lc-kv-val">{String(v)}</span></div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* ID */}
+                              <div style={{ fontSize: 9, color: "#cdd2da", paddingTop: 2 }}>
+                                {r.id}{r.archived && <span style={{ marginLeft: 8, background: "#f1f2f5", padding: "1px 5px", borderRadius: 3, color: "#9aa5b4" }}>archived</span>}
+                              </div>
                             </div>
                           </div>
                         )}
 
-                        {/* ── "View Details" hint (visible on hover) ── */}
+                        {/* ── View hint on hover ── */}
                         {!isExpanded && (
-                          <div className="lc-view-hint" style={{ fontSize: 10, color: "#2563eb", fontWeight: 600, textAlign: "center", marginBottom: 4, opacity: 0, transition: "opacity 0.15s" }}>
-                            Click to open drawer →
+                          <div className="lc-view-hint" style={{ fontSize: 10, color: "#9aa5b4", fontWeight: 500, textAlign: "center", marginBottom: 4, opacity: 0, transition: "opacity 0.15s", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                            <i className="ti ti-external-link" style={{ fontSize: 10 }} />Open detail
                           </div>
                         )}
 
-                        {/* ── Quick actions + expand toggle ── */}
-                        <div style={{ display: "flex", gap: 5, paddingTop: 8, borderTop: "1px solid #f1f5f9", flexWrap: "wrap", alignItems: "center" }} onClick={e => e.stopPropagation()}>
-                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setEditLead(r); }} style={actionBtn(B.blue, "#eff6ff")} title="Edit lead">✏️ Edit</button>
+                        {/* ── Actions — same set as table ── */}
+                        <div style={{ display: "flex", gap: 4, paddingTop: 8, borderTop: "1px solid #f0f2f5", flexWrap: "wrap", alignItems: "center" }} onClick={e => e.stopPropagation()}>
+                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setDetailLead(r); }} style={actionBtn("#4f46e5", "#eef2ff")} title="View detail">👁</button>
+                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setEditLead(r); }} style={actionBtn("#0284c7", "#f0f9ff")} title="Edit">✏️</button>
                           {r.phone && (
                             <button className="lc-action-btn" onClick={e => { e.stopPropagation(); window.open(`https://wa.me/${r.phone.replace(/\D/g,"")}`, "_blank"); }}
-                              style={actionBtn("#25d366", "#f0fdf4")} title="WhatsApp">💬</button>
+                              style={actionBtn("#15803d", "#f0fdf4")} title="WhatsApp">💬</button>
                           )}
                           {r.phone && (
-                            <a href={`tel:${r.phone}`} onClick={e => e.stopPropagation()} className="lc-action-btn" style={{ ...actionBtn("#0ea5e9", "#f0f9ff"), textDecoration: "none" }} title="Call">📞</a>
+                            <a href={`tel:${r.phone}`} onClick={e => e.stopPropagation()} className="lc-action-btn" style={{ ...actionBtn("#d97706", "#fffbeb"), textDecoration: "none" }} title="Call">📞</a>
                           )}
-                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setShowCallScheduler(r); }} style={actionBtn("#10b981", "#f0fdf4")} title="Schedule call">📅</button>
-                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setShowNotes(r); }} style={actionBtn("#f59e0b", "#fffbeb")} title="Add note">📝</button>
+                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setShowCallScheduler(r); }} style={actionBtn("#0891b2", "#f0f9ff")} title="Schedule call">📅</button>
+                          <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setShowNotes(r); }} style={actionBtn("#9333ea", "#fdf4ff")} title="Add note">📝</button>
                           {r.status === "Won" && (
-                            <button className="lc-action-btn" onClick={e => { e.stopPropagation(); handleConvertToClient(r); }} style={actionBtn(B.green, "#f0fdf4")} title="Convert to client">↗ Convert</button>
+                            <button className="lc-action-btn" onClick={e => { e.stopPropagation(); handleConvertToClient(r); }} style={actionBtn("#15803d", "#f0fdf4")} title="Convert to client">↗ Client</button>
                           )}
                           {["Not Interested","Lost","No Response","Duplicate"].includes(r.status) && (
-                            <button className="lc-action-btn" onClick={e => { e.stopPropagation(); const reason = window.prompt("Reopen reason?"); if (reason) handleReopenLead(r, reason); }} style={actionBtn("#7c3aed", "#ede9fe")} title="Reopen">↩</button>
+                            <button className="lc-action-btn" onClick={e => { e.stopPropagation(); const reason = window.prompt("Reopen reason (optional):"); if (reason !== null) handleReopenLead(r, reason || "Manually reopened"); }} style={actionBtn("#7c3aed", "#faf5ff")} title="Reopen lead">↩ Reopen</button>
                           )}
                           <button className="lc-action-btn" onClick={e => { e.stopPropagation(); setShowEmailComposer(r); }} style={actionBtn("#64748b", "#f8fafc")} title="Email">📧</button>
                           <button
                             className="lc-action-btn"
                             onClick={e => toggleCardExpand(r.id, e)}
-                            style={{ ...actionBtn(isExpanded ? "#6366f1" : "#94a3b8", isExpanded ? "#eef2ff" : "#f8fafc"), marginLeft: "auto" }}
-                            title={isExpanded ? "Collapse" : "Expand all info"}
-                          >{isExpanded ? "▲" : "▼ More"}</button>
+                            style={{ ...actionBtn(isExpanded ? "#7c3aed" : "#64748b", isExpanded ? "#faf5ff" : "#f8fafc"), marginLeft: "auto", minHeight: 28, padding: "3px 12px", fontSize: 11 }}
+                            title={isExpanded ? "Collapse" : "Show more"}
+                          >{isExpanded ? "▲ Less" : "▼ More"}</button>
                         </div>
                       </div>
                     );
@@ -3126,8 +3617,294 @@ export default function LeadsTab({ search }) {
                 </select>
               </div>
             </>
+          ) : (
+            /* ── Lead table — desktop/tablet ── */
+            <>
+              <style id="leads-table-styles">{`
+                .lt-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+                .lt-th { position: sticky; top: 0; z-index: 2; background: linear-gradient(180deg,#1e1b4b 0%,#312e81 100%); color: #e0e7ff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 10px 12px; white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.08); cursor: pointer; user-select: none; transition: background 0.12s; }
+                .lt-th:last-child { border-right: none; }
+                .lt-th:hover { background: linear-gradient(180deg,#312e81 0%,#4338ca 100%); }
+                .lt-tr { background: #fff; border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
+                .lt-tr:nth-child(even) { background: #fafbff; }
+                .lt-tr:hover { background: #f0f0ff !important; }
+                .lt-tr:hover .lt-row-actions { opacity: 1; }
+                .lt-tr.lt-sel { background: #eef2ff !important; outline: 1.5px solid #818cf8; outline-offset: -1.5px; }
+                .lt-td { padding: 9px 12px; vertical-align: middle; border-right: 1px solid #f1f5f9; color: #1e293b; }
+                .lt-td:last-child { border-right: none; }
+                .lt-badge { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; border: 1px solid; }
+                .lt-row-actions { opacity: 0; transition: opacity 0.15s; display: flex; gap: 3px; align-items: center; }
+                .lt-btn { border: none; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; font-weight: 600; transition: transform 0.1s, filter 0.1s; line-height: 1; }
+                .lt-btn:hover { transform: translateY(-1px); filter: brightness(1.08); }
+                .lt-avatar { width: 28px; height: 28px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; border: 1.5px solid; }
+                .lt-sort-icon { opacity: 0.45; margin-left: 3px; font-size: 9px; }
+                .lt-sort-icon.on { opacity: 1; color: #a5b4fc; }
+                .lt-name { font-weight: 700; color: #0f172a; }
+                .lt-sub { font-size: 10px; color: #94a3b8; margin-top: 1px; }
+                .lt-warn { display: inline-flex; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 10px; border: 1px solid; margin-right: 2px; }
+                .lt-tag { display: inline-flex; font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: #f0fdf4; color: #15803d; border: 1px solid #86efac; margin-right: 2px; }
+                .lt-tbl-wrap { overflow: auto; max-height: calc(100vh - 340px); }
+                .lt-tbl-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+                .lt-tbl-wrap::-webkit-scrollbar-track { background: #f8fafc; }
+                .lt-tbl-wrap::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+              `}</style>
+
+              {/* ── Bulk action bar ── */}
+              {bulkSelected.size > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "linear-gradient(90deg,#eef2ff,#f0f4ff)", border: "1px solid #c7d2fe", borderRadius: 8, marginBottom: 8, fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: "#4f46e5" }}>{bulkSelected.size} selected</span>
+                  <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, border: "1px solid #c7d2fe", color: "#4338ca", fontWeight: 600, background: "#fff" }}>
+                    <option value="">Move to stage…</option>
+                    {ALL_PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {bulkTarget && <button onClick={handleBulkMove} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#4f46e5", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Apply</button>}
+                  <select value={bulkAssign} onChange={e => setBulkAssign(e.target.value)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, border: "1px solid #c7d2fe", color: "#4338ca", fontWeight: 600, background: "#fff" }}>
+                    <option value="">Assign to…</option>
+                    {(cfg.staffOptions || DEFAULT_LEADS_SETTINGS.staffOptions).filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {bulkAssign && <button onClick={handleBulkAssign} style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#0891b2", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Assign</button>}
+                  <button onClick={() => setBulkSelected(new Set())} style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 11, fontWeight: 600, background: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>Clear</button>
+                </div>
+              )}
+
+              {/* ── Empty state ── */}
+              {leadPageData.length === 0 && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "64px 20px", gap: 14 }}>
+                  <div style={{ width: 60, height: 60, borderRadius: 16, background: "linear-gradient(135deg,#eef2ff,#e0e7ff)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <i className="ti ti-users" style={{ fontSize: 28, color: "#4f46e5" }} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>No leads found</div>
+                  <div style={{ fontSize: 12, color: "#94a3b8" }}>{localSearch || filter !== "All" ? "Try clearing your filters" : "Add your first lead to get started"}</div>
+                  {!localSearch && filter === "All" && (
+                    <button onClick={() => setAddModal(true)} style={{ marginTop: 4, padding: "9px 22px", background: "linear-gradient(135deg,#4f46e5,#4338ca)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(79,70,229,0.4)" }}>
+                      + Add First Lead
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ── Main table ── */}
+              {leadPageData.length > 0 && (
+                <div className="lt-tbl-wrap">
+                  <table className="lt-table">
+                    <thead>
+                      <tr>
+                        {/* Checkbox col */}
+                        <th className="lt-th" style={{ width: 36, padding: "10px 10px" }}>
+                          <input type="checkbox"
+                            style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13 }}
+                            checked={leadPageData.length > 0 && leadPageData.every(r => bulkSelected.has(r.id))}
+                            onChange={e => {
+                              if (e.target.checked) setBulkSelected(new Set(leadPageData.map(r => r.id)));
+                              else setBulkSelected(new Set());
+                            }}
+                          />
+                        </th>
+                        {[
+                          { key: "name",        label: "Lead",          icon: "ti-user" },
+                          { key: "status",      label: "Stage",         icon: "ti-circle-dot" },
+                          { key: "priority",    label: "Priority",      icon: "ti-flag" },
+                          { key: "service",     label: "Service",       icon: "ti-briefcase" },
+                          { key: "assignedTo",  label: "Owner",         icon: "ti-user-check" },
+                          { key: "followUpDate",label: "Follow-Up",     icon: "ti-calendar" },
+                          { key: "value",       label: "Value",         icon: "ti-coin" },
+                          { key: "source",      label: "Source",        icon: "ti-antenna" },
+                          { key: "date",        label: "Created",       icon: "ti-clock" },
+                          { key: "_actions",    label: "Actions",       icon: null },
+                        ].map(col => (
+                          <th key={col.key} className="lt-th"
+                            onClick={col.key !== "_actions" ? () => toggleLeadSort(col.key) : undefined}
+                            style={col.key === "_actions" ? { cursor: "default", minWidth: 140 } : {}}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              {col.icon && <i className={`ti ${col.icon}`} style={{ fontSize: 11, opacity: 0.7 }} />}
+                              {col.label}
+                              {col.key !== "_actions" && (
+                                <i className={`ti ${leadSortKey === col.key ? (leadSortDir === "asc" ? "ti-sort-ascending" : "ti-sort-descending") : "ti-selector"} lt-sort-icon${leadSortKey === col.key ? " on" : ""}`} />
+                              )}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leadPageData.map((r, i) => {
+                        const isSel       = bulkSelected.has(r.id);
+                        const fu          = getFollowUpStatus(r.followUpDate, cfg);
+                        const na          = getNextAction(r, cfg);
+                        const sc          = scoreLead(r); const sl = scoreLabel(sc);
+                        const stageColor  = stageColors[r.status] || STAGE_COLORS[r.status] || "#64748b";
+                        const priColor    = (cfg.priorityColors || PRIORITY_COLORS)[r.priority];
+                        const isDupe      = dupeIds?.has?.(r.id);
+                        const isStale     = staleLeads?.some?.(s => s.id === r.id);
+                        const isOverdue   = fu && fu.color === "#ef4444";
+                        const tags        = r.tags || [];
+                        const daysInStage = getDaysInStage(r);
+                        const stageWarn   = daysInStage > (cfg.stageAgeDangerDays ?? 14) ? "#ef4444" : daysInStage > (cfg.stageAgeWarnDays ?? 7) ? "#f59e0b" : null;
+                        const temp        = getTemperature(r, cfg); const tempLabel = getTempLabel(temp, cfg);
+                        const tempStyle   = tempLabel === "🔥 Hot" ? { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5" }
+                                          : tempLabel === "🌡 Warm" ? { bg: "#fffbeb", color: "#d97706", border: "#fde68a" }
+                                          : { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" };
+                        return (
+                          <tr key={r.id} className={`lt-tr${isSel ? " lt-sel" : ""}`}
+                            style={{ borderLeft: `3px solid ${stageColor}` }}>
+                            {/* Checkbox */}
+                            <td className="lt-td" style={{ padding: "9px 10px" }}>
+                              <input type="checkbox" checked={isSel} onChange={() => {}} style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13 }}
+                                onClick={e => { e.stopPropagation(); setBulkSelected(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; }); }} />
+                            </td>
+
+                            {/* Lead name + sub info */}
+                            <td className="lt-td" style={{ minWidth: 200, maxWidth: 260, cursor: "pointer" }} onClick={() => setDetailLead(r)}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                                <span className="lt-avatar" style={{ background: stageColor + "20", color: stageColor, borderColor: stageColor + "50" }}>
+                                  {(r.name || "?").split(" ").map(w => w[0]).slice(0,2).join("").toUpperCase()}
+                                </span>
+                                <div style={{ minWidth: 0 }}>
+                                  <div className="lt-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>
+                                    {r.name || "—"}
+                                  </div>
+                                  <div className="lt-sub" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>
+                                    {r.phone || r.email || "No contact"}
+                                  </div>
+                                  {(isDupe || isStale || isOverdue) && (
+                                    <div style={{ marginTop: 3 }}>
+                                      {isDupe    && <span className="lt-warn" style={{ background: "#faf5ff", color: "#7c3aed", borderColor: "#c4b5fd" }}>⚠ dupe</span>}
+                                      {isStale   && <span className="lt-warn" style={{ background: "#fff7ed", color: "#c2410c", borderColor: "#fed7aa" }}>⏱ stale</span>}
+                                      {isOverdue && <span className="lt-warn" style={{ background: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5" }}>🔴 overdue</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Stage */}
+                            <td className="lt-td" style={{ minWidth: 160 }}>
+                              <span className="lt-badge" style={{ background: stageColor + "18", color: stageColor, borderColor: stageColor + "55" }}>
+                                {r.status || "—"}
+                              </span>
+                              {stageWarn && (
+                                <div style={{ fontSize: 9, color: stageWarn, fontWeight: 700, marginTop: 3 }}>⏱ {daysInStage}d in stage</div>
+                              )}
+                            </td>
+
+                            {/* Priority */}
+                            <td className="lt-td" style={{ minWidth: 90 }}>
+                              {r.priority ? (
+                                <span className="lt-badge" style={{ background: (priColor || "#94a3b8") + "18", color: priColor || "#94a3b8", borderColor: (priColor || "#94a3b8") + "55" }}>
+                                  {r.priority}
+                                </span>
+                              ) : <span style={{ color: "#cbd5e1", fontSize: 11 }}>—</span>}
+                            </td>
+
+                            {/* Service */}
+                            <td className="lt-td" style={{ minWidth: 140, maxWidth: 180 }}>
+                              <span style={{ fontSize: 11, color: "#334155", fontWeight: 500, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {r.service || <span style={{ color: "#cbd5e1" }}>—</span>}
+                              </span>
+                              {tags.slice(0,2).map(t => <span key={t} className="lt-tag">{t}</span>)}
+                            </td>
+
+                            {/* Owner */}
+                            <td className="lt-td" style={{ minWidth: 100 }}>
+                              {r.assignedTo ? (
+                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                  <div style={{ width: 22, height: 22, borderRadius: 6, background: "#e0e7ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#4f46e5", flexShrink: 0 }}>
+                                    {r.assignedTo.charAt(0).toUpperCase()}
+                                  </div>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80 }}>{r.assignedTo}</span>
+                                </div>
+                              ) : <span style={{ color: "#cbd5e1", fontSize: 11 }}>Unassigned</span>}
+                            </td>
+
+                            {/* Follow-up */}
+                            <td className="lt-td" style={{ minWidth: 120 }}>
+                              {fu ? (
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 12, background: fu.bg + "cc", color: fu.color, border: `1px solid ${fu.color}44`, whiteSpace: "nowrap" }}>
+                                  {fu.icon} {fu.label}
+                                </span>
+                              ) : r.followUpDate ? (
+                                <span style={{ fontSize: 11, color: "#64748b" }}>{r.followUpDate}</span>
+                              ) : (
+                                <span style={{ color: "#cbd5e1", fontSize: 11 }}>Not set</span>
+                              )}
+                              {na && (
+                                <div style={{ fontSize: 9, color: "#6366f1", marginTop: 3, fontWeight: 600 }}>{na.icon} {na.text}</div>
+                              )}
+                            </td>
+
+                            {/* Value */}
+                            <td className="lt-td" style={{ minWidth: 90, textAlign: "right" }}>
+                              {r.value > 0 ? (
+                                <span style={{ fontSize: 12, fontWeight: 800, color: "#059669" }}>
+                                  {cfg.currencyLabel || "AED"} {Number(r.value).toLocaleString()}
+                                </span>
+                              ) : <span style={{ color: "#cbd5e1", fontSize: 11 }}>—</span>}
+                            </td>
+
+                            {/* Source */}
+                            <td className="lt-td" style={{ minWidth: 90 }}>
+                              <span style={{ fontSize: 11, color: "#475569", fontWeight: 500 }}>{r.source || <span style={{ color: "#cbd5e1" }}>—</span>}</span>
+                            </td>
+
+                            {/* Created */}
+                            <td className="lt-td" style={{ minWidth: 90 }}>
+                              <span style={{ fontSize: 11, color: "#64748b" }}>{r.date || "—"}</span>
+                              {r.nationality && <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 1 }}>{r.nationality}</div>}
+                            </td>
+
+                            {/* Actions */}
+                            <td className="lt-td" style={{ minWidth: 150 }}>
+                              <div className="lt-row-actions">
+                                <button className="lt-btn" onClick={e => { e.stopPropagation(); setDetailLead(r); }} style={{ background: "#eef2ff", color: "#4f46e5" }} title="View detail">👁</button>
+                                <button className="lt-btn" onClick={e => { e.stopPropagation(); setEditLead(r); }} style={{ background: "#f0f9ff", color: "#0284c7" }} title="Edit">✏️</button>
+                                {r.phone && (
+                                  <button className="lt-btn" onClick={e => { e.stopPropagation(); window.open(`https://wa.me/${r.phone.replace(/\D/g,"")}`, "_blank"); }} style={{ background: "#f0fdf4", color: "#15803d" }} title="WhatsApp">💬</button>
+                                )}
+                                {r.phone && (
+                                  <a href={`tel:${r.phone}`} onClick={e => e.stopPropagation()} className="lt-btn" style={{ background: "#fffbeb", color: "#d97706", textDecoration: "none" }} title="Call">📞</a>
+                                )}
+                                {r.status === "Won" && (
+                                  <button className="lt-btn" onClick={e => { e.stopPropagation(); handleConvertToClient(r); }} style={{ background: "#f0fdf4", color: "#15803d", fontSize: 10 }} title="Convert to client">↗ Client</button>
+                                )}
+                                <button className="lt-btn" onClick={e => { e.stopPropagation(); setShowNotes(r); }} style={{ background: "#fdf4ff", color: "#9333ea" }} title="Add note">📝</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Pagination ── */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 4px 2px", fontSize: 12, color: B.muted }}>
+                <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                  Showing {rows.length === 0 ? 0 : leadPage * leadPageSize + 1}–{Math.min((leadPage + 1) * leadPageSize, rows.length)} of {rows.length} leads
+                </span>
+                {leadPageCount > 1 && (
+                  <>
+                    <button onClick={() => setLeadPage(p => Math.max(0, p - 1))} disabled={leadPage === 0} style={{ padding: "3px 10px", border: `1px solid ${B.border}`, borderRadius: 5, cursor: "pointer", background: "#fff", color: "#374151" }}>‹</button>
+                    {Array.from({ length: Math.min(leadPageCount, 7) }, (_, k) => {
+                      const pg = leadPageCount <= 7 ? k : k === 0 ? 0 : k === 6 ? leadPageCount - 1 : Math.min(Math.max(leadPage - 2 + k, 1), leadPageCount - 2);
+                      return (
+                        <button key={pg} onClick={() => setLeadPage(pg)}
+                          style={{ padding: "3px 8px", border: `1px solid ${pg === leadPage ? "#4f46e5" : B.border}`, borderRadius: 5, cursor: "pointer", background: pg === leadPage ? "#4f46e5" : "#fff", color: pg === leadPage ? "#fff" : B.muted, fontWeight: pg === leadPage ? 700 : 400, fontSize: 12 }}>
+                          {pg + 1}
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => setLeadPage(p => Math.min(leadPageCount - 1, p + 1))} disabled={leadPage === leadPageCount - 1} style={{ padding: "3px 10px", border: `1px solid ${B.border}`, borderRadius: 5, cursor: "pointer", background: "#fff", color: "#374151" }}>›</button>
+                  </>
+                )}
+                <select value={leadPageSize} onChange={e => { setLeadPageSize(Number(e.target.value)); setLeadPage(0); }} style={{ marginLeft: "auto", padding: "3px 6px", fontSize: 11, border: `1px solid ${B.border}`, borderRadius: 5 }}>
+                  {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n} / page</option>)}
+                </select>
+              </div>
+            </>
           )}
         </SectionCard>
+          )}
         </>
       )}
 
@@ -3155,6 +3932,7 @@ export default function LeadsTab({ search }) {
             pos={hoverPos}
             staleLeads={staleLeads}
             dupeIds={dupeIds}
+            cfg={cfg}
             onClose={() => setHoverLead(null)}
             onEdit={() => { setEditLead(hoverLead); setHoverLead(null); }}
             onDetail={() => { setDetailLead(hoverLead); setHoverLead(null); }}
@@ -3168,6 +3946,7 @@ export default function LeadsTab({ search }) {
           onSave={handleAdd}
           onClose={() => setAddModal(false)}
           cfg={cfg}
+          existingLeads={leads}
         />
       )}
 
@@ -3178,6 +3957,7 @@ export default function LeadsTab({ search }) {
           onSave={handleEditSave}
           onClose={() => setEditLead(null)}
           onConvert={handleConvertToClient}
+          cfg={cfg}
           onDelete={() => {
             if (!window.confirm("Delete this lead?")) return;
             setData({ ...data, leads: data.leads.filter(l => l.id !== editLead.id) });
@@ -3189,7 +3969,7 @@ export default function LeadsTab({ search }) {
       {/* ── Detail Drawer ── */}
       {detailLead && (
         <LeadDetailDrawer
-          lead={detailLead}
+          lead={data.leads.find(l => l.id === detailLead.id) || detailLead}
           staleLeads={staleLeads}
           dupeIds={dupeIds}
           onClose={() => setDetailLead(null)}
@@ -3202,6 +3982,8 @@ export default function LeadsTab({ search }) {
           onSnooze={handleSnooze}
           onMention={handleMention}
           onDocChecklist={handleDocChecklist}
+          onDocAttachment={handleDocAttachment}
+          onDocAttachmentDelete={handleDocAttachmentDelete}
           onSetRecurrence={handleSetRecurrence}
         />
       )}
@@ -3249,16 +4031,40 @@ export default function LeadsTab({ search }) {
       {/* ── Toast stack ── */}
       <LeadToastStack toasts={toasts} />
 
-      {/* ── Speed Dial FAB ── */}
-      <SpeedDialFAB
-        onAddLead={() => setAddModal(true)}
-        onReminders={() => setShowReminderCenter(true)}
-        onFunnel={() => setShowFunnel(true)}
-        onGoals={() => setShowGoalTracker(true)}
-        onImport={() => setShowBulkImport(true)}
-      />
+      {/* ── Speed Dial FAB — hidden whenever any modal/drawer/overlay is open ── */}
+      {!addModal && !editLead && !detailLead && !showReminderCenter && !showFunnel &&
+       !showSourceROI && !showStaffROI && !showForecast && !showCustomFields && !showHeatmap &&
+       !showAIAssist && !showGoalTracker && !showWinLossReport && !showEmailComposer &&
+       !showCallScheduler && !showLeadCompare && !showColumnPicker && !showNotes &&
+       !showTagManager && !showBulkImport && !showGlobalSearch && !showPipelineHealth && (
+        <SpeedDialFAB
+          onAddLead={() => setAddModal(true)}
+          onReminders={() => setShowReminderCenter(true)}
+          onImport={() => setShowBulkImport(true)}
+        />
+      )}
 
       {/* ── NEW MODALS ── */}
+      {pendingTransition && (
+        <StageGateModal
+          lead={pendingTransition.lead}
+          newStage={pendingTransition.newStage}
+          cfg={cfg}
+          onCancel={() => setPendingTransition(null)}
+          onConfirm={(gateData) => {
+            const { lead, newStage } = pendingTransition;
+            setPendingTransition(null);
+            // Merge gate data into lead fields then re-run transition with _gateConfirmed flag
+            const today = new Date().toISOString().slice(0, 10);
+            const merged = data.leads.map(l =>
+              l.id !== lead.id ? l : { ...l, ...gateData, updatedAt: today }
+            );
+            setData(prev => ({ ...prev, leads: merged }));
+            const updatedLead = { ...lead, ...gateData };
+            handleStageTransition(updatedLead, newStage, { ...gateData, _gateConfirmed: true });
+          }}
+        />
+      )}
       {showGoalTracker && <GoalTrackerModal leads={leads} onClose={() => setShowGoalTracker(false)} />}
       {showWinLossReport && <WinLossReportModal leads={leads} onClose={() => setShowWinLossReport(false)} />}
       {showPipelineHealth && <PipelineHealthModal leads={leads} staleLeads={staleLeads} dupeIds={dupeIds} onClose={() => setShowPipelineHealth(false)} />}
@@ -3317,13 +4123,19 @@ function EditLeadModal({ lead, onSave, onClose, onConvert, onDelete, cfg: cfgPro
     const today = new Date().toISOString().slice(0, 10);
     const entries = [];
     if (vals.status !== lead.status) entries.push({ date: today, text: `Status: ${lead.status} → ${vals.status}` });
-    if (vals.assignedTo !== (lead.assignedTo || "")) entries.push({ date: today, text: `Assigned to ${vals.assignedTo || "nobody"}` });
-    if (Number(vals.value) !== (lead.value || 0)) entries.push({ date: today, text: `Value: ${aed(lead.value)} → ${aed(Number(vals.value))}` });
-    if (vals.notes !== (lead.notes || "")) entries.push({ date: today, text: "Notes updated" });
+    if ((vals.assignedTo || "") !== (lead.assignedTo || "")) entries.push({ date: today, text: `Assigned to ${vals.assignedTo || "nobody"}` });
+    if (Number(vals.value) !== Number(lead.value || 0)) entries.push({ date: today, text: `Value: ${aed(lead.value)} → ${aed(Number(vals.value))}` });
+    if ((vals.notes || "") !== (lead.notes || "")) entries.push({ date: today, text: "Notes updated" });
     onSave(vals, entries);
   };
 
-  const hasChanges = Object.keys(vals).some(k => JSON.stringify(vals[k]) !== JSON.stringify(lead[k] ?? (k === "tags" ? [] : "")));
+  const hasChanges = Object.keys(vals).some(k => {
+    const a = vals[k];
+    const b = lead[k] ?? (k === "tags" ? [] : k === "value" ? 0 : "");
+    // Normalise numeric fields so "" and 0 don't falsely differ
+    if (k === "value") return Number(a) !== Number(b);
+    return JSON.stringify(a) !== JSON.stringify(b);
+  });
   const sc = _stageColors[vals.status] || "#64748b";
 
   const F = { // field styles
@@ -3598,127 +4410,145 @@ function EditLeadModal({ lead, onSave, onClose, onConvert, onDelete, cfg: cfgPro
 }
 
 // ─── Lead Detail Drawer ─────────────────────────────────────────────────────────
-function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConvert, onAddNote, onLogCall, onReopen, onArchive, onSnooze, onMention, onDocChecklist, onSetRecurrence }) {
-  const score = scoreLead(lead);
-  const label = scoreLabel(score);
-  const isStale = staleLeads.some(s => s.id === lead.id);
-  const isDupe  = dupeIds.has(lead.id);
-  const health  = getHealthLabel(getHealthScore(lead));
-  const nextAction = getNextAction(lead);
+function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConvert, onAddNote, onLogCall, onReopen, onArchive, onSnooze, onMention, onDocChecklist, onDocAttachment, onDocAttachmentDelete, onSetRecurrence }) {
+  const drawerCfg = loadLeadsSettings();
+  const DOC_ITEMS = (drawerCfg.docChecklistItems || DEFAULT_LEADS_SETTINGS.docChecklistItems);
+
   const [noteInput, setNoteInput] = useState("");
   const [callInput, setCallInput] = useState("");
   const [mentionInput, setMentionInput] = useState("");
   const [activeTab, setActiveTab] = useState("details");
-  const temp = getTemperature(lead);
-  const tempLabel = getTempLabel(temp);
-  const sla = getSLAStatus(lead);
 
-  const drawerCfg = loadLeadsSettings();
-  const DOC_ITEMS = (drawerCfg.docChecklistItems || DEFAULT_LEADS_SETTINGS.docChecklistItems);
+  // Load attachments from localStorage (stored separately to avoid bloating main data)
+  const getAttachments = () => { try { return JSON.parse(localStorage.getItem(`crm_doc_attachments_${lead.id}`) || "{}"); } catch { return {}; } };
+  const [attachments, setAttachmentsState] = useState(getAttachments);
+  // Re-read whenever lead._attachTs changes (set by parent after upload/delete)
+  useEffect(() => { setAttachmentsState(getAttachments()); }, [lead._attachTs, lead.id]);
+
+  const isStale = staleLeads.some(s => s.id === lead.id);
+  const isDupe  = dupeIds.has(lead.id);
+  const nextAction = getNextAction(lead, drawerCfg);
+  const temp = getTemperature(lead, drawerCfg);
+  const tempLabel = getTempLabel(temp, drawerCfg);
+  const sla = getSLAStatus(lead, drawerCfg);
 
   const row = (icon, k, v) => v ? (
-    <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12, color: "#334155" }}>
-      <span style={{ fontSize: 14, width: 18, flexShrink: 0 }}>{icon}</span>
-      <span style={{ color: "#94a3b8", minWidth: 80 }}>{k}</span>
-      <span style={{ fontWeight: 500 }}>{v}</span>
+    <div key={k} style={{ display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13, color: "#334155", padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+      <span style={{ fontSize: 15, width: 20, flexShrink: 0, textAlign: "center", marginTop: 1 }}>{icon}</span>
+      <span style={{ color: "#94a3b8", minWidth: 90, fontWeight: 500, flexShrink: 0 }}>{k}</span>
+      <span style={{ fontWeight: 600, color: "#0f172a", wordBreak: "break-word" }}>{v}</span>
     </div>
   ) : null;
 
   const tabStyle = (t) => ({
-    padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", border: "none",
-    borderBottom: `2px solid ${activeTab === t ? "#3b82f6" : "transparent"}`,
-    background: "none", color: activeTab === t ? "#3b82f6" : "#94a3b8", fontFamily: "inherit",
+    padding: "6px 12px", fontSize: 12, fontWeight: activeTab === t ? 700 : 500, cursor: "pointer", border: "none",
+    borderBottom: `2.5px solid ${activeTab === t ? "#3b82f6" : "transparent"}`,
+    background: activeTab === t ? "#eff6ff" : "none",
+    color: activeTab === t ? "#2563eb" : "#64748b", fontFamily: "inherit",
+    borderRadius: "6px 6px 0 0",
+    transition: "color 0.12s, background 0.12s",
   });
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", justifyContent: "flex-end" }}
       onClick={onClose}>
-      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", backdropFilter: "blur(1px)" }} />
-      <div style={{ position: "relative", zIndex: 1, width: 400, maxWidth: "95vw", background: "#fff", height: "100%", overflowY: "auto", padding: 24, boxShadow: "-8px 0 40px rgba(0,0,0,0.12)", display: "flex", flexDirection: "column", gap: 14 }}
+      <div style={{ position: "absolute", inset: 0, background: "rgba(2,8,23,0.45)", backdropFilter: "blur(3px)" }} />
+      <div style={{ position: "relative", zIndex: 1, width: 420, maxWidth: "95vw", background: "#fff", height: "100%", overflowY: "auto", padding: "20px 22px", boxShadow: "-12px 0 48px rgba(0,0,0,0.14)", display: "flex", flexDirection: "column", gap: 16 }}
         onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>{lead.name}</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <span style={pill(STAGE_COLORS[lead.status] || "#64748b", (STAGE_COLORS[lead.status] || "#64748b") + "18")}>{lead.status}</span>
-              <span style={pill(tempLabel.color, tempLabel.bg)}>{tempLabel.label}</span>
-              {lead.priority && <span style={pill(PRIORITY_COLORS[lead.priority], PRIORITY_COLORS[lead.priority] + "18")}>{lead.priority}</span>}
-              {sla && <span style={pill(sla.color, sla.bg)}>{sla.urgent ? "⚠ " : ""}SLA: {sla.label}</span>}
-              {isStale && <span style={pill("#f59e0b", "#fef3c7")}>⏰ Stale</span>}
-              {isDupe  && <span style={pill("#f59e0b", "#fef3c7")}>⚠ Dupe</span>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 0 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: `${(drawerCfg.stageColors||STAGE_COLORS)[lead.status] || "#6366f1"}18`, border: `2px solid ${(drawerCfg.stageColors||STAGE_COLORS)[lead.status] || "#6366f1"}40`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, color: (drawerCfg.stageColors||STAGE_COLORS)[lead.status] || "#6366f1", flexShrink: 0 }}>
+              {(lead.name || "?").charAt(0).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lead.name}</div>
+              {lead.assignedTo && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, fontWeight: 500 }}>👤 {lead.assignedTo}</div>}
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                <span style={pill((drawerCfg.stageColors||STAGE_COLORS)[lead.status] || "#64748b", ((drawerCfg.stageColors||STAGE_COLORS)[lead.status] || "#64748b") + "22")}>{lead.status}</span>
+                <span style={pill(tempLabel.color, tempLabel.bg)}>{tempLabel.label}</span>
+                {lead.priority && <span style={pill((drawerCfg.priorityColors||PRIORITY_COLORS)[lead.priority], (drawerCfg.priorityColors||PRIORITY_COLORS)[lead.priority] + "22")}>{lead.priority}</span>}
+                {sla && <span style={pill(sla.color, sla.bg)}>{sla.urgent ? "⚠ " : ""}SLA: {sla.label}</span>}
+                {isStale && <span style={pill("#f59e0b", "#fef3c7")}>⏰ Stale</span>}
+                {isDupe  && <span style={pill("#f59e0b", "#fef3c7")}>⚠ Dupe</span>}
+              </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8" }}>✕</button>
+          <button onClick={onClose} style={{ background: "#f1f5f9", border: "none", width: 32, height: 32, borderRadius: 8, fontSize: 14, cursor: "pointer", color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
 
         {/* Next Action */}
         {nextAction && (
-          <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>{nextAction.icon}</span>
+          <div style={{ background: "linear-gradient(135deg, #f0f9ff, #e0f2fe)", border: "1px solid #bae6fd", borderRadius: 10, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>{nextAction.icon}</span>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", letterSpacing: 0.5 }}>NEXT ACTION</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{nextAction.text}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 2 }}>Next Action</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{nextAction.text}</div>
             </div>
           </div>
         )}
 
-        {/* WhatsApp quick actions */}
+        {/* Quick actions */}
         {lead.phone && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", background: "#f8fafc", borderRadius: 10, padding: "10px 12px", border: "1px solid #f1f5f9" }}>
             <a href={`tel:${lead.phone}`}
-              style={{ fontSize: 11, padding: "5px 10px", background: "#eff6ff", color: "#1d4ed8", border: "1.5px solid #bfdbfe", borderRadius: 6, cursor: "pointer", fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+              style={{ fontSize: 12, padding: "7px 14px", background: "#eff6ff", color: "#1d4ed8", border: "1.5px solid #bfdbfe", borderRadius: 8, cursor: "pointer", fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5 }}>
               📞 Call
             </a>
             <button onClick={() => window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}`, "_blank")}
-              style={{ fontSize: 11, padding: "5px 10px", background: "#25d366", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700 }}>
+              style={{ fontSize: 12, padding: "7px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
               💬 WhatsApp
             </button>
+            <div style={{ width: 1, background: "#e2e8f0", alignSelf: "stretch", margin: "0 2px" }} />
             <button onClick={() => { navigator.clipboard?.writeText(lead.phone); }}
-              style={{ fontSize: 11, padding: "5px 10px", background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
+              style={{ fontSize: 12, padding: "7px 11px", background: "#fff", color: "#475569", border: "1.5px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
               📋 Copy
             </button>
             <button onClick={() => window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}?text=Hi ${encodeURIComponent(lead.name)}, please send us your Emirates ID copy.`, "_blank")}
-              style={{ fontSize: 11, padding: "5px 10px", background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
+              style={{ fontSize: 12, padding: "7px 11px", background: "#fff", color: "#475569", border: "1.5px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
               📄 Docs
             </button>
             <button onClick={() => window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}?text=Hi ${encodeURIComponent(lead.name)}, just a reminder for your appointment tomorrow.`, "_blank")}
-              style={{ fontSize: 11, padding: "5px 10px", background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
-              📅 Reminder
+              style={{ fontSize: 12, padding: "7px 11px", background: "#fff", color: "#475569", border: "1.5px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
+              🔔 Reminder
             </button>
           </div>
         )}
 
         {/* Snooze bar */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>Snooze:</span>
-          {(drawerCfg.snoozeOptions || [1, 3, 7, 14]).map(d => (
-            <button key={d} onClick={() => onSnooze && onSnooze(lead, d)}
-              style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer", fontFamily: "inherit" }}>
-              {d}d
-            </button>
-          ))}
-          {lead.followUpRecurrence && (
-            <span style={{ fontSize: 10, color: "#3b82f6", fontWeight: 600 }}>↻ Every {lead.followUpRecurrence}d</span>
-          )}
-          <select value={lead.followUpRecurrence || ""} onChange={e => onSetRecurrence && onSetRecurrence(lead.id, Number(e.target.value) || null)}
-            style={{ fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 5, padding: "2px 6px", fontFamily: "inherit", color: "#64748b" }}>
-            <option value="">↻ Recurrence…</option>
-            {(drawerCfg.recurrenceOptions || [3,7,14,30]).map(d => <option key={d} value={d}>Every {d} days</option>)}
-          </select>
+        <div style={{ background: "#f8fafc", borderRadius: 8, padding: "8px 12px", border: "1px solid #f1f5f9" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13 }}>⏰</span>
+            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 700, marginRight: 2 }}>Snooze</span>
+            {(drawerCfg.snoozeOptions || [1, 3, 7, 14]).map(d => (
+              <button key={d} onClick={() => onSnooze && onSnooze(lead, d)}
+                style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                {d}d
+              </button>
+            ))}
+            <div style={{ width: 1, background: "#e2e8f0", alignSelf: "stretch", margin: "0 2px" }} />
+            {lead.followUpRecurrence && (
+              <span style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700, background: "#eff6ff", borderRadius: 5, padding: "2px 7px" }}>↻ Every {lead.followUpRecurrence}d</span>
+            )}
+            <select value={lead.followUpRecurrence || ""} onChange={e => onSetRecurrence && onSetRecurrence(lead.id, Number(e.target.value) || null)}
+              style={{ fontSize: 11, border: "1.5px solid #e2e8f0", borderRadius: 6, padding: "3px 8px", fontFamily: "inherit", color: "#475569", background: "#fff", cursor: "pointer" }}>
+              <option value="">↻ Recurrence…</option>
+              {(drawerCfg.recurrenceOptions || [3,7,14,30]).map(d => <option key={d} value={d}>Every {d} days</option>)}
+            </select>
+          </div>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0", gap: 2, flexWrap: "wrap" }}>
-          {["details", "notes", "calls", "docs", "mentions", "timeline"].map(t => (
-            <button key={t} onClick={() => setActiveTab(t)} style={tabStyle(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+        <div style={{ display: "flex", borderBottom: "1.5px solid #e8ecf1", gap: 0, flexWrap: "wrap" }}>
+          {[["details","Details"],["notes","Notes"],["calls","Calls"],["docs","Docs"],["mentions","Mentions"],["history","Timeline"]].map(([t, label]) => (
+            <button key={t} onClick={() => setActiveTab(t)} style={tabStyle(t)}>{label}</button>
           ))}
         </div>
 
         {/* Tab content */}
         {activeTab === "details" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#f8fafc", borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0, background: "#f8fafc", borderRadius: 12, padding: "4px 16px", border: "1px solid #f1f5f9" }}>
             {row("💼", "Service",   lead.service)}
             {row("📅", "Date",      lead.date)}
             {row("💰", "Value",     aed(lead.value))}
@@ -3726,81 +4556,106 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
             {row("✉️", "Email",     lead.email)}
             {row("📱", "Phone",     lead.phone)}
             {lead.whatsapp && row("💬", "WhatsApp",  lead.whatsapp)}
-            {lead.nationality && row("🌍", "Nationality", lead.nationality)}
-            {lead.dob && row("🎂", "Date of Birth", lead.dob)}
-            {lead.gender && row("👤", "Gender", lead.gender)}
             {lead.assignedTo && row("👤", "Assigned",  lead.assignedTo)}
             {lead.estimatedClose && row("🎯", "Est. Close", lead.estimatedClose)}
-            {lead.priority   && (
-              <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12 }}>
-                <span style={{ fontSize: 14, width: 18, flexShrink: 0 }}>🎯</span>
-                <span style={{ color: "#94a3b8", minWidth: 80 }}>Priority</span>
+            {/* Personal Details — collapsible, below sales fields */}
+            {(lead.nationality || lead.dob || lead.gender || lead.passportNo || lead.emiratesId || lead.address) && (
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", cursor: "pointer", userSelect: "none", textTransform: "uppercase", letterSpacing: 0.5, padding: "6px 0", listStyle: "none", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 9 }}>▶</span> Personal Details
+                </summary>
+                <div style={{ paddingTop: 2 }}>
+                  {lead.nationality && row("🌍", "Nationality", lead.nationality)}
+                  {lead.dob        && row("🎂", "Date of Birth", lead.dob)}
+                  {lead.gender     && row("👤", "Gender", lead.gender)}
+                  {lead.passportNo && row("🪪", "Passport", lead.passportNo)}
+                  {lead.emiratesId && row("🪪", "Emirates ID", lead.emiratesId)}
+                  {lead.address    && row("📍", "Address", lead.address)}
+                </div>
+              </details>
+            )}
+            {lead.priority && (
+              <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+                <span style={{ fontSize: 15, width: 20, flexShrink: 0, textAlign: "center" }}>🎯</span>
+                <span style={{ color: "#94a3b8", minWidth: 90, fontWeight: 500, flexShrink: 0 }}>Priority</span>
                 <span style={pill(PRIORITY_COLORS[lead.priority], PRIORITY_COLORS[lead.priority] + "18")}>{lead.priority}</span>
               </div>
             )}
             {lead.followUpDate && (() => {
-              const fu = getFollowUpStatus(lead.followUpDate);
+              const fu = getFollowUpStatus(lead.followUpDate, drawerCfg);
               return (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12 }}>
-                  <span style={{ fontSize: 14, width: 18, flexShrink: 0 }}>🗓</span>
-                  <span style={{ color: "#94a3b8", minWidth: 80 }}>Follow-up</span>
-                  {fu ? <span style={pill(fu.color, fu.bg)}>{fu.icon} {fu.label}</span> : <span>{lead.followUpDate}</span>}
+                <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+                  <span style={{ fontSize: 15, width: 20, flexShrink: 0, textAlign: "center" }}>🗓</span>
+                  <span style={{ color: "#94a3b8", minWidth: 90, fontWeight: 500, flexShrink: 0 }}>Follow-up</span>
+                  {fu ? <span style={pill(fu.color, fu.bg)}>{fu.icon} {fu.label}</span> : <span style={{ fontWeight: 600, color: "#0f172a" }}>{lead.followUpDate}</span>}
                 </div>
               );
             })()}
             {lead.lostReason && row("❌", "Lost Reason", lead.lostReason)}
             {(lead.tags||[]).length > 0 && (
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12 }}>
-                <span style={{ fontSize: 14, width: 18, flexShrink: 0 }}>🏷</span>
-                <span style={{ color: "#94a3b8", minWidth: 80 }}>Tags</span>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+                <span style={{ fontSize: 15, width: 20, flexShrink: 0, textAlign: "center" }}>🏷</span>
+                <span style={{ color: "#94a3b8", minWidth: 90, fontWeight: 500, flexShrink: 0 }}>Tags</span>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {lead.tags.map(t => <span key={t} style={{ fontSize: 9, background: "#e0e7ff", color: "#4338ca", borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{t}</span>)}
+                  {lead.tags.map(t => <span key={t} style={{ fontSize: 10, background: "#e0e7ff", color: "#4338ca", borderRadius: 5, padding: "2px 7px", fontWeight: 700 }}>{t}</span>)}
                 </div>
               </div>
             )}
             {lead.notes && (
-              <div style={{ marginTop: 4, padding: "8px 10px", background: "#fff", borderRadius: 7, fontSize: 12, color: "#64748b", lineHeight: 1.6, borderLeft: "3px solid #e2e8f0" }}>{lead.notes}</div>
+              <div style={{ margin: "8px 0", padding: "10px 12px", background: "#fff", borderRadius: 8, fontSize: 13, color: "#475569", lineHeight: 1.65, borderLeft: "3px solid #3b82f6", border: "1px solid #e8ecf1", borderLeftWidth: 3, borderLeftColor: "#3b82f6" }}>{lead.notes}</div>
             )}
           </div>
         )}
 
         {activeTab === "notes" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 7 }}>
               <input value={noteInput} onChange={e => setNoteInput(e.target.value)}
                 placeholder="Add a quick note…"
                 onKeyDown={e => { if (e.key === "Enter" && noteInput.trim()) { onAddNote(lead.id, noteInput.trim()); setNoteInput(""); }}}
-                style={{ flex: 1, padding: "7px 10px", border: "1.5px solid #e2e8f0", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+                style={{ flex: 1, padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", color: "#0f172a", background: "#f8fafc" }} />
               <button onClick={() => { if (noteInput.trim()) { onAddNote(lead.id, noteInput.trim()); setNoteInput(""); }}}
-                style={{ padding: "7px 14px", background: B.blue, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>Add</button>
+                style={{ padding: "9px 16px", background: B.blue, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Add</button>
             </div>
             {[...(lead.quickNotes||[])].reverse().map((n, i) => (
-              <div key={i} style={{ background: "#f8fafc", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
-                <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 3 }}>{n.date}</div>
-                <div style={{ color: "#334155" }}>{n.text}</div>
+              <div key={i} style={{ background: "#fafbfe", borderRadius: 9, padding: "10px 14px", fontSize: 13, borderLeft: "3px solid #93c5fd", border: "1px solid #e8ecf1", borderLeftWidth: 3, borderLeftColor: "#93c5fd" }}>
+                <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 600, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 }}>{n.date}</div>
+                <div style={{ color: "#1e293b", lineHeight: 1.55 }}>{n.text}</div>
               </div>
             ))}
-            {(lead.quickNotes||[]).length === 0 && <div style={{ color: B.muted, fontSize: 12, textAlign: "center", paddingTop: 20 }}>No notes yet</div>}
+            {(lead.quickNotes||[]).length === 0 && (
+              <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📝</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>No notes yet</div>
+                <div style={{ fontSize: 12, marginTop: 3 }}>Type above and press Enter to add one</div>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === "calls" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 7 }}>
               <input value={callInput} onChange={e => setCallInput(e.target.value)}
                 placeholder="Log a call (e.g. 12 min, interested)"
                 onKeyDown={e => { if (e.key === "Enter" && callInput.trim()) { onLogCall(lead.id, callInput.trim()); setCallInput(""); }}}
-                style={{ flex: 1, padding: "7px 10px", border: "1.5px solid #e2e8f0", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+                style={{ flex: 1, padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", color: "#0f172a", background: "#f8fafc" }} />
               <button onClick={() => { if (callInput.trim()) { onLogCall(lead.id, callInput.trim()); setCallInput(""); }}}
-                style={{ padding: "7px 14px", background: "#10b981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>📞 Log</button>
+                style={{ padding: "9px 16px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>📞 Log</button>
             </div>
             {[...(lead.callLog||[])].reverse().map((c, i) => (
-              <div key={i} style={{ background: "#f0fdf4", borderRadius: 8, padding: "8px 12px", fontSize: 12, borderLeft: "3px solid #10b981" }}>
-                <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 3 }}>📞 {c.date}</div>
-                <div style={{ color: "#334155" }}>{c.note}</div>
+              <div key={i} style={{ background: "#f0fdf4", borderRadius: 9, padding: "10px 14px", fontSize: 13, border: "1px solid #d1fae5", borderLeftWidth: 3, borderLeftColor: "#10b981" }}>
+                <div style={{ color: "#6ee7b7", fontSize: 10, fontWeight: 700, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 }}>📞 {c.date}</div>
+                <div style={{ color: "#065f46", lineHeight: 1.55 }}>{c.note}</div>
               </div>
             ))}
-            {(lead.callLog||[]).length === 0 && <div style={{ color: B.muted, fontSize: 12, textAlign: "center", paddingTop: 20 }}>No calls logged yet</div>}
+            {(lead.callLog||[]).length === 0 && (
+              <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📞</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>No calls logged yet</div>
+                <div style={{ fontSize: 12, marginTop: 3 }}>Type above and press Enter to log one</div>
+              </div>
+            )}
           </div>
         )}
 
@@ -3810,120 +4665,99 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
           const total = DOC_ITEMS.length;
           const pct   = total ? Math.round((done / total) * 100) : 0;
           const allDone = done === total;
-
-          // Doc icons map
-          const DOC_ICONS = {
-            "Emirates ID":      "🪪",
-            "Passport":         "📗",
-            "Visa Copy":        "📋",
-            "Trade License":    "🏢",
-            "MOA":              "📜",
-            "Proof of Address": "🏠",
-            "Bank Statement":   "🏦",
-            "NOC Letter":       "✉️",
-          };
-
+          const DOC_ICONS = { "Emirates ID":"🪪","Passport":"📗","Visa Copy":"📋","Trade License":"🏢","MOA":"📜","Proof of Address":"🏠","Bank Statement":"🏦","NOC Letter":"✉️" };
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-
               {/* Progress header */}
-              <div style={{
-                background: allDone ? "linear-gradient(135deg,#f0fdf4,#dcfce7)" : "linear-gradient(135deg,#f8fafc,#f1f5f9)",
-                border: `1.5px solid ${allDone ? "#6ee7b7" : "#e2e8f0"}`,
-                borderRadius: 12, padding: "14px 16px",
-              }}>
+              <div style={{ background: allDone ? "linear-gradient(135deg,#f0fdf4,#dcfce7)" : "linear-gradient(135deg,#f8fafc,#f1f5f9)", border: `1.5px solid ${allDone ? "#6ee7b7" : "#e2e8f0"}`, borderRadius: 12, padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: allDone ? "#065f46" : "#0f172a" }}>
-                      {allDone ? "✅ All documents received!" : "Document Checklist"}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-                      {done} of {total} received
-                      {!allDone && done > 0 && ` · ${total - done} still needed`}
-                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: allDone ? "#065f46" : "#0f172a" }}>{allDone ? "✅ All documents received!" : "Document Checklist"}</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{done} of {total} received{!allDone && done > 0 && ` · ${total - done} still needed`}</div>
                   </div>
-                  <div style={{
-                    width: 48, height: 48, borderRadius: "50%",
-                    background: `conic-gradient(${allDone ? "#10b981" : "#3b82f6"} ${pct * 3.6}deg, #e2e8f0 0deg)`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 12, fontWeight: 800, color: allDone ? "#10b981" : "#3b82f6",
-                    flexShrink: 0, position: "relative",
-                  }}>
-                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: allDone ? "#f0fdf4" : "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>
-                      {pct}%
-                    </div>
+                  <div style={{ width: 48, height: 48, borderRadius: "50%", background: `conic-gradient(${allDone ? "#10b981" : "#3b82f6"} ${pct * 3.6}deg, #e2e8f0 0deg)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: allDone ? "#f0fdf4" : "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: allDone ? "#10b981" : "#3b82f6" }}>{pct}%</div>
                   </div>
                 </div>
-                {/* Bar */}
                 <div style={{ height: 6, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
-                  <div style={{
-                    height: "100%", borderRadius: 99,
-                    width: `${pct}%`,
-                    background: allDone ? "#10b981" : pct > 50 ? "#3b82f6" : "#f59e0b",
-                    transition: "width 0.4s cubic-bezier(0.4,0,0.2,1)",
-                  }} />
+                  <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: allDone ? "#10b981" : pct > 50 ? "#3b82f6" : "#f59e0b", transition: "width 0.4s" }} />
                 </div>
               </div>
 
-              {/* "Request all missing" shortcut */}
+              {/* Request all missing */}
               {!allDone && lead.phone && (
-                <button onClick={() => {
-                  const missing = DOC_ITEMS.filter(d => !checklist[d]);
-                  const list = missing.map((d, i) => `${i+1}. ${d}`).join("\n");
-                  window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}?text=${encodeURIComponent(`Hi ${lead.name || ""},\n\nCould you please send us the following documents:\n${list}\n\nThank you!`)}`, "_blank");
-                }}
+                <button onClick={() => { const missing = DOC_ITEMS.filter(d => !checklist[d]); window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}?text=${encodeURIComponent(`Hi ${lead.name || ""},\n\nCould you please send us the following documents:\n${missing.map((d,i)=>`${i+1}. ${d}`).join("\n")}\n\nThank you!`)}`, "_blank"); }}
                   style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "9px 14px", background: "#f0fdf4", color: "#15803d", border: "1.5px solid #bbf7d0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%" }}>
                   💬 Request all {total - done} missing via WhatsApp
                 </button>
               )}
 
               {/* Checklist items */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {/* Pending first, then received */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {[...DOC_ITEMS.filter(d => !checklist[d]), ...DOC_ITEMS.filter(d => checklist[d])].map(item => {
                   const checked = !!checklist[item];
-                  const icon = DOC_ICONS[item] || "📄";
+                  const itemFiles = attachments[item] || [];
                   return (
-                    <div key={item} style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 12px",
-                      background: checked ? "#f0fdf4" : "#fff",
-                      borderRadius: 9,
-                      border: `1.5px solid ${checked ? "#6ee7b7" : "#e8ecf1"}`,
-                      transition: "all 0.18s",
-                    }}>
-                      {/* Checkbox */}
-                      <input type="checkbox" checked={checked}
-                        onChange={e => onDocChecklist && onDocChecklist(lead.id, item, e.target.checked)}
-                        style={{ accentColor: "#10b981", width: 16, height: 16, flexShrink: 0, cursor: "pointer" }} />
-                      {/* Icon */}
-                      <span style={{ fontSize: 16, flexShrink: 0 }}>{icon}</span>
-                      {/* Label */}
-                      <span style={{
-                        flex: 1, fontSize: 12, fontWeight: checked ? 600 : 500,
-                        color: checked ? "#065f46" : "#1e293b",
-                        textDecoration: checked ? "line-through" : "none",
-                      }}>{item}</span>
-                      {/* Right side */}
-                      {checked ? (
-                        <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700, background: "#dcfce7", borderRadius: 5, padding: "2px 8px" }}>Received</span>
-                      ) : lead.phone ? (
+                    <div key={item} style={{ background: checked ? "#f0fdf4" : "#fff", borderRadius: 10, border: `1.5px solid ${checked ? "#6ee7b7" : "#e8ecf1"}`, overflow: "hidden", transition: "all 0.18s" }}>
+                      {/* Main row */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
+                        <input type="checkbox" checked={checked}
+                          onChange={e => { e.stopPropagation(); onDocChecklist && onDocChecklist(lead.id, item, e.target.checked); }}
+                          style={{ accentColor: "#10b981", width: 16, height: 16, flexShrink: 0, cursor: "pointer" }} />
+                        <span style={{ fontSize: 16, flexShrink: 0 }}>{DOC_ICONS[item] || "📄"}</span>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: checked ? 600 : 500, color: checked ? "#065f46" : "#1e293b", textDecoration: checked ? "line-through" : "none" }}>{item}</span>
+                        {/* Attach button — standalone, no label wrapper needed */}
                         <button
-                          onClick={() => window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}?text=${encodeURIComponent(`Hi ${lead.name || ""}, could you please send us your ${item}? Thank you!`)}`, "_blank")}
-                          style={{ fontSize: 11, padding: "4px 9px", background: "#f0fdf4", color: "#15803d", border: "1.5px solid #bbf7d0", borderRadius: 6, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-                          💬 Request
+                          onClick={e => { e.stopPropagation(); document.getElementById(`attach_${lead.id}_${item.replace(/\s/g,"_")}`).click(); }}
+                          style={{ fontSize: 11, padding: "4px 8px", background: "#eff6ff", color: "#2563eb", border: "1.5px solid #bfdbfe", borderRadius: 6, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                          📎 {itemFiles.length > 0 ? `${itemFiles.length}` : "Attach"}
                         </button>
-                      ) : (
-                        <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600, background: "#fffbeb", borderRadius: 5, padding: "2px 8px" }}>Pending</span>
+                        <input id={`attach_${lead.id}_${item.replace(/\s/g,"_")}`} type="file" accept="image/*,application/pdf" style={{ display: "none" }}
+                          onChange={e => { if (e.target.files[0]) { onDocAttachment && onDocAttachment(lead.id, item, e.target.files[0]); e.target.value = ""; } }} />
+                        {/* WA request or received badge */}
+                        {checked ? (
+                          <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700, background: "#dcfce7", borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>✓ Done</span>
+                        ) : lead.phone ? (
+                          <button onClick={() => window.open(`https://wa.me/${lead.phone.replace(/\D/g,"")}?text=${encodeURIComponent(`Hi ${lead.name || ""}, could you please send us your ${item}? Thank you!`)}`, "_blank")}
+                            style={{ fontSize: 11, padding: "4px 9px", background: "#f0fdf4", color: "#15803d", border: "1.5px solid #bbf7d0", borderRadius: 6, cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>
+                            💬
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600, background: "#fffbeb", borderRadius: 5, padding: "2px 8px", flexShrink: 0 }}>Pending</span>
+                        )}
+                      </div>
+                      {/* Attachments strip */}
+                      {itemFiles.length > 0 && (
+                        <div style={{ borderTop: `1px solid ${checked ? "#a7f3d0" : "#e8ecf1"}`, padding: "8px 12px", background: checked ? "#f0fdf4" : "#f8fafc", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {itemFiles.map((f, idx) => {
+                            const isImg = f.type && f.type.startsWith("image/");
+                            return (
+                              <div key={idx} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                                {isImg ? (
+                                  <a href={f.data} target="_blank" rel="noreferrer" title={f.name}>
+                                    <img src={f.data} alt={f.name} style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 7, border: "1.5px solid #e2e8f0", display: "block" }} />
+                                  </a>
+                                ) : (
+                                  <a href={f.data} target="_blank" rel="noreferrer" title={f.name}
+                                    style={{ width: 56, height: 56, borderRadius: 7, border: "1.5px solid #fecaca", background: "#fff5f5", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textDecoration: "none", gap: 2 }}>
+                                    <span style={{ fontSize: 22 }}>📄</span>
+                                    <span style={{ fontSize: 8, color: "#ef4444", fontWeight: 700 }}>PDF</span>
+                                  </a>
+                                )}
+                                <span style={{ fontSize: 9, color: "#64748b", maxWidth: 56, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>{f.name}</span>
+                                <button onClick={() => onDocAttachmentDelete && onDocAttachmentDelete(lead.id, item, idx)}
+                                  style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: "50%", background: "#ef4444", color: "#fff", border: "none", cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, padding: 0 }}>✕</button>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   );
                 })}
               </div>
-
-              {/* Footer note */}
               <div style={{ fontSize: 10, color: "#94a3b8", textAlign: "center", paddingTop: 2 }}>
-                Tap a checkbox to mark as received · 💬 sends a WhatsApp request
+                Checkbox marks received · 📎 attaches photos/PDFs · stored in browser · 💬 sends WhatsApp request
               </div>
             </div>
           );
@@ -3931,62 +4765,74 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
 
         {activeTab === "mentions" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 7 }}>
               <input value={mentionInput} onChange={e => setMentionInput(e.target.value)}
                 placeholder="@Ahmed — check proposal status…"
                 onKeyDown={e => { if (e.key === "Enter" && mentionInput.trim()) { onMention && onMention(lead.id, mentionInput.trim()); setMentionInput(""); }}}
-                style={{ flex: 1, padding: "7px 10px", border: "1.5px solid #e2e8f0", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+                style={{ flex: 1, padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", color: "#0f172a", background: "#f8fafc" }} />
               <button onClick={() => { if (mentionInput.trim()) { onMention && onMention(lead.id, mentionInput.trim()); setMentionInput(""); }}}
-                style={{ padding: "7px 14px", background: "#4338ca", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>@ Mention</button>
+                style={{ padding: "9px 16px", background: "#4338ca", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>@ Tag</button>
             </div>
             {[...(lead.mentions||[])].reverse().map((m, i) => (
-              <div key={i} style={{ background: "#eef2ff", borderRadius: 8, padding: "8px 12px", fontSize: 12, borderLeft: "3px solid #6366f1" }}>
-                <div style={{ color: "#94a3b8", fontSize: 10, marginBottom: 3 }}>@ {m.date}</div>
-                <div style={{ color: "#334155" }}>{m.text}</div>
+              <div key={i} style={{ background: "#f5f3ff", borderRadius: 9, padding: "10px 14px", fontSize: 13, border: "1px solid #ddd6fe", borderLeftWidth: 3, borderLeftColor: "#6366f1" }}>
+                <div style={{ color: "#a78bfa", fontSize: 10, fontWeight: 700, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 }}>@ {m.date}</div>
+                <div style={{ color: "#3730a3", lineHeight: 1.55 }}>{m.text}</div>
               </div>
             ))}
-            {!(lead.mentions||[]).length && <div style={{ color: "#94a3b8", fontSize: 12, textAlign: "center", paddingTop: 20 }}>No mentions yet</div>}
+            {!(lead.mentions||[]).length && (
+              <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>@</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>No mentions yet</div>
+                <div style={{ fontSize: 12, marginTop: 3 }}>Tag a teammate to loop them in</div>
+              </div>
+            )}
           </div>
         )}
 
 
         {activeTab === "history" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingLeft: 4 }}>
             {[...(lead.timeline||[{ date: lead.date, text: "Lead created" }])].reverse().map((t, i, arr) => (
-              <div key={i} style={{ display: "flex", gap: 10, position: "relative", paddingBottom: i < arr.length - 1 ? 14 : 0 }}>
-                {i < arr.length - 1 && <div style={{ position: "absolute", left: 7, top: 16, bottom: 0, width: 1, background: "#e2e8f0" }} />}
-                <div style={{ width: 15, height: 15, borderRadius: "50%", background: "#3b82f6", border: "2px solid #fff", boxShadow: "0 0 0 2px #3b82f620", flexShrink: 0, marginTop: 2 }} />
-                <div>
-                  <div style={{ fontSize: 11, color: "#334155", fontWeight: 500 }}>{t.text}</div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>{t.date}</div>
+              <div key={i} style={{ display: "flex", gap: 14, position: "relative", paddingBottom: i < arr.length - 1 ? 18 : 0 }}>
+                {i < arr.length - 1 && <div style={{ position: "absolute", left: 9, top: 20, bottom: 0, width: 1.5, background: "#e2e8f0" }} />}
+                <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#3b82f6", border: "3px solid #fff", boxShadow: "0 0 0 2px #bfdbfe", flexShrink: 0, marginTop: 1 }} />
+                <div style={{ paddingBottom: 2 }}>
+                  <div style={{ fontSize: 13, color: "#1e293b", fontWeight: 500, lineHeight: 1.4 }}>{t.text}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, fontWeight: 500 }}>{t.date}</div>
                 </div>
               </div>
             ))}
-            {!(lead.timeline||[]).length && <div style={{ color: B.muted, fontSize: 12, textAlign: "center", paddingTop: 20 }}>No history yet</div>}
+            {!(lead.timeline||[]).length && (
+              <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🕐</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>No history yet</div>
+                <div style={{ fontSize: 12, marginTop: 3 }}>Activity will appear here as the lead progresses</div>
+              </div>
+            )}
           </div>
         )}
 
         {/* Actions */}
-        <div style={{ display: "flex", gap: 8, marginTop: "auto", paddingTop: 12, borderTop: "1px solid #f1f5f9", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginTop: "auto", paddingTop: 14, borderTop: "1.5px solid #f1f5f9", flexWrap: "wrap" }}>
           <button onClick={onEdit}
-            style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, background: "#3b82f6", color: "#fff", border: "none", cursor: "pointer" }}>
+            style={{ flex: 1, padding: "11px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg, #2563eb, #3b82f6)", color: "#fff", border: "none", cursor: "pointer", boxShadow: "0 2px 8px #3b82f640" }}>
             ✏️ Edit Lead
           </button>
           {lead.status === "Won" && (
             <button onClick={() => { onConvert(lead); onClose(); }}
-              style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, background: "#10b981", color: "#fff", border: "none", cursor: "pointer" }}>
+              style={{ flex: 1, padding: "11px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg, #059669, #10b981)", color: "#fff", border: "none", cursor: "pointer", boxShadow: "0 2px 8px #10b98140" }}>
               ↗ Convert
             </button>
           )}
           {["Not Interested", "Lost", "No Response", "Duplicate"].includes(lead.status) && (
             <button onClick={() => { const r = window.prompt("Reopen reason?"); if (r) { onReopen(lead, r); onClose(); }}}
-              style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer" }}>
+              style={{ flex: 1, padding: "11px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, background: "linear-gradient(135deg, #6d28d9, #7c3aed)", color: "#fff", border: "none", cursor: "pointer", boxShadow: "0 2px 8px #7c3aed40" }}>
               ↩ Reopen
             </button>
           )}
           <button onClick={() => { onArchive && onArchive(lead); onClose(); }}
-            style={{ padding: "9px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, background: lead.archived ? "#f0fdf4" : "#f8fafc", color: lead.archived ? "#10b981" : "#94a3b8", border: "1px solid #e2e8f0", cursor: "pointer" }}>
-            {lead.archived ? "↩ Restore" : "📦 Archive"}
+            style={{ padding: "11px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, background: lead.archived ? "#f0fdf4" : "#f8fafc", color: lead.archived ? "#059669" : "#64748b", border: "1.5px solid #e2e8f0", cursor: "pointer" }}>
+            {lead.archived ? "↩ Restore" : "📦"}
           </button>
         </div>
       </div>
@@ -3995,7 +4841,8 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
 }
 
 // ─── Lead Hover Card (follows cursor — table + kanban) ──────────────────────────
-function LeadHoverCard({ lead, pos, staleLeads, dupeIds, onClose, onEdit, onDetail }) {
+function LeadHoverCard({ lead, pos, staleLeads, dupeIds, cfg: cfgProp, onClose, onEdit, onDetail }) {
+  const _stageColors = (cfgProp || DEFAULT_LEADS_SETTINGS).stageColors || STAGE_COLORS;
   const ref = useRef(null);
   const score  = scoreLead(lead);
   const sLabel = scoreLabel(score);
@@ -4029,7 +4876,7 @@ function LeadHoverCard({ lead, pos, staleLeads, dupeIds, onClose, onEdit, onDeta
     }}>
       <div style={{ fontWeight: 800, fontSize: 14, color: "#0f172a", marginBottom: 6 }}>{lead.name}</div>
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
-        <span style={pill(STAGE_COLORS[lead.status] || "#64748b", (STAGE_COLORS[lead.status] || "#64748b") + "18")}>{lead.status}</span>
+        <span style={pill(_stageColors[lead.status] || "#64748b", (_stageColors[lead.status] || "#64748b") + "18")}>{lead.status}</span>
         <span style={pill(SCORE_COLORS[sLabel], SCORE_COLORS[sLabel] + "18")}>{score} {sLabel}</span>
         {isStale && <span style={pill("#f59e0b", "#fef3c7")}>⏰ Stale</span>}
         {isDupe  && <span style={pill("#f59e0b", "#fef3c7")}>⚠ Dupe</span>}
@@ -4159,6 +5006,28 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                         {lead.nationality && <span>· 🌍 {lead.nationality}</span>}
                       </div>}
                     </div>
+                    {/* Sub-status badge for intermediate stages */}
+                    {["Orientation Payment Pending", "Orientation Scheduled", "Reservation Pending"].includes(lead.status) && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                        background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa",
+                        display: "inline-block", marginBottom: 4,
+                      }}>
+                        {lead.status === "Orientation Payment Pending" ? "Payment Pending"
+                          : lead.status === "Orientation Scheduled"    ? "Scheduled"
+                          : "Reservation Pending"}
+                      </span>
+                    )}
+                    {/* Next action */}
+                    {(() => {
+                      const na = getNextAction(lead, loadLeadsSettings());
+                      return na ? (
+                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, display: "flex", gap: 4, alignItems: "center" }}>
+                          <span style={{ flexShrink: 0 }}>{na.icon}</span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{na.text}</span>
+                        </div>
+                      ) : null;
+                    })()}
                     {/* Row 3: Value + temperature */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#0f172a" }}>{lead.value ? aed(lead.value) : <span style={{ color: "#cbd5e1", fontWeight: 400 }}>No value</span>}</span>
@@ -4261,6 +5130,9 @@ function ReminderCenter({ leads, onClose, onOpenLead }) {
   const dueToday  = leads.filter(l => categorize(l) === "today"     && !l.archived);
   const soon      = leads.filter(l => categorize(l) === "soon"      && !l.archived);
   const upcoming  = leads.filter(l => categorize(l) === "upcoming"  && !l.archived);
+  const orientationPending = leads.filter(l =>
+    !l.archived && (l.status === "Orientation Payment Pending" || l.status === "Reservation Pending")
+  );
 
   // Priority queue: overdue first, then today, then soon — sorted by value desc
   const priorityQueue = [
@@ -4332,9 +5204,10 @@ function ReminderCenter({ leads, onClose, onOpenLead }) {
 
         {/* Tabs */}
         <div style={{ display: "flex", borderBottom: "1px solid #e8ecf1", marginBottom: 16, gap: 2 }}>
-          {tabBtn("queue",    "Contact Next", priorityQueue.length, "#ef4444")}
-          {tabBtn("all",      "All",          total,                "#3b82f6")}
-          {tabBtn("upcoming", "Upcoming",     upcoming.length,      "#10b981")}
+          {tabBtn("queue",    "Contact Next", priorityQueue.length,       "#ef4444")}
+          {tabBtn("all",      "All",          total,                      "#3b82f6")}
+          {tabBtn("payments", "Payments Pending", orientationPending.length, "#f59e0b")}
+          {tabBtn("upcoming", "Upcoming",     upcoming.length,            "#10b981")}
         </div>
 
         {total === 0 && (
@@ -4379,10 +5252,15 @@ function ReminderCenter({ leads, onClose, onOpenLead }) {
 
         {tab === "all" && (
           <>
-            <Section title="Overdue"     items={overdue}  color="#ef4444" bg="#fef2f2" />
-            <Section title="Due Today"   items={dueToday} color="#f59e0b" bg="#fffbeb" />
-            <Section title="In 1–3 Days" items={soon}     color="#3b82f6" bg="#eff6ff" />
+            <Section title="Overdue"          items={overdue}             color="#ef4444" bg="#fef2f2" />
+            <Section title="Due Today"        items={dueToday}            color="#f59e0b" bg="#fffbeb" />
+            <Section title="Payments Pending" items={orientationPending}  color="#f97316" bg="#fff7ed" />
+            <Section title="In 1–3 Days"      items={soon}                color="#3b82f6" bg="#eff6ff" />
           </>
+        )}
+
+        {tab === "payments" && (
+          <Section title="Payments Pending" items={orientationPending} color="#f97316" bg="#fff7ed" />
         )}
 
         {tab === "upcoming" && (
@@ -4675,7 +5553,8 @@ function ForecastModal({ leads, onClose }) {
 
 // ─── Lead Heatmap Modal ────────────────────────────────────────────────────────
 function HeatmapModal({ leads, onClose }) {
-  const days = 63; // 9 weeks
+  const cfg = loadLeadsSettings();
+  const days = cfg.heatmapDays || 63; // configurable via Settings → Leads
   const today = new Date(); today.setHours(0,0,0,0);
   const grid = [];
   for (let i = days - 1; i >= 0; i--) {
@@ -4857,6 +5736,172 @@ function AIAssistModal({ lead, onClose }) {
   );
 }
 
+// ─── Stage Gate Modal — SOP field collection before stage transition ───────────
+function StageGateModal({ lead, newStage, onConfirm, onCancel, cfg }) {
+  const staffOptions = (cfg?.staffOptions || DEFAULT_LEADS_SETTINGS.staffOptions).filter(Boolean);
+  const lostOptions  = cfg?.lostOptions  || DEFAULT_LEADS_SETTINGS.lostOptions;
+
+  const GATE_CONFIG = {
+    "Orientation Payment Pending": [
+      { key: "followUpDate", label: "Follow-up Date", type: "date", required: true },
+    ],
+    "Orientation Paid": [
+      { key: "paymentDate",   label: "Payment Date",   type: "date",   required: true },
+      { key: "paymentAmount", label: "Amount (AED)",   type: "number", required: true },
+      { key: "paymentMethod", label: "Payment Method", type: "select", required: true,
+        options: ["Cash", "Bank Transfer", "Card", "Cheque", "Other"] },
+      { key: "paymentRef",    label: "Reference / Receipt No.", type: "text", required: false },
+    ],
+    "Orientation Scheduled": [
+      { key: "orientationDate", label: "Orientation Date", type: "date",   required: true },
+      { key: "orientationTime", label: "Orientation Time", type: "time",   required: true },
+      { key: "orientationType", label: "Type",             type: "select", required: true,
+        options: ["In-person", "Online", "Phone", "WhatsApp"] },
+      { key: "assignedTo",      label: "Assigned Staff",   type: "select", required: true, options: staffOptions },
+    ],
+    "Orientation Attended": [
+      { key: "attendanceConfirmed", label: "Attendance Confirmed", type: "checkbox", required: true },
+      { key: "followUpDate",        label: "Follow-up Date (within 24h)", type: "date", required: true },
+      { key: "orientationNotes",    label: "Orientation Notes",   type: "textarea", required: false },
+    ],
+    "Interested": [
+      { key: "service", label: "Selected Service", type: "select", required: true,
+        options: cfg?.serviceOptions || DEFAULT_LEADS_SETTINGS.serviceOptions },
+      { key: "notes",   label: "Client Concern / Note", type: "textarea", required: true },
+    ],
+    "Reservation Pending": [
+      { key: "reservationAmount", label: "Reservation Amount (AED)", type: "number", required: true },
+      { key: "followUpDate",      label: "Follow-up Date",           type: "date",   required: true },
+    ],
+    "Reserved": [
+      { key: "reservationAmount", label: "Reservation Amount (AED)", type: "number", required: true },
+      { key: "reservationDate",   label: "Payment Date",             type: "date",   required: true },
+      { key: "reservationRef",    label: "Reference / Receipt No.",  type: "text",   required: false },
+    ],
+    "Won": [
+      { key: "service",      label: "Final Service Selected", type: "select", required: true,
+        options: cfg?.serviceOptions || DEFAULT_LEADS_SETTINGS.serviceOptions },
+      { key: "handoverNote", label: "Sales Handover Note",    type: "textarea", required: true },
+      { key: "assignedTo",   label: "Assign to Operations",   type: "select",   required: false, options: staffOptions },
+    ],
+    "Lost": [
+      { key: "lostReason", label: "Lost Reason", type: "select", required: true, options: lostOptions },
+      { key: "notes",      label: "Notes",        type: "textarea", required: false },
+    ],
+    "No Response": [
+      { key: "followUpDate", label: "Retry Date", type: "date", required: true },
+    ],
+  };
+
+  const fields = GATE_CONFIG[newStage] || [];
+  const init = {};
+  fields.forEach(f => {
+    if (f.type === "checkbox") init[f.key] = false;
+    else if (f.key === "service") init[f.key] = lead.service || "";
+    else if (f.key === "assignedTo") init[f.key] = lead.assignedTo || "";
+    else init[f.key] = "";
+  });
+
+  const [vals, setVals] = useState(init);
+  const [errors, setErrors] = useState({});
+
+  const set = (k, v) => { setVals(p => ({ ...p, [k]: v })); setErrors(p => { const n = { ...p }; delete n[k]; return n; }); };
+
+  const handleConfirm = () => {
+    const errs = {};
+    fields.forEach(f => {
+      if (!f.required) return;
+      const v = vals[f.key];
+      if (f.type === "checkbox" && !v) errs[f.key] = "Required";
+      else if (!v || (typeof v === "string" && !v.trim())) errs[f.key] = "Required";
+    });
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    onConfirm({ ...vals, _gateConfirmed: true });
+  };
+
+  const stageColor = DEFAULT_LEADS_SETTINGS.stageColors[newStage] || "#6366f1";
+
+  const inp = (err) => ({
+    style: {
+      width: "100%", padding: "8px 10px", fontSize: 13, borderRadius: 7,
+      border: `1.5px solid ${err ? "#fca5a5" : "#e2e8f0"}`,
+      background: err ? "#fff5f5" : "#fff",
+      fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+    },
+    onFocus: e => { e.target.style.borderColor = err ? "#f87171" : "#6366f1"; e.target.style.boxShadow = "0 0 0 3px #eef2ff"; },
+    onBlur:  e => { e.target.style.borderColor = err ? "#fca5a5" : "#e2e8f0"; e.target.style.boxShadow = "none"; },
+  });
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={onCancel}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(2,8,23,0.55)", backdropFilter: "blur(4px)" }} />
+      <div style={{ position: "relative", zIndex: 1, background: "#fff", borderRadius: 14, width: 460, maxWidth: "95vw",
+          maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.22)" }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ padding: "18px 22px 14px", borderBottom: "1px solid #f1f5f9" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: stageColor, display: "inline-block", flexShrink: 0 }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: stageColor, textTransform: "uppercase", letterSpacing: 0.6 }}>Moving to</span>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a" }}>{newStage}</div>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{lead.name} · {lead.service}</div>
+        </div>
+
+        {/* Fields */}
+        <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {fields.map(f => (
+            <div key={f.key}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: errors[f.key] ? "#ef4444" : "#64748b",
+                  textTransform: "uppercase", letterSpacing: 0.4, display: "block", marginBottom: 5 }}>
+                {f.label}{f.required && <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span>}
+              </label>
+              {f.type === "checkbox" ? (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#334155" }}>
+                  <input type="checkbox" checked={!!vals[f.key]} onChange={e => set(f.key, e.target.checked)}
+                    style={{ accentColor: stageColor, width: 16, height: 16, cursor: "pointer" }} />
+                  Confirmed
+                  {errors[f.key] && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 400 }}>— required</span>}
+                </label>
+              ) : f.type === "textarea" ? (
+                <textarea value={vals[f.key]} onChange={e => set(f.key, e.target.value)}
+                  rows={3} placeholder={f.required ? "Required" : "Optional"}
+                  {...inp(errors[f.key])} style={{ ...inp(errors[f.key]).style, resize: "vertical", minHeight: 72 }}
+                  onFocus={inp(errors[f.key]).onFocus} onBlur={inp(errors[f.key]).onBlur} />
+              ) : f.type === "select" ? (
+                <select value={vals[f.key]} onChange={e => set(f.key, e.target.value)} {...inp(errors[f.key])}>
+                  <option value="">Select…</option>
+                  {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input type={f.type} value={vals[f.key]} onChange={e => set(f.key, e.target.value)}
+                  placeholder={f.required ? "Required" : "Optional"} {...inp(errors[f.key])} />
+              )}
+              {errors[f.key] && f.type !== "checkbox" && (
+                <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>{errors[f.key]}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "12px 22px 18px", display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid #f1f5f9" }}>
+          <button onClick={onCancel}
+            style={{ padding: "8px 18px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", fontSize: 13, fontWeight: 600, color: "#64748b", cursor: "pointer", fontFamily: "inherit" }}>
+            Cancel
+          </button>
+          <button onClick={handleConfirm}
+            style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: stageColor, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            Confirm & Move
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Analytics Menu ────────────────────────────────────────────────────────────
 function AnalyticsMenu({ isPhone, dupeIds, onMergeDupes, onReminders, onFunnel, onROI, onStaffROI, onForecast, onHeatmap, onFields, onGoals, onWinLoss, onHealth, onCompare, onColumns, onImport }) {
   const [open, setOpen] = useState(false);
@@ -4869,24 +5914,18 @@ function AnalyticsMenu({ isPhone, dupeIds, onMergeDupes, onReminders, onFunnel, 
   }, []);
 
   const groups = [
-    { label: "Pipeline", items: [
-      { icon: "ti-bell",        label: "Reminders",       fn: onReminders },
-      { icon: "ti-chart-dots",  label: "Funnel",          fn: onFunnel },
-      { icon: "ti-target",      label: "Goals",           fn: onGoals },
-      { icon: "ti-heart-rate-monitor", label: "Pipeline health", fn: onHealth },
-    ]},
     { label: "Analytics", items: [
-      { icon: "ti-currency-dollar", label: "Source ROI",  fn: onROI },
-      { icon: "ti-users",        label: "Staff ROI",      fn: onStaffROI },
-      { icon: "ti-chart-line",   label: "Forecast",       fn: onForecast },
-      { icon: "ti-chart-bar",    label: "Win / Loss",     fn: onWinLoss },
-      { icon: "ti-map-2",        label: "Heatmap",        fn: onHeatmap },
+      { icon: "ti-chart-dots",      label: "Funnel",      fn: onFunnel },
+      { icon: "ti-currency-dollar", label: "ROI",         fn: onROI },
+      { icon: "ti-chart-line",      label: "Forecast",    fn: onForecast },
+      { icon: "ti-chart-bar",       label: "Win / Loss",  fn: onWinLoss },
+      { icon: "ti-map-2",           label: "Heatmap",     fn: onHeatmap },
     ]},
     { label: "Tools", items: [
-      { icon: "ti-scale",        label: "Compare leads",  fn: onCompare },
-      { icon: "ti-columns",      label: "Columns",        fn: onColumns },
-      { icon: "ti-adjustments",  label: "Custom fields",  fn: onFields },
-      { icon: "ti-upload",       label: "Import CSV",     fn: onImport },
+      { icon: "ti-bell",        label: "Reminders",       fn: onReminders },
+      { icon: "ti-columns",     label: "Columns",         fn: onColumns },
+      { icon: "ti-adjustments", label: "Custom fields",   fn: onFields },
+      { icon: "ti-upload",      label: "Import CSV",      fn: onImport },
       ...(dupeIds.size > 0 ? [{ icon: "ti-copy", label: `Merge dupes (${dupeIds.size})`, fn: onMergeDupes }] : []),
     ]},
   ];
@@ -4901,8 +5940,8 @@ function AnalyticsMenu({ isPhone, dupeIds, onMergeDupes, onReminders, onFunnel, 
         color: open ? "#4338ca" : "#64748b",
         cursor: "pointer", fontFamily: "inherit", transition: "all 0.12s",
       }}>
-        <i className="ti ti-layout-grid" aria-hidden style={{ fontSize: 13 }} />
-        {!isPhone && <span>Tools</span>}
+        <i className="ti ti-chart-bar" aria-hidden style={{ fontSize: 13 }} />
+        {!isPhone && <span>Analytics</span>}
         <i className="ti ti-chevron-down" aria-hidden style={{ fontSize: 10, opacity: 0.6, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
       </button>
 
@@ -4968,13 +6007,11 @@ function ModeBtn({ active, label, onClick }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Speed Dial FAB — floating action button with sub-actions
 // ─────────────────────────────────────────────────────────────────────────────
-function SpeedDialFAB({ onAddLead, onReminders, onFunnel, onGoals, onImport }) {
+function SpeedDialFAB({ onAddLead, onReminders, onImport }) {
   const [open, setOpen] = useState(false);
   const actions = [
     { icon: "➕", label: "Add Lead",   color: "#3b82f6", fn: onAddLead },
     { icon: "🔔", label: "Reminders",  color: "#f59e0b", fn: onReminders },
-    { icon: "📊", label: "Funnel",     color: "#8b5cf6", fn: onFunnel },
-    { icon: "🎯", label: "Goals",      color: "#10b981", fn: onGoals },
     { icon: "📥", label: "Import",     color: "#d97706", fn: onImport },
   ];
   return (
@@ -5438,7 +6475,7 @@ function LeadCompareModal({ leads, onClose }) {
 // Column Picker Modal
 // ─────────────────────────────────────────────────────────────────────────────
 function ColumnPickerModal({ cols, visibility, onChange, onClose }) {
-  const toggle = (key) => onChange(prev => ({ ...prev, [key]: prev[key] !== false ? false : true }));
+  const toggle = (key) => onChange(prev => ({ ...prev, [key]: prev[key] === false }));
   const visibleCount = cols.filter(c => visibility[c.key] !== false && c.label).length;
   return (
     <ModalWrap title="🗂 Column Visibility" onClose={onClose} width={400}>
@@ -5515,7 +6552,7 @@ function InlineTagPicker({ lead, tagOptions, onChange }) {
             })}
           </div>
           {tags.length > 0 && (
-            <button onClick={() => onChange([])} style={{ marginTop: 8, width: "100%", padding: "4px 0", background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Clear all</button>
+            <button onClick={() => onChange([])} style={{ marginTop: 8, width: "100%", padding: "4px 0", background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Clear {tags.length} selected</button>
           )}
         </div>
       )}
@@ -5550,6 +6587,20 @@ function GlobalSearchModal({ leads, onClose, onOpenLead }) {
     ).slice(0, 12);
   }, [q, leads]);
 
+  // Highlight matching text
+  const highlight = (text, query) => {
+    if (!query.trim() || !text) return text;
+    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) return text;
+    return (
+      <span>
+        {text.slice(0, idx)}
+        <mark style={{ background: "#fef08a", color: "#713f12", borderRadius: 2, padding: "0 1px" }}>{text.slice(idx, idx + query.length)}</mark>
+        {text.slice(idx + query.length)}
+      </span>
+    );
+  };
+
   useEffect(() => { setSelectedIdx(0); }, [results.length]);
 
   const handleKeyDown = (e) => {
@@ -5573,7 +6624,15 @@ function GlobalSearchModal({ leads, onClose, onOpenLead }) {
             placeholder="Search leads by name, phone, email, nationality, tag…"
             style={{ flex: 1, border: "none", outline: "none", fontSize: 15, fontFamily: "inherit", color: "#0f172a", background: "transparent" }}
           />
-          <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 5, padding: "2px 7px", fontWeight: 600, flexShrink: 0 }}>ESC</span>
+          {q.trim() && results.length > 0 && (
+            <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, background: "#f1f5f9", borderRadius: 5, padding: "2px 7px", flexShrink: 0 }}>{results.length}</span>
+          )}
+          {q.trim() && (
+            <button onClick={() => setQ("")} style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", border: "none", borderRadius: 5, padding: "3px 8px", cursor: "pointer", flexShrink: 0 }}>✕</button>
+          )}
+          {!q.trim() && (
+            <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 5, padding: "2px 7px", fontWeight: 600, flexShrink: 0 }}>ESC</span>
+          )}
         </div>
         {q.trim() === "" && (
           <div style={{ padding: "16px 18px" }}>
@@ -5594,27 +6653,29 @@ function GlobalSearchModal({ leads, onClose, onOpenLead }) {
           </div>
         )}
         {q.trim() !== "" && results.length === 0 && (
-          <div style={{ padding: "24px 18px", textAlign: "center" }}>
-            <div style={{ fontSize: 24, marginBottom: 8 }}>🔍</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>No leads match "{q}"</div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Try a phone number, nationality, service type, or tag</div>
+          <div style={{ padding: "28px 18px", textAlign: "center" }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
+              <i className="ti ti-search-off" style={{ fontSize: 22, color: "#94a3b8" }} />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#334155", marginBottom: 4 }}>No results for "{q}"</div>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>Try a phone number, nationality, service type, or tag</div>
           </div>
         )}
         {results.map((r, idx) => (
           <div key={r.id} onClick={() => { onOpenLead(r); onClose(); }}
-            style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", cursor: "pointer", borderBottom: "1px solid #f8fafc", background: idx === selectedIdx ? "#f8fafc" : "transparent", transition: "background 0.1s" }}
+            style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", cursor: "pointer", borderBottom: "1px solid #f8fafc", background: idx === selectedIdx ? "#f0f7ff" : "transparent", transition: "background 0.1s" }}
             onMouseEnter={() => setSelectedIdx(idx)}
           >
             <div style={{ width: 34, height: 34, borderRadius: 8, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#2563eb", flexShrink: 0 }}>
               {(r.name || "?").charAt(0).toUpperCase()}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{r.name}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{highlight(r.name, q)}</div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {r.phone && <span>{r.phone}</span>}
-                {r.service && <span>· {r.service}</span>}
-                {r.nationality && <span>· {r.nationality}</span>}
-                {r.assignedTo && <span>· {r.assignedTo}</span>}
+                {r.phone && <span>{highlight(r.phone, q)}</span>}
+                {r.service && <span>· {highlight(r.service, q)}</span>}
+                {r.nationality && <span>· {highlight(r.nationality, q)}</span>}
+                {r.assignedTo && <span>· {highlight(r.assignedTo, q)}</span>}
               </div>
             </div>
             <div style={{ display: "flex", gap: 5, flexShrink: 0, alignItems: "center" }}>
@@ -5624,9 +6685,13 @@ function GlobalSearchModal({ leads, onClose, onOpenLead }) {
           </div>
         ))}
         {results.length > 0 && (
-          <div style={{ padding: "8px 18px", fontSize: 10, color: "#94a3b8", background: "#fafbfe", display: "flex", justifyContent: "space-between" }}>
-            <span>↑↓ navigate · ↵ open</span>
-            <span>{results.length} result{results.length !== 1 ? "s" : ""}</span>
+          <div style={{ padding: "8px 18px", fontSize: 10, color: "#94a3b8", background: "#fafbfe", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ display: "flex", gap: 10 }}>
+              <span>↑↓ navigate</span>
+              <span>↵ open</span>
+              <span>ESC close</span>
+            </span>
+            <span style={{ fontWeight: 600, color: "#475569" }}>{results.length} result{results.length !== 1 ? "s" : ""}</span>
           </div>
         )}
       </div>
@@ -5644,7 +6709,9 @@ function ModalWrap({ title, onClose, width = 520, children }) {
       <div style={{ position: "relative", zIndex: 1, background: "#fff", borderRadius: 14, width, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", padding: 28, boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{title}</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8", lineHeight: 1 }}>✕</button>
+          <button onClick={onClose} aria-label="Close" style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", fontSize: 14, cursor: "pointer", color: "#64748b", lineHeight: 1, width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s, color 0.12s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#fee2e2"; e.currentTarget.style.color = "#ef4444"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.color = "#64748b"; }}>✕</button>
         </div>
         {children}
       </div>
