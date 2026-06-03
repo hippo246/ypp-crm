@@ -28,51 +28,38 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
   const onDataUpdateRef = useRef(onDataUpdate);
   useEffect(() => { onDataUpdateRef.current = onDataUpdate; }, [onDataUpdate]);
 
+  // Always-current handler dispatch — avoids stale closures in the channel effect
+  const dispatchRef = useRef({});
+
   // Initialize BroadcastChannel
   useEffect(() => {
     try {
       channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-      
-      // Handle incoming messages
+
+      // Route through dispatchRef so each handler is always the latest version
+      const MESSAGE_HANDLER_MAP = {
+        USER_JOIN:          "handleUserJoin",
+        USER_LEAVE:         "handleUserLeave",
+        TAB_CHANGE:         "handleTabChange",
+        LOCK_REQUEST:       "handleLockRequest",
+        LOCK_RELEASE:       "handleLockRelease",
+        LOCK_DENIED:        "handleLockDenied",
+        DATA_UPDATE:        "handleDataUpdate",
+        CONFLICT_DETECTED:  "handleConflictDetected",
+        HEARTBEAT:          "handleHeartbeat",
+      };
+
       channelRef.current.onmessage = (event) => {
         const { type, payload } = event.data;
-        
-        switch (type) {
-          case "USER_JOIN":
-            handleUserJoin(payload);
-            break;
-          case "USER_LEAVE":
-            handleUserLeave(payload);
-            break;
-          case "TAB_CHANGE":
-            handleTabChange(payload);
-            break;
-          case "LOCK_REQUEST":
-            handleLockRequest(payload);
-            break;
-          case "LOCK_RELEASE":
-            handleLockRelease(payload);
-            break;
-          case "LOCK_DENIED":
-            handleLockDenied(payload);
-            break;
-          case "DATA_UPDATE":
-            handleDataUpdate(payload);
-            break;
-          case "CONFLICT_DETECTED":
-            handleConflictDetected(payload);
-            break;
-          case "HEARTBEAT":
-            handleHeartbeat(payload);
-            break;
-        }
+        const handlerName = MESSAGE_HANDLER_MAP[type];
+        if (handlerName) dispatchRef.current[handlerName]?.(payload);
       };
 
       // Announce presence
       announcePresence();
       
       // Start heartbeat
-      heartbeatRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+      heartbeatRef.current = setInterval(() => sendHeartbeatRef.current(), HEARTBEAT_INTERVAL);
       
       // Cleanup on unmount — announce leave BEFORE closing the channel
       return () => {
@@ -107,16 +94,6 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
     });
   }, [userId, userName, userRole]);
 
-  // Announce departure
-  const announceLeave = useCallback(() => {
-    if (!channelRef.current) return;
-    
-    channelRef.current.postMessage({
-      type: "USER_LEAVE",
-      payload: { userId },
-    });
-  }, [userId]);
-
   // Send heartbeat
   const sendHeartbeat = useCallback(() => {
     if (!channelRef.current) return;
@@ -130,6 +107,10 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
       });
     } catch (_) {}
   }, [userId]);
+
+  // Ref so the setInterval in the channel effect always calls the current version
+  const sendHeartbeatRef = useRef(sendHeartbeat);
+  useEffect(() => { sendHeartbeatRef.current = sendHeartbeat; }, [sendHeartbeat]);
 
   // Handle user joining
   const handleUserJoin = useCallback((payload) => {
@@ -179,18 +160,19 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
   // Request lock on a resource
   const requestLock = useCallback(async (resourceId, resourceType) => {
     if (!channelRef.current) return true;
-    
+
     const lockId = `${resourceType}:${resourceId}`;
-    
-    // Check if already locked
-    if (tabLocks[lockId]) {
-      const lock = tabLocks[lockId];
-      if (lock.userId === userId) {
-        // Already own the lock, refresh it
-        locksRef.current[lockId] = Date.now();
+
+    // Check via ref — avoids taking tabLocks as a dep (which would recreate this
+    // callback on every lock change and cascade unnecessary re-renders)
+    const existingLock = locksRef.current[lockId];
+    if (existingLock) {
+      if (existingLock.userId === userId) {
+        // Already own the lock — refresh the timestamp
+        existingLock.timestamp = Date.now();
         return true;
       }
-      // Locked by someone else
+      // Held by someone else
       return false;
     }
     
@@ -207,18 +189,22 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
       },
     });
     
-    // Optimistically set lock
-    locksRef.current[lockId] = Date.now();
-    setTabLocks(prev => ({ ...prev, [lockId]: { userId, userName, timestamp: Date.now() } }));
+    // Optimistically set lock — store full object so ownership checks don't need state
+    const lockEntry = { userId, userName, timestamp: Date.now() };
+    locksRef.current[lockId] = lockEntry;
+    setTabLocks(prev => ({ ...prev, [lockId]: lockEntry }));
     
     return true;
-  }, [userId, userName, tabLocks]);
+  }, [userId, userName]);
 
   // Release lock
   const releaseLock = useCallback((resourceId, resourceType) => {
-    if (!channelRef.current) return;
-    
     const lockId = `${resourceType}:${resourceId}`;
+
+    // Only the owner can release — prevents silently nuking someone else's lock
+    if (locksRef.current[lockId]?.userId !== userId) return;
+
+    if (!channelRef.current) return;
     
     delete locksRef.current[lockId];
     setTabLocks(prev => {
@@ -241,7 +227,7 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
   const handleLockRequest = useCallback((payload) => {
     if (payload.userId === userId) return;
     
-    const { lockId, userName, timestamp } = payload;
+    const { lockId, userName: requesterName, timestamp } = payload;
     
     // Check if we have the lock
     if (locksRef.current[lockId]) {
@@ -257,7 +243,7 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
       });
     } else {
       // Grant the lock
-      setTabLocks(prev => ({ ...prev, [lockId]: { userId: payload.userId, userName, timestamp } }));
+      setTabLocks(prev => ({ ...prev, [lockId]: { userId: payload.userId, userName: requesterName, timestamp } }));
     }
   }, [userId]);
 
@@ -273,9 +259,9 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
     });
   }, []);
 
-  // Handle lock denied
+  // Handle lock denied — runs only for the user whose request was rejected
   const handleLockDenied = useCallback((payload) => {
-    if (payload.currentOwner !== userId) return;
+    if (payload.userId !== userId) return; // payload.userId is the denied requester
     
     const { lockId } = payload;
     delete locksRef.current[lockId];
@@ -290,7 +276,7 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
   const broadcastUpdate = useCallback((updateType, data) => {
     if (!channelRef.current) return;
     
-    const updateId = `${updateType}:${Date.now()}`;
+    const updateId = `${updateType}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
     
     // Log activity
     activityLogRef.current.push({
@@ -370,6 +356,7 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
         Object.keys(newLocks).forEach(lockId => {
           if (now - newLocks[lockId].timestamp > LOCK_TIMEOUT) {
             delete newLocks[lockId];
+            delete locksRef.current[lockId]; // keep ref in sync or requestLock thinks we still own it
           }
         });
         return newLocks;
@@ -388,6 +375,20 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
     
     return () => clearInterval(cleanupInterval);
   }, []);
+
+  // Keep dispatchRef current every render so the channel's onmessage always
+  // calls the latest handler closures (fixes stale-closure bug, Fix 1)
+  dispatchRef.current = {
+    handleUserJoin,
+    handleUserLeave,
+    handleTabChange,
+    handleLockRequest,
+    handleLockRelease,
+    handleLockDenied,
+    handleDataUpdate,
+    handleConflictDetected,
+    handleHeartbeat,
+  };
 
   return {
     activeUsers,

@@ -325,7 +325,9 @@ function getHealthLabel(score, cfg) {
 
 // ─── Stage age helper ──────────────────────────────────────────────────────────
 function getDaysInStage(lead) {
-  const ref = lead.updatedAt || lead.date;
+  // Prefer stageEnteredAt (set by workflowEngine on transitions) so routine
+  // field edits (value, notes, assignee) don't reset the stage-age clock.
+  const ref = lead.stageEnteredAt || lead.updatedAt || lead.date;
   if (!ref) return 0;
   const ts = new Date(ref).getTime();
   if (isNaN(ts)) return 0;
@@ -1492,8 +1494,17 @@ export default function LeadsTab({ search }) {
   // Handle workflow stage transition — the single authoritative path for all stage changes
   const handleStageTransition = async (lead, newStage, additionalData = {}) => {
     if (!leadWorkflow) {
-      // Fallback: no workflow configured, allow freely
-      handleChange(lead.id, "status", newStage);
+      // Fallback: no workflow configured — update status and stamp stageEnteredAt
+      const today = new Date().toISOString().slice(0, 10);
+      setData(prev => ({
+        ...prev,
+        leads: prev.leads.map(l =>
+          l.id !== lead.id ? l : {
+            ...l, status: newStage, updatedAt: today, stageEnteredAt: today,
+            timeline: [...(l.timeline || []), { date: today, text: `Status changed: ${lead.status} → ${newStage}` }],
+          }
+        ),
+      }));
       return;
     }
 
@@ -1571,6 +1582,7 @@ export default function LeadsTab({ search }) {
             ...l,
             status: newStage,
             updatedAt: today,
+            stageEnteredAt: today,
             timeline: [...(l.timeline || []), { date: today, text: `Status changed: ${lead.status} → ${newStage}` }],
           }
         ),
@@ -1619,6 +1631,7 @@ export default function LeadsTab({ search }) {
             ...l,
             status: entry.toStage,
             updatedAt: today,
+            stageEnteredAt: today,
             timeline: [...(l.timeline || []), { date: today, text: `↩️ Rolled back: ${entry.fromStage} → ${entry.toStage}` }],
           }
         ),
@@ -1664,7 +1677,7 @@ export default function LeadsTab({ search }) {
       )}));
       toast && toast("📋 Explain requirements & send onboarding checklist", "info");
     }
-  }, []);
+  }, [setData]);
 
   const [filter,         setFilter]         = useState("All");
   const [staffFilter,    setStaffFilter]    = useState("All");
@@ -1712,11 +1725,19 @@ export default function LeadsTab({ search }) {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   useEffect(() => {
     const handler = (e) => {
+      // Ignore when typing in an input/textarea/select
+      const tag = document.activeElement?.tagName;
+      const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || document.activeElement?.isContentEditable;
+
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowGlobalSearch(v => !v);
       }
-      if (e.key === "Escape") setShowGlobalSearch(false);
+      if (e.key === "Escape") { setShowGlobalSearch(false); }
+      if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key === "n" || e.key === "N") { e.preventDefault(); setAddModal(true); }
+        if (e.key === "f" || e.key === "F") { e.preventDefault(); setShowReminderCenter(true); }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -1845,8 +1866,11 @@ export default function LeadsTab({ search }) {
       leadId = leadIdOrIndex;
     }
     if (!leadId) return;
-    if (!window.confirm("Delete this lead?")) return;
+    const lead = data.leads.find(l => l.id === leadId);
+    const name = lead?.name ? `"${lead.name}"` : "this lead";
+    if (!window.confirm(`Permanently delete ${name}? This cannot be undone.`)) return;
     setData({ ...data, leads: data.leads.filter(l => l.id !== leadId) });
+    toast(`\uD83D\uDDD1 ${lead?.name || "Lead"} deleted.`, "info");
   };
 
   /** Add new lead — always honour the form values for status & service */
@@ -1865,6 +1889,7 @@ export default function LeadsTab({ search }) {
       value:   Number(vals.value) || 0,
       date:    today,
       updatedAt: today,
+      stageEnteredAt: today,
       tags: Array.isArray(vals.tags) ? vals.tags : [],
     };
     const nextLeads = [...data.leads, newLead];
@@ -1878,7 +1903,7 @@ export default function LeadsTab({ search }) {
     // 🎯 Fun layer — add toast + XP + achievements
     if (cfg.xpEnabled !== false) {
       const addToasts = cfg.addToasts || ADD_LEAD_TOASTS;
-      pushToast(addToasts[Math.floor(Math.random() * addToasts.length)], "🎯", "lead");
+      pushToast(`${addToasts[Math.floor(Math.random() * addToasts.length)]} — ${newLead.name}`, "🎯", "lead");
       grantXP(cfg.xpPerAdd ?? 10);
       checkAchievements(nextLeads);
     }
@@ -1962,7 +1987,7 @@ export default function LeadsTab({ search }) {
           } catch { /* transition may not be defined — still apply */ }
         }
         changed++;
-        return { ...l, status: "Lost", lostReason: "No response", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Auto-moved to Lost: ${autoLostDays} days no activity` }] };
+        return { ...l, status: "Lost", lostReason: "No response", updatedAt: today, stageEnteredAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Auto-moved to Lost: ${autoLostDays} days no activity` }] };
       }
       if (l.status === wonStage && days >= autoEscalateDays && l.priority !== "VIP" && !l.archived) {
         changed++;
@@ -2104,7 +2129,7 @@ export default function LeadsTab({ search }) {
       } catch { /* transition may not be in engine's defined list — that's OK, still reopen */ }
     }
     const updated = data.leads.map(l =>
-      l.id === lead.id ? { ...l, status: "New Lead", lostReason: "", updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Lead reopened — ${reason}` }] } : l
+      l.id === lead.id ? { ...l, status: "New Lead", lostReason: "", updatedAt: today, stageEnteredAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Lead reopened — ${reason}` }] } : l
     );
     setData({ ...data, leads: updated });
     toast(`${lead.name} reopened as New Lead.`, "success");
@@ -2140,6 +2165,13 @@ export default function LeadsTab({ search }) {
   const applyFilter = (f) => {
     setFilter(f.status); setStaffFilter(f.staff); setPriorityFilter(f.priority); setTagFilter(f.tag || "All");
     setShowSavedFilters(false);
+  };
+
+  const deleteFilter = (idx) => {
+    const updated = savedFilters.filter((_, i) => i !== idx);
+    setSavedFilters(updated);
+    try { localStorage.setItem("crm_saved_filters", JSON.stringify(updated)); } catch {}
+    toast("Filter removed.", "info");
   };
 
   const handleConvertToClient = async (lead) => {
@@ -2191,7 +2223,7 @@ export default function LeadsTab({ search }) {
       started:       today,
     };
     const updatedLeads = data.leads.map(l =>
-      l.id === lead.id ? { ...l, status: wonStage, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: "Converted to client 🎉" }] } : l
+      l.id === lead.id ? { ...l, status: wonStage, updatedAt: today, stageEnteredAt: today, timeline: [...(l.timeline||[]), { date: today, text: "Converted to client 🎉" }] } : l
     );
     setData({ ...data, clients: [...(data.clients || []), newClient], leads: updatedLeads });
     // 🌟 Fun layer — convert toast + confetti + XP
@@ -2270,7 +2302,7 @@ export default function LeadsTab({ search }) {
       const updated = data.leads.map(l => {
         if (!bulkSelected.has(l.id)) return l;
         if (!succeededIds.has(l.id)) return l;
-        return { ...l, status: bulkTarget, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] };
+        return { ...l, status: bulkTarget, updatedAt: today, stageEnteredAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] };
       });
       setData({ ...data, leads: updated });
       toast(`Moved ${successCount} lead${successCount !== 1 ? "s" : ""} to ${bulkTarget}`, "success");
@@ -2280,7 +2312,7 @@ export default function LeadsTab({ search }) {
     } else {
       // No workflow configured — move freely
       const updated = data.leads.map(l =>
-        bulkSelected.has(l.id) ? { ...l, status: bulkTarget, updatedAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] } : l
+        bulkSelected.has(l.id) ? { ...l, status: bulkTarget, updatedAt: today, stageEnteredAt: today, timeline: [...(l.timeline||[]), { date: today, text: `Status changed to ${bulkTarget} (bulk)` }] } : l
       );
       setData({ ...data, leads: updated });
       toast(`Moved ${bulkSelected.size} lead${bulkSelected.size !== 1 ? "s" : ""} to ${bulkTarget}`, "success");
@@ -2587,12 +2619,17 @@ export default function LeadsTab({ search }) {
         const wonThisMonth   = leads.filter(l => { if (l.status !== "Won") return false; const d = new Date(l.updatedAt || l.date || ""); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); }).length;
         const newLeads       = leads.filter(l => l.status === "New Lead").length;
 
+        // Compute real context for delta labels
+        const overdueActive = leads.filter(l => { const fu = getFollowUpStatus(l.followUpDate, cfg); return fu && fu.color === "#ef4444"; }).length;
+        const totalActive = leads.filter(l => !["Won","Lost","No Response","Not Interested","Duplicate"].includes(l.status) && !l.archived).length;
+        const wonAllTime = leads.filter(l => l.status === "Won").length;
+        const conversionRate = totalActive + wonAllTime > 0 ? Math.round((wonAllTime / (totalActive + wonAllTime)) * 100) : 0;
         const kpiCards = [
-          { label: "New Leads",          value: newLeads,           icon: "ti-user-plus",   color: "#6366f1", bg: "#eef2ff", delta: "+12% vs yesterday" },
-          { label: "Follow Ups Today",   value: followUpsToday,     icon: "ti-phone",       color: "#f97316", bg: "#fff7ed", delta: "+8% vs yesterday", onClick: () => setShowReminderCenter(true) },
-          { label: "Orientation Today",  value: orientationToday,   icon: "ti-users",       color: "#10b981", bg: "#f0fdf4", delta: `${orientationToday} paid, scheduled` },
-          { label: "Reservation Pending",value: reservationPending, icon: "ti-bookmark",    color: "#f59e0b", bg: "#fffbeb", delta: "+5% vs yesterday" },
-          { label: "Won This Month",     value: wonThisMonth,       icon: "ti-trophy",      color: "#10b981", bg: "#f0fdf4", delta: "+20% vs last month" },
+          { label: "New Leads",          value: newLeads,           icon: "ti-user-plus",   color: "#6366f1", bg: "#eef2ff", delta: `${totalActive} active in pipeline` },
+          { label: "Follow Ups Today",   value: followUpsToday,     icon: "ti-phone",       color: "#f97316", bg: "#fff7ed", delta: overdueActive > 0 ? `⚠ ${overdueActive} overdue` : "All on track", onClick: () => setShowReminderCenter(true) },
+          { label: "Orientation Today",  value: orientationToday,   icon: "ti-users",       color: "#10b981", bg: "#f0fdf4", delta: orientationToday > 0 ? `${orientationToday} paid or scheduled` : "None scheduled" },
+          { label: "Reservation Pending",value: reservationPending, icon: "ti-bookmark",    color: "#f59e0b", bg: "#fffbeb", delta: reservationPending > 0 ? "Awaiting payment" : "All cleared" },
+          { label: "Won This Month",     value: wonThisMonth,       icon: "ti-trophy",      color: "#10b981", bg: "#f0fdf4", delta: `${conversionRate}% conversion rate` },
         ];
         if (isPhone) {
           // ── PHONE: 4 compact stat boxes in a single row (matches image screen 1) ──
@@ -2617,9 +2654,10 @@ export default function LeadsTab({ search }) {
         return (
           <div style={{ display: "flex", gap: 10, alignItems: "stretch", flexWrap: "nowrap" }}>
             {kpiCards.map((k, ki) => {
-              const neutralDelta = k.delta && (k.delta.toLowerCase().includes("paid") || k.delta.toLowerCase().includes("scheduled"));
-              const deltaColor = neutralDelta ? "#f59e0b" : "#10b981";
-              const deltaPrefix = neutralDelta ? "" : "↑ ";
+              const isWarning = k.delta && (k.delta.startsWith("⚠") || k.delta.toLowerCase().includes("overdue"));
+              const isNeutral = k.delta && (k.delta.includes("active") || k.delta.includes("rate") || k.delta.includes("paid") || k.delta.includes("scheduled") || k.delta.includes("cleared") || k.delta.includes("track") || k.delta.includes("payment") || k.delta.includes("none"));
+              const deltaColor = isWarning ? "#ef4444" : isNeutral ? "#64748b" : "#10b981";
+              const deltaPrefix = isWarning || isNeutral ? "" : "↑ ";
               return (
                 <div key={k.label} onClick={k.onClick} style={{
                   flex: "1 1 0",
@@ -2674,9 +2712,9 @@ export default function LeadsTab({ search }) {
                 <button key={item.label} onClick={item.onClick} style={{
                   display: "flex", alignItems: "center", gap: 12,
                   width: "100%", padding: "11px 14px",
-                  borderTop: idx === 0 ? "1px solid #f1f5f9" : "none",
-                  borderBottom: "1px solid #f1f5f9",
-                  background: "none", border: "none", borderTop: "1px solid #f1f5f9",
+                  borderTop: "1px solid #f1f5f9",
+                  borderBottom: "none", borderLeft: "none", borderRight: "none",
+                  background: "none",
                   cursor: "pointer", textAlign: "left", fontFamily: "inherit",
                   minHeight: "unset",
                 }}>
@@ -2963,6 +3001,7 @@ export default function LeadsTab({ search }) {
           {/* Filter icon */}
           <button
             title="Advanced filters"
+            onClick={() => setShowAdvancedFilters(v => !v)}
             style={{ width: 32, height: 32, border: `1.5px solid ${filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All" ? "#93c5fd" : "#e8ecf1"}`, borderRadius: 7, background: filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All" ? "#eff6ff" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
             <i className="ti ti-adjustments-horizontal" style={{ fontSize: 15, color: filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All" ? "#2563eb" : "#64748b" }} />
           </button>
@@ -2970,6 +3009,7 @@ export default function LeadsTab({ search }) {
           {/* ── + Add Lead button ── */}
           <button
             onClick={() => setAddModal(true)}
+            title="Add new lead (N)"
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "7px 16px", borderRadius: 8, cursor: "pointer",
@@ -3032,7 +3072,10 @@ export default function LeadsTab({ search }) {
         {/* Bulk action bar */}
         {bulkSelected.size > 0 && (
           <div style={{ display: "flex", gap: 5, alignItems: "center", background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 8, padding: "7px 11px", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", marginRight: 3 }}>{bulkSelected.size} selected</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", marginRight: 3 }}>{bulkSelected.size} of {rows.length} selected</span>
+            {bulkSelected.size < rows.length && (
+              <button onClick={() => setBulkSelected(new Set(rows.map(r => r.id)))} style={{ fontSize: 10, padding: "2px 7px", background: "#dbeafe", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 4, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>Select all {rows.length}</button>
+            )}
             <div style={{ width: "1.5px", height: 16, background: "#bfdbfe" }} />
             <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)} style={{ fontSize: 11, border: "1.5px solid #e8ecf1", borderRadius: 6, padding: "3px 7px", fontFamily: "inherit", background: "#fff", outline: "none" }}>
               <option value="">Move to…</option>
@@ -3321,7 +3364,14 @@ export default function LeadsTab({ search }) {
                       <i className="ti ti-users" aria-hidden style={{ fontSize: 28, color: "#2563eb" }} />
                     </div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>No leads found</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8" }}>{localSearch || filter !== "All" ? "Try clearing your filters" : "Add your first lead to get started"}</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>
+                      {localSearch ? `No results for "${localSearch}"` : filter !== "All" ? `No leads in "${filter}"` : "Add your first lead to get started"}
+                    </div>
+                    {(localSearch || filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All") && (
+                      <button onClick={() => { setLocalSearch(""); setFilter("All"); setStaffFilter("All"); setPriorityFilter("All"); setTagFilter("All"); }} style={{ padding: "7px 18px", background: "#f1f5f9", color: "#4f46e5", border: "1.5px solid #c7d2fe", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        ✕ Clear all filters
+                      </button>
+                    )}
                     {!localSearch && filter === "All" && (
                       <button onClick={() => setAddModal(true)} style={{ marginTop: 4, padding: "9px 22px", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(37,99,235,0.35)", transition: "box-shadow 0.15s, transform 0.1s" }}
                         onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 4px 14px rgba(37,99,235,0.5)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
@@ -3747,6 +3797,8 @@ export default function LeadsTab({ search }) {
                 .lt-tbl-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
                 .lt-tbl-wrap::-webkit-scrollbar-track { background: #f8fafc; }
                 .lt-tbl-wrap::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+                .lt-td select:focus { box-shadow: 0 0 0 2px #c7d2fe; border-color: #6366f1 !important; }
+                .lt-td input:focus { box-shadow: 0 0 0 2px #c7d2fe; border-color: #6366f1 !important; }
               `}</style>
 
               {/* ── Bulk action bar ── */}
@@ -3774,7 +3826,14 @@ export default function LeadsTab({ search }) {
                     <i className="ti ti-users" style={{ fontSize: 28, color: "#4f46e5" }} />
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>No leads found</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8" }}>{localSearch || filter !== "All" ? "Try clearing your filters" : "Add your first lead to get started"}</div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>
+                    {localSearch ? `No results for "${localSearch}"` : filter !== "All" ? `No leads in "${filter}"` : "Add your first lead to get started"}
+                  </div>
+                  {(localSearch || filter !== "All" || staffFilter !== "All" || priorityFilter !== "All" || tagFilter !== "All") && (
+                    <button onClick={() => { setLocalSearch(""); setFilter("All"); setStaffFilter("All"); setPriorityFilter("All"); setTagFilter("All"); }} style={{ padding: "7px 18px", background: "#f1f5f9", color: "#4f46e5", border: "1.5px solid #c7d2fe", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      ✕ Clear all filters
+                    </button>
+                  )}
                   {!localSearch && filter === "All" && (
                     <button onClick={() => setAddModal(true)} style={{ marginTop: 4, padding: "9px 22px", background: "linear-gradient(135deg,#4f46e5,#4338ca)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(79,70,229,0.4)" }}>
                       + Add First Lead
@@ -3792,14 +3851,12 @@ export default function LeadsTab({ search }) {
                         {/* Checkbox col */}
                         <th className="lt-th" style={{ width: 36, padding: "10px 10px" }}>
                           <input type="checkbox"
-                            style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13, opacity: (leadPageData.length > 0 && leadPageData.every(r => bulkSelected.has(r.id))) || bulkSelected.size > 0 ? 1 : 0, transition: "opacity 0.15s" }}
+                            style={{ accentColor: "#818cf8", cursor: "pointer", width: 13, height: 13 }}
                             checked={leadPageData.length > 0 && leadPageData.every(r => bulkSelected.has(r.id))}
                             onChange={e => {
                               if (e.target.checked) setBulkSelected(new Set(leadPageData.map(r => r.id)));
                               else setBulkSelected(new Set());
                             }}
-                            onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                            onMouseLeave={e => { if (bulkSelected.size === 0) e.currentTarget.style.opacity = 0; }}
                           />
                         </th>
                         {[
@@ -4180,6 +4237,35 @@ export default function LeadsTab({ search }) {
       {showCallScheduler && <CallSchedulerModal lead={showCallScheduler} onSave={(date, note) => { handleChange(showCallScheduler.id, "followUpDate", date); if (note) handleAddNote(showCallScheduler.id, `Call scheduled: ${note}`); setShowCallScheduler(null); toast("Call scheduled!", "success"); }} onClose={() => setShowCallScheduler(null)} />}
       {showLeadCompare && compareSelected.length === 2 && <LeadCompareModal leads={compareSelected} onClose={() => { setShowLeadCompare(false); setCompareSelected([]); }} />}
       {showColumnPicker && <ColumnPickerModal cols={allCols} visibility={columnVisibility} onChange={setColumnVisibility} onClose={() => setShowColumnPicker(false)} />}
+      {showTagManager && (
+        <ModalWrap title="🏷 Tag Manager" onClose={() => setShowTagManager(false)} width={460}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 12, color: "#64748b" }}>
+              Tags in use across your {leads.length} leads. Click a tag to filter by it.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {[...new Set(leads.flatMap(l => l.tags || []))].sort().map(tag => {
+                const count = leads.filter(l => (l.tags || []).includes(tag)).length;
+                return (
+                  <button key={tag} onClick={() => { setTagFilter(tag); setShowTagManager(false); }}
+                    style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "1.5px solid #c7d2fe", background: "#eef2ff", color: "#4338ca", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                    {tag}
+                    <span style={{ fontSize: 10, background: "#4338ca", color: "#fff", borderRadius: 10, padding: "1px 6px", fontWeight: 700 }}>{count}</span>
+                  </button>
+                );
+              })}
+              {leads.every(l => !(l.tags || []).length) && (
+                <div style={{ color: "#94a3b8", fontSize: 12, padding: "20px 0", width: "100%", textAlign: "center" }}>No tags used yet. Add tags to leads to see them here.</div>
+              )}
+            </div>
+            {tagFilter !== "All" && (
+              <button onClick={() => setTagFilter("All")} style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 11, fontWeight: 600, background: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer" }}>
+                ✕ Clear filter ({tagFilter})
+              </button>
+            )}
+          </div>
+        </ModalWrap>
+      )}
 
       {/* ── Collaborators panel ── */}
       {showCollaborators && activeUsers.length > 0 && (
@@ -4232,7 +4318,8 @@ export default function LeadsTab({ search }) {
 
 // ─── Edit Lead Modal ───────────────────────────────────────────────────────────
 function EditLeadModal({ lead, onSave, onClose, onConvert, onDelete, cfg: cfgProp }) {
-  const cfg = cfgProp || loadLeadsSettings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cfg = useMemo(() => cfgProp || loadLeadsSettings(), []);
   const _serviceOptions  = cfg.serviceOptions  || SERVICE_OPTIONS;
   const _statusOptions   = cfg.statusOptions   || STATUS_OPTIONS;
   const _sourceOptions   = cfg.sourceOptions   || SOURCE_OPTIONS;
@@ -4554,7 +4641,8 @@ function EditLeadModal({ lead, onSave, onClose, onConvert, onDelete, cfg: cfgPro
 
 // ─── Lead Detail Drawer ─────────────────────────────────────────────────────────
 function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConvert, onAddNote, onLogCall, onReopen, onArchive, onSnooze, onMention, onDocChecklist, onDocAttachment, onDocAttachmentDelete, onSetRecurrence }) {
-  const drawerCfg = loadLeadsSettings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const drawerCfg = useMemo(() => loadLeadsSettings(), []);
   const DOC_ITEMS = (drawerCfg.docChecklistItems || DEFAULT_LEADS_SETTINGS.docChecklistItems);
 
   const [noteInput, setNoteInput] = useState("");
@@ -4745,7 +4833,7 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
               </div>
             )}
             {lead.notes && (
-              <div style={{ margin: "8px 0", padding: "10px 12px", background: "#fff", borderRadius: 8, fontSize: 13, color: "#475569", lineHeight: 1.65, borderLeft: "3px solid #3b82f6", border: "1px solid #e8ecf1", borderLeftWidth: 3, borderLeftColor: "#3b82f6" }}>{lead.notes}</div>
+              <div style={{ margin: "8px 0", padding: "10px 12px", background: "#fff", borderRadius: 8, fontSize: 13, color: "#475569", lineHeight: 1.65, borderTop: "1px solid #e8ecf1", borderRight: "1px solid #e8ecf1", borderBottom: "1px solid #e8ecf1", borderLeft: "3px solid #3b82f6" }}>{lead.notes}</div>
             )}
           </div>
         )}
@@ -4761,7 +4849,7 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
                 style={{ padding: "9px 16px", background: B.blue, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Add</button>
             </div>
             {[...(lead.quickNotes||[])].reverse().map((n, i) => (
-              <div key={i} style={{ background: "#fafbfe", borderRadius: 9, padding: "10px 14px", fontSize: 13, borderLeft: "3px solid #93c5fd", border: "1px solid #e8ecf1", borderLeftWidth: 3, borderLeftColor: "#93c5fd" }}>
+              <div key={i} style={{ background: "#fafbfe", borderRadius: 9, padding: "10px 14px", fontSize: 13, borderTop: "1px solid #e8ecf1", borderRight: "1px solid #e8ecf1", borderBottom: "1px solid #e8ecf1", borderLeft: "3px solid #93c5fd" }}>
                 <div style={{ color: "#94a3b8", fontSize: 10, fontWeight: 600, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 }}>{n.date}</div>
                 <div style={{ color: "#1e293b", lineHeight: 1.55 }}>{n.text}</div>
               </div>
@@ -4787,7 +4875,7 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
                 style={{ padding: "9px 16px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>📞 Log</button>
             </div>
             {[...(lead.callLog||[])].reverse().map((c, i) => (
-              <div key={i} style={{ background: "#f0fdf4", borderRadius: 9, padding: "10px 14px", fontSize: 13, border: "1px solid #d1fae5", borderLeftWidth: 3, borderLeftColor: "#10b981" }}>
+              <div key={i} style={{ background: "#f0fdf4", borderRadius: 9, padding: "10px 14px", fontSize: 13, borderTop: "1px solid #d1fae5", borderRight: "1px solid #d1fae5", borderBottom: "1px solid #d1fae5", borderLeft: "3px solid #10b981" }}>
                 <div style={{ color: "#6ee7b7", fontSize: 10, fontWeight: 700, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 }}>📞 {c.date}</div>
                 <div style={{ color: "#065f46", lineHeight: 1.55 }}>{c.note}</div>
               </div>
@@ -4917,7 +5005,7 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
                 style={{ padding: "9px 16px", background: "#4338ca", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>@ Tag</button>
             </div>
             {[...(lead.mentions||[])].reverse().map((m, i) => (
-              <div key={i} style={{ background: "#f5f3ff", borderRadius: 9, padding: "10px 14px", fontSize: 13, border: "1px solid #ddd6fe", borderLeftWidth: 3, borderLeftColor: "#6366f1" }}>
+              <div key={i} style={{ background: "#f5f3ff", borderRadius: 9, padding: "10px 14px", fontSize: 13, borderTop: "1px solid #ddd6fe", borderRight: "1px solid #ddd6fe", borderBottom: "1px solid #ddd6fe", borderLeft: "3px solid #6366f1" }}>
                 <div style={{ color: "#a78bfa", fontSize: 10, fontWeight: 700, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 }}>@ {m.date}</div>
                 <div style={{ color: "#3730a3", lineHeight: 1.55 }}>{m.text}</div>
               </div>
@@ -4935,16 +5023,26 @@ function LeadDetailDrawer({ lead, staleLeads, dupeIds, onClose, onEdit, onConver
 
         {activeTab === "history" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingLeft: 4 }}>
-            {[...(lead.timeline||[{ date: lead.date, text: "Lead created" }])].reverse().map((t, i, arr) => (
-              <div key={i} style={{ display: "flex", gap: 14, position: "relative", paddingBottom: i < arr.length - 1 ? 18 : 0 }}>
-                {i < arr.length - 1 && <div style={{ position: "absolute", left: 9, top: 20, bottom: 0, width: 1.5, background: "#e2e8f0" }} />}
-                <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#3b82f6", border: "3px solid #fff", boxShadow: "0 0 0 2px #bfdbfe", flexShrink: 0, marginTop: 1 }} />
-                <div style={{ paddingBottom: 2 }}>
-                  <div style={{ fontSize: 13, color: "#1e293b", fontWeight: 500, lineHeight: 1.4 }}>{t.text}</div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, fontWeight: 500 }}>{t.date}</div>
+            {[...(lead.timeline||[{ date: lead.date, text: "Lead created" }])].reverse().map((t, i, arr) => {
+              const txt = t.text || "";
+              const dotColor = txt.includes("Won") || txt.includes("Converted") ? "#10b981"
+                : txt.includes("Lost") || txt.includes("Closed") ? "#ef4444"
+                : txt.includes("⚙️") || txt.includes("Auto") ? "#8b5cf6"
+                : txt.includes("↩️") || txt.includes("Rolled") ? "#f59e0b"
+                : txt.includes("📞") || txt.includes("call") || txt.includes("Call") ? "#3b82f6"
+                : txt.includes("Assigned") ? "#06b6d4"
+                : "#94a3b8";
+              return (
+                <div key={i} style={{ display: "flex", gap: 14, position: "relative", paddingBottom: i < arr.length - 1 ? 18 : 0 }}>
+                  {i < arr.length - 1 && <div style={{ position: "absolute", left: 9, top: 20, bottom: 0, width: 1.5, background: "#e2e8f0" }} />}
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: dotColor, border: "3px solid #fff", boxShadow: `0 0 0 2px ${dotColor}40`, flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ paddingBottom: 2 }}>
+                    <div style={{ fontSize: 13, color: "#1e293b", fontWeight: 500, lineHeight: 1.4 }}>{txt}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, fontWeight: 500 }}>{t.date}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {!(lead.timeline||[]).length && (
               <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>🕐</div>
@@ -5044,6 +5142,8 @@ function LeadHoverCard({ lead, pos, staleLeads, dupeIds, cfg: cfgProp, onClose, 
 
 // ─── Kanban Board ────────────────────────────────────────────────────────────────
 function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, onSetFollowUp, onHover, onHoverEnd, onDetail, tabLocks, currentUser }) {
+  // Read settings once at component level — not per-card inside a render loop
+  const kanbanCfg = useMemo(() => loadLeadsSettings(), []);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [editFollowUp, setEditFollowUp] = useState(null);
@@ -5167,7 +5267,7 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                     )}
                     {/* Next action */}
                     {(() => {
-                      const na = getNextAction(lead, loadLeadsSettings());
+                      const na = getNextAction(lead, kanbanCfg);
                       return na ? (
                         <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, display: "flex", gap: 4, alignItems: "center" }}>
                           <span style={{ flexShrink: 0 }}>{na.icon}</span>
@@ -5190,7 +5290,6 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                     {(() => {
                       const sla = getSLAStatus(lead);
                       const age = getDaysInStage(lead);
-                      const kanbanCfg = loadLeadsSettings();
                       const dangerD = kanbanCfg.stageAgeDangerDays ?? 14;
                       const warnD = kanbanCfg.stageAgeWarnDays ?? 7;
                       const ageColor = age > dangerD ? "#ef4444" : age > warnD ? "#f59e0b" : null;
@@ -5211,7 +5310,6 @@ function KanbanBoard({ leads, onDrop, dupeIds, staleLeads, onConvert, onEdit, on
                     {/* Stage age — only when stale */}
                     {isStale && (() => {
                       const age = getDaysInStage(lead);
-                      const kanbanCfg = loadLeadsSettings();
                       const dangerD = kanbanCfg.stageAgeDangerDays ?? 14;
                       const ageColor = age > dangerD ? "#ef4444" : "#f59e0b";
                       return <div style={{ fontSize: 9, color: ageColor, fontWeight: 700, marginBottom: 2 }}>⏰ {age}d in stage</div>;
@@ -5668,17 +5766,20 @@ function ForecastModal({ leads, onClose }) {
         </div>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>Stage Breakdown</div>
-          {byStage.map(s => s.count > 0 && (
-            <div key={s.stage} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, fontSize: 12 }}>
-              <div style={{ width: 80, color: "#64748b" }}>{s.stage}</div>
-              <div style={{ flex: 1, background: "#e2e8f0", borderRadius: 4, height: 8, overflow: "hidden" }}>
-                <div style={{ width: `${s.count ? 100 : 0}%`, height: "100%", background: STAGE_COLORS[s.stage], opacity: 0.7 + s.weight * 0.3, borderRadius: 4 }} />
+          {(() => {
+            const totalVal = byStage.reduce((a, s) => a + s.value, 0) || 1;
+            return byStage.map(s => s.count > 0 && (
+              <div key={s.stage} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, fontSize: 12 }}>
+                <div style={{ width: 80, color: "#64748b" }}>{s.stage}</div>
+                <div style={{ flex: 1, background: "#e2e8f0", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                  <div style={{ width: `${(s.value / totalVal) * 100}%`, height: "100%", background: STAGE_COLORS[s.stage], opacity: 0.7 + s.weight * 0.3, borderRadius: 4 }} />
+                </div>
+                <div style={{ width: 30, textAlign: "right", fontWeight: 700 }}>{s.count}</div>
+                <div style={{ width: 110, textAlign: "right", color: "#334155", fontWeight: 600 }}>AED {s.value.toLocaleString()}</div>
+                <div style={{ width: 50, textAlign: "right", color: "#94a3b8" }}>{Math.round(s.weight*100)}%</div>
               </div>
-              <div style={{ width: 30, textAlign: "right", fontWeight: 700 }}>{s.count}</div>
-              <div style={{ width: 110, textAlign: "right", color: "#334155", fontWeight: 600 }}>AED {s.value.toLocaleString()}</div>
-              <div style={{ width: 50, textAlign: "right", color: "#94a3b8" }}>{Math.round(s.weight*100)}%</div>
-            </div>
-          ))}
+            ));
+          })()}
         </div>
         {closingSoon.length > 0 && (
           <div>
@@ -5708,7 +5809,9 @@ function HeatmapModal({ leads, onClose }) {
     const d = new Date(today); d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
     const dayLeads = leads.filter(l => l.date === dateStr || l.updatedAt === dateStr || l.lastContacted === dateStr);
-    grid.push({ date: dateStr, count: dayLeads.length, label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) });
+    const weekday = d.toLocaleDateString("en-GB", { weekday: "short" });
+    const label = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    grid.push({ date: dateStr, count: dayLeads.length, label: `${weekday}, ${label}` });
   }
   const max = Math.max(1, ...grid.map(g => g.count));
   const weeks = [];
@@ -6850,6 +6953,11 @@ function GlobalSearchModal({ leads, onClose, onOpenLead }) {
 // Shared modal wrapper
 // ─────────────────────────────────────────────────────────────────────────────
 function ModalWrap({ title, onClose, width = 520, children }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(3px)" }} />

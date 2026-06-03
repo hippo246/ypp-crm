@@ -11,6 +11,30 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// ── Binary search helpers ──────────────────────────────────────────────────────
+// O(log n) replacements for findIndex/findLastIndex on itemPositions.
+// Critical for 10k+ item lists where those are called on every scroll event.
+
+function binarySearchStart(positions, scrollTop) {
+  let lo = 0, hi = positions.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (positions[mid].y + positions[mid].height <= scrollTop) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function binarySearchEnd(positions, bottom) {
+  let lo = 0, hi = positions.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (positions[mid].y >= bottom) hi = mid - 1;
+    else lo = mid;
+  }
+  return lo;
+}
+
 export function useVirtualizedList({
   items = [],
   itemHeight = 50,
@@ -23,12 +47,11 @@ export function useVirtualizedList({
   const containerRef = useRef(null);
 
   const totalHeight = items.length * itemHeight;
-  const viewportHeight = containerHeight;
   
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
   const endIndex = Math.min(
     items.length - 1,
-    Math.floor((scrollTop + viewportHeight) / itemHeight) + overscan
+    Math.floor((scrollTop + containerHeight) / itemHeight) + overscan
   );
   
   const visibleItems = items.slice(startIndex, endIndex + 1);
@@ -47,6 +70,13 @@ export function useVirtualizedList({
     scrollTimeoutRef.current = setTimeout(() => {
       setIsScrolling(false);
     }, 150);
+  }, []);
+
+  // Clear pending timeout on unmount — prevents setState on an unmounted component
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    };
   }, []);
 
   const scrollToIndex = useCallback((index) => {
@@ -81,36 +111,45 @@ export function useDynamicVirtualizedList({
   const [totalHeight, setTotalHeight] = useState(0);
   const containerRef = useRef(null);
   const itemRefs = useRef(new Map());
+  const observerRef = useRef(null);
 
-  // Calculate item positions
+  // Calculate item positions — driven by ResizeObserver so real DOM size changes
+  // (font load, image decode, dynamic content) trigger a recalc automatically.
+  // The previous useEffect approach only re-ran when `items` or `estimatedItemHeight`
+  // changed, silently missing any height changes that happened after first render.
   useEffect(() => {
-    let currentY = 0;
-    const positions = [];
-    
-    items.forEach((item, index) => {
-      const itemRef = itemRefs.current.get(index);
-      const height = itemRef?.offsetHeight || estimatedItemHeight;
-      
-      positions.push({
-        index,
-        y: currentY,
-        height,
+    const recalc = () => {
+      let currentY = 0;
+      const positions = items.map((_, index) => {
+        const height = itemRefs.current.get(index)?.offsetHeight ?? estimatedItemHeight;
+        const pos = { index, y: currentY, height };
+        currentY += height;
+        return pos;
       });
-      
-      currentY += height;
-    });
-    
-    setItemPositions(positions);
-    setTotalHeight(currentY);
+      setItemPositions(positions);
+      setTotalHeight(currentY);
+    };
+
+    // Initial calculation
+    recalc();
+
+    const observer = new ResizeObserver(recalc);
+    observerRef.current = observer;
+    itemRefs.current.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+      observerRef.current = null;
+    };
   }, [items, estimatedItemHeight]);
 
-  const startIndex = itemPositions.findIndex(
-    pos => pos.y + pos.height > scrollTop
-  );
-  
-  const endIndex = itemPositions.findLastIndex(
-    pos => pos.y < scrollTop + containerHeight
-  );
+  const startIndex = itemPositions.length > 0
+    ? binarySearchStart(itemPositions, scrollTop)
+    : 0;
+
+  const endIndex = itemPositions.length > 0
+    ? binarySearchEnd(itemPositions, scrollTop + containerHeight)
+    : 0;
 
   const visibleStartIndex = Math.max(0, startIndex - overscan);
   const visibleEndIndex = Math.min(
@@ -128,7 +167,10 @@ export function useDynamicVirtualizedList({
   const setItemRef = useCallback((index, element) => {
     if (element) {
       itemRefs.current.set(index, element);
+      observerRef.current?.observe(element); // immediately observe new elements
     } else {
+      const el = itemRefs.current.get(index);
+      if (el) observerRef.current?.unobserve(el);
       itemRefs.current.delete(index);
     }
   }, []);

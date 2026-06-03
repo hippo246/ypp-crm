@@ -25,17 +25,18 @@ const ROLE_COLORS = {
 };
 
 const SECTIONS = [
-  { id: "profile",      label: "Profile",       icon: "👤" },
-  { id: "preferences",  label: "Preferences",   icon: "⚙️" },
-  { id: "tabs",         label: "Tab Controls",  icon: "🗂️" },
-  { id: "leads",        label: "Leads Tab",     icon: "◎"  },
-  { id: "workflow",     label: "Workflow",       icon: "🔄" },
-  { id: "notifications",label: "Notifications", icon: "🔔" },
-  { id: "security",     label: "Security",       icon: "🔒" },
-  { id: "data",         label: "Data & Export",  icon: "💾" },
-  { id: "team",         label: "Team Management",icon: "👥" },
-  { id: "loginscreen",  label: "Login Screen",   icon: "🔑" },
-  { id: "system",       label: "System",         icon: "🖥️" },
+  { id: "profile",      label: "Profile",        icon: "👤" },
+  { id: "preferences",  label: "Preferences",    icon: "⚙️" },
+  { id: "tabs",         label: "Tab Controls",   icon: "🗂️" },
+  { id: "leads",        label: "Leads Tab",      icon: "◎"  },
+  { id: "workflow",     label: "Workflow",        icon: "🔄" },
+  { id: "notifications",label: "Notifications",  icon: "🔔" },
+  { id: "security",     label: "Security",        icon: "🔒" },
+  { id: "data",         label: "Data & Export",   icon: "💾" },
+  { id: "team",         label: "Team Management", icon: "👥" },
+  { id: "shortcuts",    label: "Keyboard Shortcuts", icon: "⌨️" },
+  { id: "loginscreen",  label: "Login Screen",    icon: "🔑" },
+  { id: "system",       label: "System",          icon: "🖥️" },
 ];
 
 export default function SettingsTab({
@@ -86,6 +87,7 @@ const dispatch = _appCtx?.dispatch ?? (() => {});
     name: currentUser?.name || "John Doe",
     email: currentUser?.email || "john@company.com",
     phone: "+971 50 123 4567",
+    bio: "",
     avatar: currentUser?.name ? currentUser.name.split(" ").map(n => n[0]).join("") : "JD",
     timezone: "Asia/Dubai",
     language: "en",
@@ -294,6 +296,7 @@ const dispatch = _appCtx?.dispatch ?? (() => {});
           {activeSection === "security"      && <SecuritySection />}
           {activeSection === "data"          && <DataSection data={data} />}
           {activeSection === "team"          && <TeamSection currentUser={currentUser} onRoleChange={onRoleChange} />}
+          {activeSection === "shortcuts"     && <KeyboardShortcutsSection />}
           {activeSection === "loginscreen"   && <LoginScreenSection loginConfig={loginConfig} setLoginConfig={setLoginConfig} />}
           {activeSection === "system"        && <SystemSection dark={dark} />}
         </div>
@@ -347,10 +350,37 @@ function ProfileSection({ profile, setProfile, currentUser, onRoleChange }) {
             <div key={key}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</label>
               <input type={type} value={profile[key]} onChange={e => setProfile({ ...profile, [key]: e.target.value })}
-                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                onFocus={e => e.target.style.borderColor = "#93C5FD"}
+                onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
             </div>
           ))}
-
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.4px" }}>Timezone</label>
+            <select value={profile.timezone || "Asia/Dubai"} onChange={e => setProfile({ ...profile, timezone: e.target.value })}
+              style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box", background: "#fff" }}>
+              {["Asia/Dubai","Asia/Riyadh","Asia/Karachi","Asia/Manila","Asia/Kolkata","Europe/London","America/New_York","America/Los_Angeles","UTC"].map(tz => (
+                <option key={tz} value={tz}>{tz.replace("_", " ")}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.4px" }}>Language</label>
+            <select value={profile.language || "en"} onChange={e => setProfile({ ...profile, language: e.target.value })}
+              style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box", background: "#fff" }}>
+              {[["en","English"],["ar","Arabic"],["tl","Filipino / Tagalog"],["hi","Hindi"],["ur","Urdu"],["fr","French"]].map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.4px" }}>Bio / Notes</label>
+          <textarea value={profile.bio || ""} onChange={e => setProfile({ ...profile, bio: e.target.value })}
+            rows={3} placeholder="Short bio or role description visible to teammates…"
+            style={{ width: "100%", padding: "8px 12px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+            onFocus={e => e.target.style.borderColor = "#93C5FD"}
+            onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
         </div>
       </div>
 
@@ -1351,6 +1381,22 @@ function NotificationsSection({ notifPrefs, setNotifPrefs }) {
           ))}
         </div>
       </Card>
+
+      <Card title="Email Digest">
+        <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 12px" }}>Receive a summary email of pipeline activity on a regular schedule.</p>
+        <div>
+          <label style={labelStyle}>Digest Frequency</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[["none","Off"],["daily","Daily"],["weekly","Weekly"]].map(([val, lbl]) => (
+              <button key={val} onClick={() => setNotifPrefs({ ...notifPrefs, digestFrequency: val })}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: (notifPrefs.digestFrequency || "none") === val ? "2px solid #3B82F6" : "1px solid #E2E8F0", background: (notifPrefs.digestFrequency || "none") === val ? "#EFF6FF" : "#F8FAFC", fontSize: 12, fontWeight: (notifPrefs.digestFrequency || "none") === val ? 700 : 400, cursor: "pointer", color: (notifPrefs.digestFrequency || "none") === val ? "#2563EB" : "#475569" }}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Card>
+
       <Card title="Quiet Hours">
         <Toggle label="Enable Quiet Hours" desc="Suppress notifications during specified hours" checked={notifPrefs.quietHours.enabled} onChange={v => setNotifPrefs({ ...notifPrefs, quietHours: { ...notifPrefs.quietHours, enabled: v } })} />
         {notifPrefs.quietHours.enabled && (
@@ -1365,10 +1411,16 @@ function NotificationsSection({ notifPrefs, setNotifPrefs }) {
           </div>
         )}
       </Card>
-      <Card title="Categories">
+
+      <Card title="Notify Me About">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {Object.entries(notifPrefs.categories).map(([key, val]) => (
-            <Toggle key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} checked={val} onChange={v => setNotifPrefs({ ...notifPrefs, categories: { ...notifPrefs.categories, [key]: v } })} />
+          {[
+            ["tasks",    "Tasks",     "New tasks, due dates, and completions"],
+            ["leads",    "Leads",     "New leads, stage changes, and overdue follow-ups"],
+            ["invoices", "Invoices",  "New invoices, payments received, overdue"],
+            ["system",   "System",    "Updates, maintenance, and security alerts"],
+          ].map(([key, label, desc]) => (
+            <Toggle key={key} label={label} desc={desc} checked={notifPrefs.categories[key]} onChange={v => setNotifPrefs({ ...notifPrefs, categories: { ...notifPrefs.categories, [key]: v } })} />
           ))}
         </div>
       </Card>
@@ -1392,6 +1444,7 @@ function toCSV(rows) {
 function DataSection({ data }) {
   const counts = { Leads: data?.leads?.length, Clients: data?.clients?.length, Tasks: data?.tasks?.length, Invoices: data?.accounting?.length, Inventory: data?.inventory?.length };
   const dataMap = { Leads: data?.leads, Clients: data?.clients, Tasks: data?.tasks, Invoices: data?.accounting, Inventory: data?.inventory };
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const exportData = (label) => {
     let csv = "";
@@ -1406,6 +1459,16 @@ function DataSection({ data }) {
     a.href = url; a.download = `${label.toLowerCase().replace(/ /g, "-")}-export.csv`; a.click();
     URL.revokeObjectURL(url);
     toast(`Exported ${label}`, "success");
+  };
+
+  const exportJSON = () => {
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `crm-backup-${new Date().toISOString().slice(0,10)}.json`; a.click();
+    URL.revokeObjectURL(url);
+    toast("Full JSON backup downloaded", "success");
   };
 
   return (
@@ -1426,17 +1489,35 @@ function DataSection({ data }) {
           ))}
         </div>
       </Card>
+
+      <Card title="Full Backup">
+        <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>Download everything — leads, clients, tasks, invoices, and inventory — as a single JSON file you can restore from.</p>
+        <button onClick={exportJSON}
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", background: "#1D3557", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          📦 Download JSON Backup
+        </button>
+      </Card>
+
       <div style={{ background: "#FEF2F2", borderRadius: 12, padding: 24, border: "1px solid #FECACA" }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, color: "#DC2626", margin: "0 0 12px" }}>⚠️ Danger Zone</h3>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>Delete All Data</div>
-            <div style={{ fontSize: 11, color: "#991B1B" }}>This action cannot be undone</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A", marginBottom: 2 }}>Delete All Data</div>
+            <div style={{ fontSize: 11, color: "#991B1B", marginBottom: 10 }}>This action cannot be undone. Type <strong>DELETE</strong> to confirm.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)}
+                placeholder='Type DELETE to confirm'
+                style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #FECACA", borderRadius: 7, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+              <button
+                disabled={deleteConfirm !== "DELETE"}
+                onClick={() => { if (deleteConfirm === "DELETE") { toast("All data cleared", "error"); setDeleteConfirm(""); } }}
+                style={{ padding: "8px 16px", background: deleteConfirm === "DELETE" ? "#DC2626" : "#E2E8F0", color: deleteConfirm === "DELETE" ? "#fff" : "#94A3B8", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: deleteConfirm === "DELETE" ? "pointer" : "not-allowed", transition: "all 0.15s" }}>
+                Delete All
+              </button>
+            </div>
           </div>
-          <button onClick={() => { if (window.confirm("Are you sure? This will delete all records.")) toast("All data cleared", "error"); }}
-            style={{ padding: "6px 14px", background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>
-            Delete All
-          </button>
         </div>
       </div>
     </div>
@@ -1453,8 +1534,9 @@ function TeamSection({ currentUser, onRoleChange }) {
     { id: 3, name: "Omar Ahmed",    email: "omar@company.com",  role: "Accountant", status: "Active" },
     { id: 4, name: "Layla Hassan",  email: "layla@company.com", role: "Operations", status: "Inactive" },
   ]);
-  // #15a member search
   const [memberSearch, setMemberSearch] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newMember, setNewMember] = useState({ name: "", email: "", role: "Sales" });
 
   const filtered = members.filter(m =>
     !memberSearch ||
@@ -1463,18 +1545,61 @@ function TeamSection({ currentUser, onRoleChange }) {
     m.role.toLowerCase().includes(memberSearch.toLowerCase())
   );
 
+  const addMember = () => {
+    if (!newMember.name.trim() || !newMember.email.trim()) return toast("Fill in name and email", "error");
+    setMembers(prev => [...prev, { id: Date.now(), ...newMember, status: "Active" }]);
+    setNewMember({ name: "", email: "", role: "Sales" });
+    setShowAddForm(false);
+    toast(`${newMember.name} added to the team`, "success");
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Team Members">
-        {/* #15a search bar */}
-        <div style={{ position: "relative", marginBottom: 14 }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.4, pointerEvents: "none" }}>🔍</span>
-          <input
-            type="search" placeholder="Search members…" value={memberSearch}
-            onChange={e => setMemberSearch(e.target.value)}
-            style={{ width: "100%", padding: "7px 10px 7px 30px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, outline: "none", boxSizing: "border-box", background: "#F8FAFC" }}
-          />
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.4, pointerEvents: "none" }}>🔍</span>
+            <input
+              type="search" placeholder="Search members…" value={memberSearch}
+              onChange={e => setMemberSearch(e.target.value)}
+              style={{ width: "100%", padding: "7px 10px 7px 30px", border: "1px solid #E2E8F0", borderRadius: 7, fontSize: 12, outline: "none", boxSizing: "border-box", background: "#F8FAFC" }}
+            />
+          </div>
+          <button onClick={() => setShowAddForm(s => !s)}
+            style={{ padding: "7px 14px", background: showAddForm ? "#EFF6FF" : "#3B82F6", color: showAddForm ? "#2563EB" : "#fff", border: showAddForm ? "1.5px solid #93C5FD" : "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {showAddForm ? "✕ Cancel" : "+ Add Member"}
+          </button>
         </div>
+
+        {showAddForm && (
+          <div style={{ background: "#F0F9FF", border: "1.5px solid #BAE6FD", borderRadius: 10, padding: 16, marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Full Name</label>
+                <input value={newMember.name} onChange={e => setNewMember(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Ahmed Al Rashid"
+                  style={{ ...inputStyle, fontSize: 12 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Email</label>
+                <input type="email" value={newMember.email} onChange={e => setNewMember(p => ({ ...p, email: e.target.value }))} placeholder="ahmed@company.com"
+                  style={{ ...inputStyle, fontSize: 12 }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Role</label>
+                <select value={newMember.role} onChange={e => setNewMember(p => ({ ...p, role: e.target.value }))} style={{ ...inputStyle, fontSize: 12 }}>
+                  {Object.keys(ROLE_COLORS).map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <button onClick={addMember}
+                style={{ padding: "8px 20px", background: "#16A34A", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Add Member
+              </button>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.length === 0 && (
             <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: 20 }}>No members match</div>
@@ -1485,7 +1610,7 @@ function TeamSection({ currentUser, onRoleChange }) {
                 {m.name.split(" ").map(n => n[0]).join("")}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "#0F172A" }}>{m.name}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{m.name}</div>
                 <div style={{ fontSize: 11, color: "#64748B" }}>{m.email}</div>
               </div>
               <select value={m.role} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, role: e.target.value } : x))}
@@ -1496,10 +1621,12 @@ function TeamSection({ currentUser, onRoleChange }) {
                 style={{ padding: "4px 10px", background: m.status === "Active" ? "#DCFCE7" : "#FEE2E2", color: m.status === "Active" ? "#166534" : "#991B1B", border: "none", borderRadius: 10, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                 {m.status}
               </button>
+              <button onClick={() => { if (window.confirm(`Remove ${m.name}?`)) setMembers(prev => prev.filter(x => x.id !== m.id)); }}
+                title="Remove member"
+                style={{ padding: "4px 8px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>✕</button>
             </div>
           ))}
         </div>
-        {/* #15b invite link */}
         <div style={{ marginTop: 16, padding: "12px 14px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#065F46" }}>Invite Link</div>
@@ -1611,17 +1738,24 @@ function SecuritySection() {
       </Card>
 
       <Card title="Active Sessions">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <p style={{ fontSize: 12, color: "#64748B", margin: 0 }}>Devices currently signed in to your account.</p>
+          <button onClick={() => toast("All other sessions revoked", "info")}
+            style={{ padding: "5px 12px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+            Revoke All Others
+          </button>
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {sessions.map(s => (
-            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
-              <div style={{ fontSize: 22 }}>{s.device.includes("iPhone") ? "📱" : "💻"}</div>
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: s.current ? "#F0FDF4" : "#F8FAFC", borderRadius: 8, border: `1px solid ${s.current ? "#BBF7D0" : "#E2E8F0"}` }}>
+              <div style={{ fontSize: 22 }}>{s.device.includes("iPhone") || s.device.includes("Android") ? "📱" : "💻"}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "#0F172A" }}>{s.device}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>{s.device}</div>
                 <div style={{ fontSize: 11, color: "#64748B" }}>{s.location} · {s.last}</div>
               </div>
               {s.current
-                ? <span style={{ fontSize: 11, padding: "2px 8px", background: "#DCFCE7", color: "#166534", borderRadius: 10, fontWeight: 600 }}>Current</span>
-                : <button onClick={() => toast("Session revoked", "info")} style={{ padding: "4px 10px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Revoke</button>
+                ? <span style={{ fontSize: 11, padding: "2px 8px", background: "#DCFCE7", color: "#166534", borderRadius: 10, fontWeight: 600 }}>This device</span>
+                : <button onClick={() => toast(`Session on ${s.device} revoked`, "info")} style={{ padding: "4px 10px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Revoke</button>
               }
             </div>
           ))}

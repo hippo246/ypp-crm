@@ -71,7 +71,7 @@ html, body { height: 100%; }
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 10% 90%,  rgba(232,57,46,0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 10% 90%,  color-mix(in srgb, var(--primary-mesh) 18%, transparent) 0%, transparent 60%),
     radial-gradient(ellipse 50% 40% at 90% 10%,  rgba(26,68,194,0.15) 0%, transparent 55%),
     radial-gradient(ellipse 40% 60% at 50% 50%,  rgba(7,9,15,0.8)      0%, transparent 100%);
 }
@@ -199,10 +199,11 @@ html, body { height: 100%; }
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px;
 }
-.ls-label-text {
+.ls-label-text, label.ls-label-text {
   font-size: 10px; font-weight: 600;
   letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--dim);
+  background: none; border: none; padding: 0;
 }
 .ls-forgot {
   font-size: 11px; color: rgba(232,57,46,0.55);
@@ -374,7 +375,9 @@ html, body { height: 100%; }
   transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
 }
 .ls-quick-btn:hover {
-  background: rgba(255,255,255,0.048);
+  background: var(--qbtn-bg, rgba(255,255,255,0.048));
+  border-color: var(--qbtn-border, rgba(255,255,255,0.12));
+  box-shadow: 0 4px 18px var(--qbtn-shadow, transparent);
   transform: translateY(-1px);
 }
 .ls-quick-btn:active { transform: translateY(0); }
@@ -709,25 +712,64 @@ const IconShield = () => (
 );
 
 /* ── LIVE CLOCK ── */
-function LiveClock({ timezone = "GST" }) {
+function LiveClock({ timezone = "Asia/Dubai" }) {
   const [t, setT] = useState(new Date());
   useEffect(() => { const id = setInterval(() => setT(new Date()), 1000); return () => clearInterval(id); }, []);
-  const pad = n => n.toString().padStart(2,"0");
+
+  // Resolve IANA timezone — fall back gracefully if an abbreviation like "GST" was passed
+  const tz = (() => { try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); return timezone; } catch { return undefined; } })();
+
+  const datePart = t.toLocaleDateString(
+    typeof navigator !== "undefined" ? navigator.language : "en",
+    { weekday: "short", month: "short", day: "numeric", ...(tz ? { timeZone: tz } : {}) }
+  );
+  const timePart = t.toLocaleTimeString(
+    typeof navigator !== "undefined" ? navigator.language : "en",
+    { hour: "2-digit", minute: "2-digit", hour12: false, ...(tz ? { timeZone: tz } : {}) }
+  );
+  // Display the short timezone name when available
+  const tzLabel = tz
+    ? t.toLocaleTimeString("en", { timeZoneName: "short", timeZone: tz }).split(" ").pop()
+    : timezone;
+
   return (
     <div className="ls-clock-pill">
-      {t.toLocaleDateString(typeof navigator !== "undefined" ? navigator.language : "en", {weekday:"short",month:"short",day:"numeric"})}
-      {" · "}<span>{pad(t.getHours())}:{pad(t.getMinutes())} {timezone}</span>
+      {datePart}{" · "}<span>{timePart} {tzLabel}</span>
     </div>
   );
 }
 
 /* ── PASSKEY MODAL ── */
 function PasskeyModal({ onConfirm, onCancel }) {
+  const boxRef = useRef(null);
+
+  // Close on Escape; trap focus inside the modal
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") { onCancel(); return; }
+      if (e.key === "Tab" && boxRef.current) {
+        const focusable = boxRef.current.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        const first = focusable[0];
+        const last  = focusable[focusable.length - 1];
+        if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    // Move focus into the modal on open
+    boxRef.current?.querySelector("button")?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
   return (
-    <div className="ls-pk-overlay" onClick={onCancel}>
-      <div className="ls-pk-box" onClick={e => e.stopPropagation()}>
+    <div className="ls-pk-overlay" onClick={onCancel} role="dialog" aria-modal="true" aria-labelledby="pk-title">
+      <div className="ls-pk-box" ref={boxRef} onClick={e => e.stopPropagation()}>
         <div className="ls-pk-icon">🔑</div>
-        <div className="ls-pk-title">Sign in with Passkey</div>
+        <div className="ls-pk-title" id="pk-title">Sign in with Passkey</div>
         <div className="ls-pk-sub">
           Use your device's biometric (Face ID, Touch ID, or PIN) to authenticate securely — no password needed.
         </div>
@@ -752,24 +794,22 @@ export default function LoginScreen({ onLogin, loginConfig }) {
 
   const css = useMemo(() => `
 :root {
-  --purple:   ${primary};
-  --indigo:   ${secondary};
-  --green:    #34D399;
-  --amber:    #F5C518;
-  --red:      #FB7185;
-  --bg:       ${bgColor};
-  --surface:  #0C0F1C;
-  --surface2: #111428;
-  --border:   rgba(255,255,255,0.07);
-  --text:     #F0F0FF;
-  --muted:    rgba(240,240,255,0.38);
-  --dim:      rgba(240,240,255,0.18);
-  --card-bg:  ${cfg.cardBg || "rgba(13,13,28,0.82)"};
+  --purple:        ${primary};
+  --indigo:        ${secondary};
+  --green:         #34D399;
+  --amber:         #F5C518;
+  --red:           #FB7185;
+  --bg:            ${bgColor};
+  --surface:       #0C0F1C;
+  --surface2:      #111428;
+  --border:        rgba(255,255,255,0.07);
+  --text:          #F0F0FF;
+  --muted:         rgba(240,240,255,0.38);
+  --dim:           rgba(240,240,255,0.18);
+  --card-bg:       ${cfg.cardBg || "rgba(13,13,28,0.82)"};
+  --primary-mesh:  ${primary};
 }
-` + BASE_CSS.replace(
-    'radial-gradient(ellipse 60% 50% at 10% 90%,  rgba(232,57,46,0.18)',
-    `radial-gradient(ellipse 60% 50% at 10% 90%,  ${primary}2e`
-  ), [primary, secondary, bgColor, cfg.cardBg]);
+` + BASE_CSS, [primary, secondary, bgColor, cfg.cardBg]);
 
   const [email,       setEmail]       = useState("");
   const [password,    setPassword]    = useState("");
@@ -779,10 +819,24 @@ export default function LoginScreen({ onLogin, loginConfig }) {
   const [loading,     setLoading]     = useState(false);
   const [success,     setSuccess]     = useState(null);
   const [showPasskey, setShowPasskey] = useState(false);
-  const [hoveredQ,    setHoveredQ]    = useState(null);
   const [toast,       setToast]       = useState(null);
   const [pkLoading,   setPkLoading]   = useState(false);
   const emailRef = useRef(null);
+  const toastTimerRef = useRef(null);
+  const pendingTimers = useRef(new Set());
+
+  // Cancel all pending timers on unmount
+  useEffect(() => () => {
+    clearTimeout(toastTimerRef.current);
+    pendingTimers.current.forEach(clearTimeout);
+  }, []);
+
+  // Wrapper so callers don't manage the set manually
+  function safeTimeout(fn, ms) {
+    const id = setTimeout(() => { pendingTimers.current.delete(id); fn(); }, ms);
+    pendingTimers.current.add(id);
+    return id;
+  }
 
   // Restore remembered email
   useEffect(() => {
@@ -794,14 +848,15 @@ export default function LoginScreen({ onLogin, loginConfig }) {
   }, []);
 
   const showToast = useCallback((msg, icon = "✓") => {
+    clearTimeout(toastTimerRef.current);
     setToast({ msg, icon });
-    setTimeout(() => setToast(null), 2800);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2800);
   }, []);
 
   function handleSubmit(e) {
-    e.preventDefault();
+    e?.preventDefault();
     setError(""); setLoading(true);
-    setTimeout(() => {
+    safeTimeout(() => {
       const user = USERS.find(
         u => u.email.toLowerCase() === email.toLowerCase().trim() && u.password === password
       );
@@ -809,7 +864,7 @@ export default function LoginScreen({ onLogin, loginConfig }) {
         if (remember) { try { localStorage.setItem("yp_email", email); } catch {} }
         else { try { localStorage.removeItem("yp_email"); } catch {} }
         setSuccess(user);
-        setTimeout(() => onLogin(user), 1100);
+        safeTimeout(() => onLogin(user), 1100);
       } else {
         setError("Invalid email or password. Check your credentials.");
         setLoading(false);
@@ -820,12 +875,12 @@ export default function LoginScreen({ onLogin, loginConfig }) {
   function handlePasskeyConfirm() {
     setShowPasskey(false);
     setPkLoading(true);
-    setTimeout(() => {
+    safeTimeout(() => {
       // Mock: authenticate as first user
       const user = USERS[0];
       setPkLoading(false);
       setSuccess(user);
-      setTimeout(() => onLogin(user), 1100);
+      safeTimeout(() => onLogin(user), 1100);
     }, 1400);
   }
 
@@ -835,7 +890,7 @@ export default function LoginScreen({ onLogin, loginConfig }) {
 
   function quickLogin(user) {
     setSuccess(user);
-    setTimeout(() => onLogin(user), 1100);
+    safeTimeout(() => onLogin(user), 1100);
   }
 
   return (
@@ -917,10 +972,13 @@ export default function LoginScreen({ onLogin, loginConfig }) {
               <span>{cfg.secureBadgeText || "Secure · End-to-end encrypted"}</span>
             </div>}
 
+            {/* Form — wrapping gives Enter-key submit for free */}
+            <form onSubmit={handleSubmit} noValidate>
+
             {/* Email field */}
             <div className="ls-field ls-enter ls-e2">
               <div className="ls-label">
-                <span className="ls-label-text">Email address</span>
+                <label htmlFor="yp-email" className="ls-label-text">Email address</label>
               </div>
               <div className="ls-input-wrap">
                 <span className="ls-input-icon"><IconMail /></span>
@@ -932,7 +990,8 @@ export default function LoginScreen({ onLogin, loginConfig }) {
                   onChange={e => { setEmail(e.target.value); setError(""); }}
                   placeholder={cfg.emailPlaceholder || "you@yespinoy.ae"}
                   required autoComplete="email" autoCapitalize="none"
-                  inputMode="email" aria-label="Email address"
+                  inputMode="email"
+                  aria-describedby={error ? "yp-error" : undefined}
                 />
               </div>
             </div>
@@ -940,7 +999,7 @@ export default function LoginScreen({ onLogin, loginConfig }) {
             {/* Password field */}
             <div className="ls-field ls-enter ls-e3">
               <div className="ls-label">
-                <span className="ls-label-text">Password</span>
+                <label htmlFor="yp-pw" className="ls-label-text">Password</label>
                 {cfg.showForgotPw !== false && (
                   <button type="button" className="ls-forgot" onClick={() => showToast("Password reset link sent to your email", "✉")}>
                     {cfg.forgotPwText || "Forgot password?"}
@@ -955,7 +1014,8 @@ export default function LoginScreen({ onLogin, loginConfig }) {
                   type={showPw ? "text" : "password"} value={password}
                   onChange={e => { setPassword(e.target.value); setError(""); }}
                   placeholder="••••••••"
-                  required autoComplete="current-password" aria-label="Password"
+                  required autoComplete="current-password"
+                  aria-describedby={error ? "yp-error" : undefined}
                 />
                 <button type="button" className="ls-pw-toggle"
                   onClick={() => setShowPw(s => !s)}
@@ -974,15 +1034,15 @@ export default function LoginScreen({ onLogin, loginConfig }) {
 
             {/* Error */}
             {error && (
-              <div className="ls-error" role="alert">
+              <div id="yp-error" className="ls-error" role="alert">
                 <IconAlert /> {error}
               </div>
             )}
 
             {/* Sign in button */}
             <button
+              type="submit"
               className="ls-btn ls-enter ls-e4"
-              onClick={handleSubmit}
               disabled={loading || pkLoading}
             >
               {loading ? (
@@ -1015,10 +1075,12 @@ export default function LoginScreen({ onLogin, loginConfig }) {
             </div>
 
             {/* Biometric hint — shown on touch devices */}
-            {cfg.showBiometric !== false && <button className="ls-bio-hint ls-enter ls-e4" onClick={() => setShowPasskey(true)}>
+            {cfg.showBiometric !== false && <button type="button" className="ls-bio-hint ls-enter ls-e4" onClick={() => setShowPasskey(true)}>
               <IconFingerprint />
               <span>{cfg.biometricText || "Use Face ID / Touch ID / Biometric to sign in"}</span>
             </button>}
+
+            </form>
 
             {/* Divider */}
             {cfg.showQuickAccess !== false && <>
@@ -1035,12 +1097,11 @@ export default function LoginScreen({ onLogin, loginConfig }) {
                 const meta = ROLE_META[u.role];
                 return (
                   <button key={u.id} className="ls-quick-btn"
-                    style={hoveredQ === u.id ? {
-                      borderColor: meta.border,
-                      boxShadow: `0 4px 18px ${meta.bg}`,
-                    } : {}}
-                    onMouseEnter={() => setHoveredQ(u.id)}
-                    onMouseLeave={() => setHoveredQ(null)}
+                    style={{
+                      "--qbtn-bg":     meta.bg,
+                      "--qbtn-border": meta.border,
+                      "--qbtn-shadow": meta.bg,
+                    }}
                     onClick={() => quickLogin(u)}>
                     <div className="ls-avatar"
                       style={{ background: meta.bg, color: meta.color, "--rc": meta.color }}>
