@@ -37,11 +37,12 @@ export function useVirtualList({
 
   // Recalculate on container resize
   useEffect(() => {
-    if (!containerRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
     const ro = new ResizeObserver(() => {
       if (containerRef.current) setScrollTop(containerRef.current.scrollTop);
     });
-    ro.observe(containerRef.current);
+    ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
@@ -69,11 +70,11 @@ export function useVirtualList({
     },
   };
 
-  function scrollToIndex(index) {
+  const scrollToIndex = useCallback((index) => {
     if (containerRef.current) {
       containerRef.current.scrollTop = index * rowHeight;
     }
-  }
+  }, [rowHeight]);
 
   return {
     containerProps,

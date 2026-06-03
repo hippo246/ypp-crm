@@ -197,7 +197,7 @@ export function printDocument(html) {
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 500);
+  win.onload = () => win.print();
 }
 
 /** Download as .html file (can be opened in browser → Save as PDF) */
@@ -205,7 +205,10 @@ export function downloadHTML(html, filename = "document.html") {
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = filename;
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }

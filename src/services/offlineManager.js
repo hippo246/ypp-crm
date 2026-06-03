@@ -69,7 +69,7 @@ export function saveQueue(queue) {
 
 export function enqueue(mutation) {
   const queue = loadQueue();
-  queue.push({ ...mutation, queuedAt: new Date().toISOString(), id: `q-${Date.now()}` });
+  queue.push({ ...mutation, queuedAt: new Date().toISOString(), id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` });
   saveQueue(queue);
 }
 
@@ -114,18 +114,20 @@ export async function flushQueue(dbAdapter) {
   let flushed = 0;
   let failed = 0;
   const errors = [];
+  const remaining = [];
 
   for (const mutation of queue) {
     try {
       await dbAdapter.applyMutation(mutation);
-      dequeue(mutation.id);
       flushed++;
     } catch (err) {
       failed++;
       errors.push({ mutation, error: err.message });
+      remaining.push(mutation);
     }
   }
 
+  saveQueue(remaining);
   return { flushed, failed, errors };
 }
 

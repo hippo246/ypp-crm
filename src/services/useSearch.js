@@ -57,13 +57,27 @@ function editDistance(a, b, cap = 3) {
 }
 
 // ─── Score a single field value against a query ───────────────────────────────
+const _wordBoundaryCache = new Map();
+function _wordBoundaryRegex(q) {
+  if (_wordBoundaryCache.has(q)) return _wordBoundaryCache.get(q);
+  let re;
+  try { re = new RegExp(`\\b${q}\\b`); } catch { re = null; }
+  _wordBoundaryCache.set(q, re);
+  if (_wordBoundaryCache.size > 500) {
+    // Evict oldest entry to bound memory
+    _wordBoundaryCache.delete(_wordBoundaryCache.keys().next().value);
+  }
+  return re;
+}
+
 function scoreField(val, q, words) {
   if (!val) return 0;
   const v = val.toLowerCase();
 
   if (v === q)                       return 1000;
   // word boundary exact: "ahmed" matches "ahmed al mansouri"
-  if (new RegExp(`\\b${q}\\b`).test(v)) return 400;
+  const wbRe = _wordBoundaryRegex(q);
+  if (wbRe && wbRe.test(v))          return 400;
   if (v.startsWith(q))               return 200;
 
   // multi-word: all query words appear somewhere in the value
@@ -317,7 +331,6 @@ export function queryIndex({ index, items }, query) {
   }
 
   // Re-score candidates using scoreField and sort — same quality as useFilteredData
-  const words = q.split(/\s+/).filter(Boolean);
   // Extract keys from index tokens: we don't have them, so score against full
   // stringified representation of each item
   return [...candidates]
@@ -428,29 +441,26 @@ export function useSearchHistory(storageKey = "crm_search_history", maxSize = 20
     }
   });
 
-  const persist = useCallback((next) => {
-    setHistory(next);
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* quota */ }
+  const persist = useCallback((nextOrUpdater) => {
+    setHistory(prev => {
+      const next = typeof nextOrUpdater === "function" ? nextOrUpdater(prev) : nextOrUpdater;
+      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
   }, [storageKey]);
 
   const push = useCallback((term) => {
     if (!term?.trim()) return;
     const t = term.trim();
-    setHistory(prev => {
+    persist(prev => {
       const deduped = [t, ...prev.filter(h => h.toLowerCase() !== t.toLowerCase())];
-      const next = deduped.slice(0, maxSize);
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* quota */ }
-      return next;
+      return deduped.slice(0, maxSize);
     });
-  }, [storageKey, maxSize]);
+  }, [persist, maxSize]);
 
   const remove = useCallback((term) => {
-    setHistory(prev => {
-      const next = prev.filter(h => h !== term);
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* quota */ }
-      return next;
-    });
-  }, [storageKey]);
+    persist(prev => prev.filter(h => h !== term));
+  }, [persist]);
 
   const clear = useCallback(() => {
     persist([]);
@@ -660,9 +670,9 @@ export function parseOperatorQuery(query = "") {
     if (clean === "empty") {
       filters[key] = { empty: true };
     } else if (clean.startsWith(">")) {
-      filters[key] = { min: parseFloat(clean.slice(1)) + 1 };
+      filters[key] = { min: parseFloat(clean.slice(1)) };
     } else if (clean.startsWith("<")) {
-      filters[key] = { max: parseFloat(clean.slice(1)) - 1 };
+      filters[key] = { max: parseFloat(clean.slice(1)) };
     } else if (neg === "-") {
       filters[key] = { not: clean };
     } else {
