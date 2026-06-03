@@ -22,19 +22,19 @@
 
 class EventBus {
   constructor() {
-    this._listeners = {};
+    this._listeners = new Map();
   }
 
   /** Subscribe to an event. Returns an unsubscribe function. */
   on(event, handler) {
-    if (!this._listeners[event]) this._listeners[event] = [];
-    this._listeners[event].push(handler);
+    if (!this._listeners.has(event)) this._listeners.set(event, []);
+    this._listeners.get(event).push(handler);
     return () => this.off(event, handler);
   }
 
   off(event, handler) {
-    if (!this._listeners[event]) return;
-    this._listeners[event] = this._listeners[event].filter(h => h !== handler);
+    if (!this._listeners.has(event)) return;
+    this._listeners.set(event, this._listeners.get(event).filter(h => h !== handler));
   }
 
   /** Subscribe once — auto-removes after first fire. */
@@ -44,11 +44,11 @@ class EventBus {
   }
 
   emit(event, payload) {
-    (this._listeners[event] || []).forEach(h => {
+    (this._listeners.get(event) || []).forEach(h => {
       try { h(payload); } catch (e) { console.error(`EventBus handler error [${event}]:`, e); }
     });
     // also emit wildcard
-    (this._listeners["*"] || []).forEach(h => {
+    (this._listeners.get("*") || []).forEach(h => {
       try { h(event, payload); } catch (e) { console.error("EventBus wildcard handler error:", e); }
     });
   }
@@ -523,7 +523,14 @@ class WorkflowEngine {
     const source = this.getWorkflowById(workflowId);
     if (!source) throw new Error(`Workflow "${workflowId}" not found`);
 
-    // Deep-clone, strip runtime timestamps, assign new identity
+    // Deep-clone, strip runtime timestamps, assign new identity.
+    // NOTE: condition functions on transitions are not serialisable and will
+    // be lost in the clone — re-register them after cloning if needed.
+    const hasConditions = source.transitions?.some(t => typeof t.condition === "function");
+    if (hasConditions) {
+      console.warn(`[WorkflowEngine] cloneWorkflow: "${workflowId}" has condition functions on transitions that cannot be cloned and will be dropped.`);
+    }
+
     const clone = JSON.parse(JSON.stringify(source));
     clone.id = newId || `${source.id}_clone_${Date.now()}`;
     clone.name = newName;
@@ -836,12 +843,14 @@ class WorkflowEngine {
    * @param {string}   [filters.toDate]    - ISO string
    */
   queryHistory({ workflowId, action, userId, fromDate, toDate } = {}) {
+    const from = fromDate ? new Date(fromDate) : null;
+    const to   = toDate   ? new Date(toDate)   : null;
     return this.workflowHistory.filter(h => {
       if (workflowId && h.workflowId !== workflowId) return false;
       if (action && h.action !== action) return false;
       if (userId && h.userId !== userId) return false;
-      if (fromDate && new Date(h.timestamp) < new Date(fromDate)) return false;
-      if (toDate && new Date(h.timestamp) > new Date(toDate)) return false;
+      if (from && new Date(h.timestamp) < from) return false;
+      if (to   && new Date(h.timestamp) > to)   return false;
       return true;
     }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
@@ -945,28 +954,24 @@ class WorkflowEngine {
 
     const averageTimeInStages = this._calculateAverageTimeInStages(workflowId, entities);
 
+    const workflowHistoryForId = this.workflowHistory.filter(h => h.workflowId === workflowId);
+    const enteredCountByStage = new Map();
+    for (const h of workflowHistoryForId) {
+      enteredCountByStage.set(h.toStage, (enteredCountByStage.get(h.toStage) ?? 0) + 1);
+    }
+
     // Funnel analysis: drop-off between consecutive stages (by order)
     const orderedStages = [...workflow.stages].sort((a, b) => a.order - b.order);
     const funnelDropOff = [];
     for (let i = 0; i < orderedStages.length - 1; i++) {
       const current = orderedStages[i];
       const next = orderedStages[i + 1];
-      const currentCount = stageCounts[current.id] ?? 0;
-      const nextCount = stageCounts[next.id] ?? 0;
-      const enteredCurrent = this.workflowHistory.filter(
-        h => h.workflowId === workflowId && h.toStage === current.id
-      ).length;
-      const enteredNext = this.workflowHistory.filter(
-        h => h.workflowId === workflowId && h.toStage === next.id
-      ).length;
+      const enteredCurrent = enteredCountByStage.get(current.id) ?? 0;
+      const enteredNext    = enteredCountByStage.get(next.id)    ?? 0;
       const conversionRate = enteredCurrent > 0
-        ? ((enteredNext / enteredCurrent) * 100).toFixed(1)
+        ? parseFloat(((enteredNext / enteredCurrent) * 100).toFixed(1))
         : null;
-      funnelDropOff.push({
-        from: current.id,
-        to: next.id,
-        conversionRate: conversionRate !== null ? parseFloat(conversionRate) : null,
-      });
+      funnelDropOff.push({ from: current.id, to: next.id, conversionRate });
     }
 
     return {

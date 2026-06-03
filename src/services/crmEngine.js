@@ -53,18 +53,25 @@ function normalise(str = "") {
 
 export function findDuplicates(leads) {
   const safe = (leads || []).filter(Boolean);
+  const byEmail = new Map(), byPhone = new Map(), byName = new Map();
   const dupes = new Set();
-  for (let i = 0; i < safe.length; i++) {
-    for (let j = i + 1; j < safe.length; j++) {
-      const a = safe[i];
-      const b = safe[j];
-      const emailMatch = a.email && b.email && normalise(a.email) === normalise(b.email);
-      const phoneMatch = a.phone && b.phone && normalise(a.phone) === normalise(b.phone);
-      const nameMatch  = a.name  && b.name  && normalise(a.name)  === normalise(b.name);
-      if (emailMatch || phoneMatch || nameMatch) {
-        dupes.add(a.id);
-        dupes.add(b.id);
-      }
+
+  for (const lead of safe) {
+    const email = lead.email ? normalise(lead.email) : null;
+    const phone = lead.phone ? normalise(lead.phone) : null;
+    const name  = lead.name  ? normalise(lead.name)  : null;
+
+    if (email) {
+      if (byEmail.has(email)) { dupes.add(byEmail.get(email)); dupes.add(lead.id); }
+      else byEmail.set(email, lead.id);
+    }
+    if (phone) {
+      if (byPhone.has(phone)) { dupes.add(byPhone.get(phone)); dupes.add(lead.id); }
+      else byPhone.set(phone, lead.id);
+    }
+    if (name) {
+      if (byName.has(name)) { dupes.add(byName.get(name)); dupes.add(lead.id); }
+      else byName.set(name, lead.id);
     }
   }
   return dupes;
@@ -104,11 +111,11 @@ export function getStaleLeads(leads, staleDays = 7) {
   const safe = (leads || []).filter(Boolean);
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - staleDays);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const cutoffTime = cutoff.getTime();
   return safe.filter(
     (l) =>
       !["Won", "Lost"].includes(l.status) &&
-      (l.updatedAt ?? l.date ?? "") < cutoffStr
+      new Date(l.updatedAt ?? l.date ?? 0).getTime() < cutoffTime
   );
 }
 
@@ -117,7 +124,7 @@ export function getStaleLeads(leads, staleDays = 7) {
 export function getLostReasons(leads) {
   const map = {};
   (leads || []).filter(Boolean)
-    .filter((l) => l.status === "Lost" && l.lostReason)
+    .filter((l) => l.status === "Lost" && l.lostReason != null)
     .forEach((l) => {
       map[l.lostReason] = (map[l.lostReason] ?? 0) + 1;
     });
