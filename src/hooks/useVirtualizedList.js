@@ -58,7 +58,7 @@ export function useVirtualizedList({
   const offsetY = startIndex * itemHeight;
 
   const handleScroll = useCallback((e) => {
-    const newScrollTop = e.target.scrollTop;
+    const newScrollTop = e.currentTarget.scrollTop;
     setScrollTop(newScrollTop);
     
     setIsScrolling(true);
@@ -112,6 +112,7 @@ export function useDynamicVirtualizedList({
   const containerRef = useRef(null);
   const itemRefs = useRef(new Map());
   const observerRef = useRef(null);
+  const recalcRef = useRef(null);
 
   // Calculate item positions — driven by ResizeObserver so real DOM size changes
   // (font load, image decode, dynamic content) trigger a recalc automatically.
@@ -129,6 +130,8 @@ export function useDynamicVirtualizedList({
       setItemPositions(positions);
       setTotalHeight(currentY);
     };
+
+    recalcRef.current = recalc;
 
     // Initial calculation
     recalc();
@@ -161,13 +164,16 @@ export function useDynamicVirtualizedList({
   const offsetY = itemPositions[visibleStartIndex]?.y || 0;
 
   const handleScroll = useCallback((e) => {
-    setScrollTop(e.target.scrollTop);
+    setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
   const setItemRef = useCallback((index, element) => {
     if (element) {
       itemRefs.current.set(index, element);
-      observerRef.current?.observe(element); // immediately observe new elements
+      observerRef.current?.observe(element);
+      // Recalc immediately so the new element's real height is reflected at mount,
+      // not deferred until ResizeObserver fires (which may never happen if height is stable)
+      recalcRef.current?.();
     } else {
       const el = itemRefs.current.get(index);
       if (el) observerRef.current?.unobserve(el);

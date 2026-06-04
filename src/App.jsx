@@ -61,18 +61,18 @@ import OfflineBanner, { MobileBottomNav } from "./OfflineBanner";
 import { useTabSync } from "./hooks/useTabSync";
 
 const ALL_NAV = [
-  { id: "dashboard",   label: "Dashboard",   icon: "▣",  group: null },
-  { id: "leads",       label: "Leads",       icon: "◎",  group: "CRM" },
-  { id: "clients",     label: "Clients",     icon: "⬡",  group: "CRM" },
-  { id: "tasks",       label: "Tasks",       icon: "◈",  group: "CRM" },
-  { id: "accounting",  label: "Accounting",  icon: "◆",  group: "Finance" },
-  { id: "inventory",   label: "Inventory",   icon: "▤",  group: "Finance" },
-  { id: "suppliers",   label: "Suppliers",   icon: "▥",  group: "Finance" },
-  { id: "calendar",    label: "Calendar",    icon: "▦",  group: "Ops" },
-  { id: "analytics",   label: "Analytics",   icon: "▲",  group: "Ops" },
-  { id: "reports",     label: "Reports",     icon: "▶",  group: "Ops" },
-  { id: "automations", label: "Automations", icon: "◉",  group: "Ops" },
-  { id: "settings",    label: "Settings",    icon: "⚙️", group: null },
+  { id: "dashboard",   label: "Dashboard",   icon: "📊",  group: null },
+  { id: "leads",       label: "Leads",       icon: "🎯",  group: "CRM" },
+  { id: "clients",     label: "Clients",     icon: "🏢",  group: "CRM" },
+  { id: "tasks",       label: "Tasks",       icon: "✅",  group: "CRM" },
+  { id: "accounting",  label: "Accounting",  icon: "💰",  group: "Finance" },
+  { id: "inventory",   label: "Inventory",   icon: "📦",  group: "Finance" },
+  { id: "suppliers",   label: "Suppliers",   icon: "🤝",  group: "Finance" },
+  { id: "calendar",    label: "Calendar",    icon: "📅",  group: "Ops" },
+  { id: "analytics",   label: "Analytics",   icon: "📈",  group: "Ops" },
+  { id: "reports",     label: "Reports",     icon: "📋",  group: "Ops" },
+  { id: "automations", label: "Automations", icon: "⚡",  group: "Ops" },
+  { id: "settings",    label: "Settings",    icon: "⚙️",  group: null },
 ];
 
 const ROLE_COLORS = {
@@ -673,9 +673,9 @@ function NotifPanel({ notifications, onClose, onMarkRead, onMarkAll, onDismiss, 
   const markSelectedRead = () => { selectedIds.forEach(id => onMarkRead(id)); setSelectedIds([]); };
   return (
     <div style={{
-      position: "absolute", top: 50, right: 0, width: 360, maxHeight: 480,
-      background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12,
-      boxShadow: "0 12px 40px rgba(0,0,0,0.18)", zIndex: 1000,
+      position: "absolute", top: 50, right: 0, width: 380, maxHeight: 500,
+      background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+      boxShadow: "0 16px 48px rgba(0,0,0,0.18)", zIndex: 1000,
       display: "flex", flexDirection: "column", overflow: "hidden",
       animation: "fadeIn 0.15s ease",
     }}>
@@ -1048,9 +1048,9 @@ function DailyDigestModal({ dark, highContrast, data, onClose }) {
   const hotLeads = (data.leads || []).filter(l => !["Won","Lost"].includes(l.status)).length;
   const invoicesDue = (data.accounting || []).filter(i => i.status !== "Paid" && i.due && (() => { const d=(new Date(i.due)-new Date())/86400000; return d>=0&&d<=7; })()).length;
   const stats = [
-    { icon: "◈", label: "Overdue Tasks", value: overdueTasks, color: overdueTasks > 0 ? "#ef4444" : "#16a34a" },
-    { icon: "◎", label: "Hot Leads", value: hotLeads, color: "#d97706" },
-    { icon: "◆", label: "Invoices Due This Week", value: invoicesDue, color: invoicesDue > 0 ? "#ef4444" : "#16a34a" },
+    { icon: "✅", label: "Overdue Tasks", value: overdueTasks, color: overdueTasks > 0 ? "#ef4444" : "#16a34a" },
+    { icon: "🎯", label: "Active Leads", value: hotLeads, color: "#d97706" },
+    { icon: "💰", label: "Invoices Due This Week", value: invoicesDue, color: invoicesDue > 0 ? "#ef4444" : "#16a34a" },
   ];
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1498,13 +1498,13 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             />
           )}
           {/* Logo */}
-          <div style={{ padding: sidebarCollapsed ? "14px 0" : "14px 14px 10px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+          <div style={{ padding: sidebarCollapsed ? "14px 0" : "12px 14px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9, justifyContent: sidebarCollapsed ? "center" : "flex-start" }}>
-              <div style={{ width: 28, height: 28, background: B.yellow, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}>☀</div>
+              <div style={{ width: 30, height: 30, background: "rgba(255,255,255,0.15)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.2)" }}>☀️</div>
               {!sidebarCollapsed && (
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: "#fff", fontWeight: 800, fontSize: 10.5, letterSpacing: "0.8px", textTransform: "uppercase" }}>Yes Pinoy Pro</div>
-                  <div style={{ color: "rgba(255,255,255,0.32)", fontSize: 9, letterSpacing: "0.3px" }}>Business CRM · Dubai</div>
+                  <div style={{ color: "#fff", fontWeight: 800, fontSize: 12.5, letterSpacing: "-0.2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Yes Pinoy Pro</div>
+                  <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9.5, letterSpacing: "0.3px" }}>Business Suite · Dubai</div>
                 </div>
               )}
               <button onClick={() => setDrawerOpen(false)} className="sidebar-close-btn"
@@ -1690,7 +1690,7 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
         <OfflineBanner />
 
         {/* Topbar */}
-        <div style={{ height: compact ? 38 : 46, background: T.topbar, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 14px", gap: 8, flexShrink: 0, position: "relative", boxShadow: dark ? "none" : "0 1px 3px rgba(0,0,0,0.04)", transition: "background 0.2s, height 0.15s" }}>
+        <div style={{ height: compact ? 40 : 52, background: T.topbar, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 16px", gap: 8, flexShrink: 0, position: "relative", boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.06)", transition: "background 0.2s, height 0.15s" }}>
 
           {/* Hamburger (mobile) */}
           <button className="hamburger-btn" onClick={() => setDrawerOpen(true)}
@@ -1699,12 +1699,12 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           </button>
 
           {/* Tab history back/forward — desktop only */}
-          <button onClick={goBack} disabled={tabHistoryIdx <= 0} title="Go back"
+          <button onClick={goBack} disabled={tabHistoryIdx <= 0} title="Go back (Alt+←)"
             className="desktop-only-btn"
-            style={{ width: 26, height: 26, borderRadius: 6, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: tabHistoryIdx <= 0 ? "default" : "pointer", fontSize: 11, color: tabHistoryIdx <= 0 ? T.border : T.muted, flexShrink: 0, transition: "all 0.15s" }}>←</button>
-          <button onClick={goForward} disabled={tabHistoryIdx >= tabHistory.length - 1} title="Go forward"
+            style={{ width: 28, height: 28, borderRadius: 7, background: T.input, border: `1.5px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: tabHistoryIdx <= 0 ? "default" : "pointer", fontSize: 11, color: tabHistoryIdx <= 0 ? T.border : T.muted, flexShrink: 0, transition: "all 0.15s" }}>←</button>
+          <button onClick={goForward} disabled={tabHistoryIdx >= tabHistory.length - 1} title="Go forward (Alt+→)"
             className="desktop-only-btn"
-            style={{ width: 26, height: 26, borderRadius: 6, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: tabHistoryIdx >= tabHistory.length - 1 ? "default" : "pointer", fontSize: 11, color: tabHistoryIdx >= tabHistory.length - 1 ? T.border : T.muted, flexShrink: 0, transition: "all 0.15s" }}>→</button>
+            style={{ width: 28, height: 28, borderRadius: 7, background: T.input, border: `1.5px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: tabHistoryIdx >= tabHistory.length - 1 ? "default" : "pointer", fontSize: 11, color: tabHistoryIdx >= tabHistory.length - 1 ? T.border : T.muted, flexShrink: 0, transition: "all 0.15s" }}>→</button>
 
           {focusMode && (
             <button onClick={() => setFocusMode(false)} title="Exit focus mode"
@@ -1714,33 +1714,36 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           )}
 
           <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, fontWeight: 800, fontSize: compact ? 12 : 13, color: T.text, lineHeight: 1.2, whiteSpace: "nowrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 700, fontSize: compact ? 13 : 14, color: T.text, lineHeight: 1.2, whiteSpace: "nowrap" }}>
               {navItems.find(n => n.id === activeTab)?.group && (
                 <>
-                  <span style={{ color: T.muted, fontWeight: 500, cursor: "pointer", transition: "color 0.15s" }} onClick={() => {}} onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.muted}>{navItems.find(n => n.id === activeTab).group}</span>
-                  <span style={{ color: T.muted, fontSize: 10 }}>›</span>
+                  <span style={{ color: T.muted, fontWeight: 500, fontSize: compact ? 11 : 12, cursor: "pointer", transition: "color 0.15s" }} onClick={() => {}} onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.muted}>{navItems.find(n => n.id === activeTab).group}</span>
+                  <span style={{ color: T.muted, fontSize: 11 }}>›</span>
                 </>
               )}
-              <span>{titles[activeTab]}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: compact ? 12 : 14 }}>{navItems.find(n => n.id === activeTab)?.icon}</span>
+                {titles[activeTab]}
+              </span>
               {search && <span style={{ fontSize: 9, background: `${B.accent}22`, color: B.accent, borderRadius: 4, padding: "1px 6px", fontWeight: 600, border: `1px solid ${B.accent}44`, cursor: "pointer", marginLeft: 6 }} onClick={() => setSearch("")}>✕ filtered</span>}
             </div>
-            {!compact && <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: "0.2px" }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>}
+            {!compact && <div style={{ fontSize: 9.5, color: T.muted, letterSpacing: "0.2px", marginTop: 1 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>}
           </div>
 
           <div style={{ flex: 1 }} />
 
           {/* Search */}
           <div className="topbar-search"
-            style={{ display: "flex", alignItems: "center", gap: 6, background: T.input, border: `1px solid ${searchFocused ? B.accent : T.border}`, borderRadius: 7, padding: "5px 10px", transition: "border-color 0.15s, box-shadow 0.15s", boxShadow: searchFocused ? `0 0 0 3px ${B.accent}20` : "none", cursor: "text" }}
+            style={{ display: "flex", alignItems: "center", gap: 6, background: T.input, border: `1.5px solid ${searchFocused ? B.accent : T.border}`, borderRadius: 8, padding: "5px 10px", transition: "border-color 0.15s, box-shadow 0.15s", boxShadow: searchFocused ? `0 0 0 3px ${B.accent}18` : "none", cursor: "text" }}
             onClick={() => { if (!searchFocused) document.querySelector(".topbar-search input")?.focus(); }}>
-            <span style={{ fontSize: 12, color: T.muted }}>⌕</span>
+            <span style={{ fontSize: 12, color: T.muted }}>🔍</span>
             <input value={search} onChange={(e) => setSearch(e.target.value)}
               onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
-              placeholder="Search…"
-              style={{ border: "none", background: "transparent", outline: "none", fontSize: 12, color: T.text, width: 140, fontFamily: "inherit" }} />
+              placeholder="Search current tab…"
+              style={{ border: "none", background: "transparent", outline: "none", fontSize: 12, color: T.text, width: 150, fontFamily: "inherit" }} />
             {search
               ? <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
-              : <kbd style={{ fontSize: 9, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>⌘K</kbd>
+              : <kbd style={{ fontSize: 9, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 5px", letterSpacing: "0.3px" }}>⌘K</kbd>
             }
           </div>
 
@@ -1810,10 +1813,10 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
           {/* Account switcher / logout — avatar circle */}
           <div style={{ position: "relative" }}>
             <button onClick={() => setShowRolePicker(!showRolePicker)} title={`${currentUser.name} · ${role}`}
-              style={{ width: 30, height: 30, borderRadius: "50%", background: ROLE_COLORS[role], border: `2px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0, transition: "box-shadow 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 0 3px " + ROLE_COLORS[role] + "44"}
-              onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
-              {currentUser.avatar || currentUser.name?.[0]}
+              style={{ width: 32, height: 32, borderRadius: 8, background: ROLE_COLORS[role] || "#1E3A5F", border: `2px solid ${showRolePicker ? "#fff" : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff", cursor: "pointer", flexShrink: 0, transition: "box-shadow 0.15s, border-color 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 0 0 3px " + (ROLE_COLORS[role] || "#1E3A5F") + "44"; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}>
+              {currentUser.avatar || (currentUser.name?.split(" ").map(n => n[0]).join("").slice(0,2).toUpperCase() || "??")}
             </button>
             {showRolePicker && (
               <div style={{ position: "absolute", top: 36, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.16)", zIndex: 999, minWidth: 180, overflow: "hidden", animation: "fadeIn 0.12s ease" }}>
@@ -1869,10 +1872,12 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
             {/* Bell */}
             <div style={{ position: "relative", flexShrink: 0 }}>
               <button onClick={() => setShowNotifs(!showNotifs)}
-                style={{ width: 30, height: 30, borderRadius: 7, background: T.input, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}>
+                style={{ width: 32, height: 32, borderRadius: 8, background: showNotifs ? `${B.accent}18` : T.input, border: `1.5px solid ${showNotifs ? B.accent+"55" : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, position: "relative", transition: "all 0.15s" }}
+                onMouseEnter={e => { if (!showNotifs) { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.muted; } }}
+                onMouseLeave={e => { if (!showNotifs) { e.currentTarget.style.background = T.input; e.currentTarget.style.borderColor = T.border; } }}>
                 🔔
                 {unreadCount > 0 && (
-                  <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", background: B.red, color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#EF4444", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </div>
                 )}
@@ -2008,21 +2013,20 @@ function AppShell({ currentUser, onLogout, onRoleChange }) {
       <style>{`
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         @keyframes tabSlideIn { from { opacity: 0; transform: translateX(var(--tab-dir, 18px)); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         @keyframes tabIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .main-content-area > * { }
-        @keyframes slideDown { from { opacity: 0; transform: translateY(-12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-14px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
         * { box-sizing: border-box; }
         .sidebar-nav-item:hover { background: rgba(255,255,255,0.07) !important; }
         button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
           outline: 2px solid #457B9D;
           outline-offset: 2px;
         }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.35); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.6); }
-        .main-content-area { scrollbar-width: thin; }
+        ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.55); }
+        .main-content-area { scrollbar-width: thin; scrollbar-color: rgba(100,116,139,0.3) transparent; }
         .mobile-bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
         @media (max-width: 768px) {
           .sidebar { display: none !important; }

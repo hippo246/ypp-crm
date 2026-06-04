@@ -55,11 +55,14 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
         if (handlerName) dispatchRef.current[handlerName]?.(payload);
       };
 
-      // Announce presence
-      announcePresence();
-      
       // Start heartbeat
       heartbeatRef.current = setInterval(() => sendHeartbeatRef.current(), HEARTBEAT_INTERVAL);
+
+      // Announce presence after channel is fully assigned
+      channelRef.current.postMessage({
+        type: "USER_JOIN",
+        payload: { userId, userName, userRole, timestamp: Date.now(), activeTab: null },
+      });
       
       // Cleanup on unmount — announce leave BEFORE closing the channel
       return () => {
@@ -242,8 +245,10 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
         },
       });
     } else {
-      // Grant the lock
-      setTabLocks(prev => ({ ...prev, [lockId]: { userId: payload.userId, userName: requesterName, timestamp } }));
+      // Grant the lock — keep ref in sync so our own requestLock sees it as taken
+      const entry = { userId: payload.userId, userName: requesterName, timestamp };
+      locksRef.current[lockId] = entry;
+      setTabLocks(prev => ({ ...prev, [lockId]: entry }));
     }
   }, [userId]);
 
@@ -252,12 +257,13 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
     if (payload.userId === userId) return;
     
     const { lockId } = payload;
+    delete locksRef.current[lockId];
     setTabLocks(prev => {
       const newLocks = { ...prev };
       delete newLocks[lockId];
       return newLocks;
     });
-  }, []);
+  }, [userId]);
 
   // Handle lock denied — runs only for the user whose request was rejected
   const handleLockDenied = useCallback((payload) => {
@@ -278,7 +284,7 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
     
     const updateId = `${updateType}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
     
-    // Log activity
+    // Log activity (cap at 1000 entries to prevent unbounded growth)
     activityLogRef.current.push({
       id: updateId,
       type: updateType,
@@ -287,6 +293,9 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
       timestamp: Date.now(),
       data,
     });
+    if (activityLogRef.current.length > 1000) {
+      activityLogRef.current = activityLogRef.current.slice(-1000);
+    }
     
     channelRef.current.postMessage({
       type: "DATA_UPDATE",
@@ -351,12 +360,17 @@ export function useMultiUserSync(userId, userName, userRole, onDataUpdate) {
   useEffect(() => {
     const cleanupInterval = setInterval(() => {
       const now = Date.now();
+      // Evict from ref first so requestLock sees correct ownership immediately
+      Object.keys(locksRef.current).forEach(lockId => {
+        if (now - locksRef.current[lockId].timestamp > LOCK_TIMEOUT) {
+          delete locksRef.current[lockId];
+        }
+      });
       setTabLocks(prev => {
         const newLocks = { ...prev };
         Object.keys(newLocks).forEach(lockId => {
           if (now - newLocks[lockId].timestamp > LOCK_TIMEOUT) {
             delete newLocks[lockId];
-            delete locksRef.current[lockId]; // keep ref in sync or requestLock thinks we still own it
           }
         });
         return newLocks;

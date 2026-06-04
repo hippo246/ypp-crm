@@ -74,14 +74,15 @@ export function useTabSync(defaultTab) {
       // BroadcastChannel not available (old browsers)
     }
     return () => {
-      channelRef.current?.close();
       clearTimeout(writeTimer.current);
+      channelRef.current?.close();
     };
   }, []);
 
   const setActiveTab = useCallback((tab) => {
     // Read from ref — stays current even when tab changed via BroadcastChannel
     saveTabScroll(activeTabRef.current, window.scrollY);
+    activeTabRef.current = tab; // update ref immediately so rapid calls stay consistent
 
     setActiveTabRaw(tab);
 
